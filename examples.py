@@ -10,21 +10,22 @@ Created by Yasser Shkeir
 
 # This would normally be in your Django views.py file
 from django.http import JsonResponse
+
 from django_smart_ratelimit import rate_limit
 
 
 # Example 1: Basic rate limiting by IP
-@rate_limit(key='ip', rate='10/m')
+@rate_limit(key="ip", rate="10/m")
 def api_basic(request):
     """API endpoint limited to 10 requests per minute per IP."""
-    return JsonResponse({'message': 'Hello World', 'status': 'success'})
+    return JsonResponse({"message": "Hello World", "status": "success"})
 
 
 # Example 2: Rate limiting by user ID
-@rate_limit(key='user', rate='100/h')
+@rate_limit(key="user", rate="100/h")
 def api_user_limited(request):
     """API endpoint limited to 100 requests per hour per user."""
-    return JsonResponse({'data': 'User-specific data', 'user_id': request.user.id})
+    return JsonResponse({"data": "User-specific data", "user_id": request.user.id})
 
 
 # Example 3: Custom key function
@@ -36,34 +37,34 @@ def custom_key_function(request):
         return f"ip:{request.META.get('REMOTE_ADDR', 'unknown')}"
 
 
-@rate_limit(key=custom_key_function, rate='50/m')
+@rate_limit(key=custom_key_function, rate="50/m")
 def api_smart_limited(request):
     """API endpoint with smart rate limiting."""
-    return JsonResponse({'message': 'Smart rate limited endpoint'})
+    return JsonResponse({"message": "Smart rate limited endpoint"})
 
 
 # Example 4: Non-blocking rate limiting (just adds headers)
-@rate_limit(key='ip', rate='5/m', block=False)
+@rate_limit(key="ip", rate="5/m", block=False)
 def api_non_blocking(request):
     """API endpoint that doesn't block but adds rate limit headers."""
-    return JsonResponse({'message': 'Non-blocking rate limited endpoint'})
+    return JsonResponse({"message": "Non-blocking rate limited endpoint"})
 
 
 # Example 5: Different rates for different endpoints
-@rate_limit(key='user', rate='1000/h')
+@rate_limit(key="user", rate="1000/h")
 def api_high_limit(request):
     """High-traffic API endpoint."""
-    return JsonResponse({'data': 'High traffic data'})
+    return JsonResponse({"data": "High traffic data"})
 
 
-@rate_limit(key='user', rate='5/m')
+@rate_limit(key="user", rate="5/m")
 def api_sensitive(request):
     """Sensitive API endpoint with strict rate limiting."""
-    return JsonResponse({'sensitive': 'data'})
+    return JsonResponse({"sensitive": "data"})
 
 
 # Example Django settings.py configuration
-EXAMPLE_SETTINGS = '''
+EXAMPLE_SETTINGS = """
 # settings.py
 
 # Basic configuration
@@ -97,10 +98,10 @@ RATELIMIT_MIDDLEWARE = {
     },
     'KEY_FUNCTION': 'myapp.utils.custom_key_function',
 }
-'''
+"""
 
 # Example URL configuration
-EXAMPLE_URLS = '''
+EXAMPLE_URLS = """
 # urls.py
 
 from django.urls import path
@@ -114,9 +115,9 @@ urlpatterns = [
     path('api/high-limit/', views.api_high_limit, name='api_high_limit'),
     path('api/sensitive/', views.api_sensitive, name='api_sensitive'),
 ]
-'''
+"""
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     print("Django Smart Ratelimit Examples")
     print("=" * 40)
     print("\nThis file contains example usage of the django-smart-ratelimit library.")

@@ -61,10 +61,10 @@ By participating in this project, you agree to maintain a respectful and inclusi
    ```bash
    # Run all tests
    pytest
-   
+
    # Run with coverage
    pytest --cov=django_smart_ratelimit
-   
+
    # Run linting
    flake8 django_smart_ratelimit tests
    black django_smart_ratelimit tests

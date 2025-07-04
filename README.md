@@ -16,7 +16,7 @@ A flexible and efficient rate limiting library for Django applications with supp
 - 📊 **Rich Headers**: Standard rate limiting headers
 - 🛡️ **Production Ready**: Comprehensive testing and error handling
 
-## Quick Start  
+## Quick Start
 
 ### Installation
 

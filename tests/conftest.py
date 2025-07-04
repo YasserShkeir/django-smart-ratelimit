@@ -5,7 +5,9 @@ This file contains pytest fixtures and configuration.
 """
 
 import os
+
 import pytest
+
 from django.conf import settings
 from django.test.utils import get_runner
 
@@ -13,8 +15,9 @@ from django.test.utils import get_runner
 def pytest_configure(config):
     """Configure Django settings for pytest."""
     if not settings.configured:
-        os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'tests.settings')
+        os.environ.setdefault("DJANGO_SETTINGS_MODULE", "tests.settings")
         import django
+
         django.setup()
 
 
@@ -22,6 +25,7 @@ def pytest_configure(config):
 def django_user_model():
     """Return the Django user model."""
     from django.contrib.auth import get_user_model
+
     return get_user_model()
 
 
@@ -29,9 +33,7 @@ def django_user_model():
 def django_user(django_user_model):
     """Create a Django user for testing."""
     return django_user_model.objects.create_user(
-        username='testuser',
-        email='test@example.com',
-        password='testpass123'
+        username="testuser", email="test@example.com", password="testpass123"
     )
 
 
@@ -39,14 +41,15 @@ def django_user(django_user_model):
 def redis_backend():
     """Return a Redis backend instance for testing."""
     from unittest.mock import Mock, patch
-    
-    with patch('django_smart_ratelimit.backends.redis_backend.redis') as mock_redis:
+
+    with patch("django_smart_ratelimit.backends.redis_backend.redis") as mock_redis:
         mock_redis_client = Mock()
         mock_redis.Redis.return_value = mock_redis_client
         mock_redis_client.ping.return_value = True
-        mock_redis_client.script_load.return_value = 'script_sha'
-        
+        mock_redis_client.script_load.return_value = "script_sha"
+
         from django_smart_ratelimit.backends.redis_backend import RedisBackend
+
         yield RedisBackend()
 
 
@@ -54,13 +57,13 @@ def redis_backend():
 def mock_redis_client():
     """Return a mock Redis client for testing."""
     from unittest.mock import Mock
-    
+
     mock_client = Mock()
     mock_client.ping.return_value = True
-    mock_client.script_load.return_value = 'script_sha'
+    mock_client.script_load.return_value = "script_sha"
     mock_client.evalsha.return_value = 1
-    mock_client.get.return_value = '1'
+    mock_client.get.return_value = "1"
     mock_client.zcard.return_value = 1
     mock_client.ttl.return_value = 60
-    
+
     return mock_client
