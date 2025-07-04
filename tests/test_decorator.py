@@ -15,9 +15,10 @@ from django.test import RequestFactory, TestCase
 try:
     from django.http import HttpResponseTooManyRequests
 except ImportError:
-    
+
     class HttpResponseTooManyRequests(HttpResponse):
         status_code = 429
+
 
 from django_smart_ratelimit.decorator import _generate_key, _parse_rate, rate_limit
 

@@ -238,7 +238,7 @@ class RateLimitMiddlewareTests(TestCase):
         with override_settings(RATELIMIT_MIDDLEWARE={"DEFAULT_RATE": "invalid_rate"}):
             middleware = RateLimitMiddleware(get_response)
             request = self.factory.get("/")
-            
+
             # The error should happen during request processing
             with self.assertRaises(Exception):
                 middleware(request)

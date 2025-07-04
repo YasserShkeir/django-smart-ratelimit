@@ -258,7 +258,7 @@ class RedisBackendTests(TestCase):
         # First allow initialization to succeed
         self.mock_redis_client.ping.return_value = True
         backend = RedisBackend()
-        
+
         # Then make ping fail for health check
         self.mock_redis_client.ping.side_effect = Exception("Connection failed")
         health = backend.health_check()
