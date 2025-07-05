@@ -12,8 +12,8 @@ from django.test import TestCase, override_settings
 
 from django_smart_ratelimit.backends import get_backend
 from django_smart_ratelimit.backends.base import BaseBackend
-from django_smart_ratelimit.backends.redis_backend import RedisBackend
 from django_smart_ratelimit.backends.memory import MemoryBackend
+from django_smart_ratelimit.backends.redis_backend import RedisBackend
 
 
 class BackendSelectionTests(TestCase):
@@ -116,9 +116,7 @@ class RedisBackendTests(TestCase):
         self.assertEqual(self.mock_redis_client.script_load.call_count, 2)
 
     def test_redis_backend_initialization_no_redis_module(self):
-        """
-        Test Redis backend initialization when redis module is not available.
-        """
+        """Test Redis backend initialization when redis module is not available."""
         with patch("django_smart_ratelimit.backends.redis_backend.redis", None):
             with self.assertRaises(ImproperlyConfigured):
                 RedisBackend()
@@ -213,9 +211,7 @@ class RedisBackendTests(TestCase):
 
     @override_settings(RATELIMIT_USE_SLIDING_WINDOW=False)
     def test_redis_backend_get_count_fixed_window_no_key(self):
-        """
-        Test Redis backend get_count with fixed window when key doesn't exist.
-        """
+        """Test Redis backend get_count with fixed window when key doesn't exist."""
         self.mock_redis_client.get.return_value = None
 
         backend = RedisBackend()

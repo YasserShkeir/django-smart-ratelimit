@@ -4,7 +4,7 @@ Backend management for rate limiting storage.
 This module provides the backend selection and initialization logic.
 """
 
-from typing import Optional
+from typing import Dict, Optional
 
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
@@ -12,7 +12,7 @@ from django.core.exceptions import ImproperlyConfigured
 from .base import BaseBackend
 
 # Backend instance cache
-_backend_instances = {}
+_backend_instances: Dict[str, BaseBackend] = {}
 
 
 def get_backend(backend_name: Optional[str] = None) -> BaseBackend:
@@ -33,11 +33,14 @@ def get_backend(backend_name: Optional[str] = None) -> BaseBackend:
         return _backend_instances[backend_name]
 
     # Create new instance based on backend name
+    backend: BaseBackend
     if backend_name == "redis":
         from .redis_backend import RedisBackend
+
         backend = RedisBackend()
     elif backend_name == "memory":
         from .memory import MemoryBackend
+
         backend = MemoryBackend()
     else:
         raise ImproperlyConfigured(f"Unknown backend: {backend_name}")
@@ -47,9 +50,8 @@ def get_backend(backend_name: Optional[str] = None) -> BaseBackend:
     return backend
 
 
-def clear_backend_cache():
+def clear_backend_cache() -> None:
     """Clear the backend instance cache. Useful for testing."""
-    global _backend_instances
     _backend_instances.clear()
 
 

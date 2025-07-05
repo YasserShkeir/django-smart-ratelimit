@@ -31,7 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - ✨ Rate limiting decorator with configurable keys and rates
-- 🔧 Rate limiting middleware with path-based configuration  
+- 🔧 Rate limiting middleware with path-based configuration
 - 🔌 Redis backend with sliding window and fixed window algorithms
 - 🧪 Comprehensive test suite with >90% coverage
 - 📖 Documentation with architecture design and usage examples

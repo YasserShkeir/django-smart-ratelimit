@@ -8,9 +8,7 @@ memory management, and algorithm correctness.
 import threading
 import time
 import unittest
-from unittest.mock import patch
 
-from django.conf import settings
 from django.test import TestCase, override_settings
 
 from django_smart_ratelimit.backends.memory import MemoryBackend
@@ -68,14 +66,14 @@ class MemoryBackendTest(TestCase):
         # Increment counter
         self.backend.incr("test_key", 60)
         self.backend.incr("test_key", 60)
-        
+
         # Verify count
         count = self.backend.get_count("test_key")
         self.assertEqual(count, 2)
 
         # Reset
         self.backend.reset("test_key")
-        
+
         # Verify reset
         count = self.backend.get_count("test_key")
         self.assertEqual(count, 0)
@@ -90,7 +88,7 @@ class MemoryBackendTest(TestCase):
         start_time = time.time()
         self.backend.incr("test_key", 60)
         reset_time = self.backend.get_reset_time("test_key")
-        
+
         self.assertIsNotNone(reset_time)
         self.assertGreaterEqual(reset_time, int(start_time + 60))
         self.assertLessEqual(reset_time, int(start_time + 61))
@@ -99,16 +97,16 @@ class MemoryBackendTest(TestCase):
     def test_sliding_window_algorithm(self):
         """Test sliding window algorithm."""
         backend = MemoryBackend()
-        
+
         # Add requests
         count1 = backend.incr("test_key", 2)  # 2 second window
         self.assertEqual(count1, 1)
-        
+
         # Wait 1 second
         time.sleep(1)
         count2 = backend.incr("test_key", 2)
         self.assertEqual(count2, 2)
-        
+
         # Wait another 1.5 seconds (first request should expire)
         time.sleep(1.5)
         count3 = backend.incr("test_key", 2)
@@ -118,14 +116,14 @@ class MemoryBackendTest(TestCase):
     def test_fixed_window_algorithm(self):
         """Test fixed window algorithm."""
         backend = MemoryBackend()
-        
+
         # Add requests
         count1 = backend.incr("test_key", 2)  # 2 second window
         self.assertEqual(count1, 1)
-        
+
         count2 = backend.incr("test_key", 2)
         self.assertEqual(count2, 2)
-        
+
         # Wait for window to expire
         time.sleep(2.1)
         count3 = backend.incr("test_key", 2)
@@ -159,10 +157,10 @@ class MemoryBackendTest(TestCase):
 
         # Check for errors
         self.assertEqual(len(errors), 0, f"Errors occurred: {errors}")
-        
+
         # Check that we got the expected number of results
         self.assertEqual(len(results), 50)  # 5 threads * 10 increments
-        
+
         # Check that the final count is correct
         final_count = self.backend.get_count("thread_test")
         self.assertEqual(final_count, 50)
@@ -171,35 +169,35 @@ class MemoryBackendTest(TestCase):
         """Test that memory limits are enforced."""
         with override_settings(RATELIMIT_MEMORY_MAX_KEYS=5):
             backend = MemoryBackend()
-            
+
             # Add more keys than the limit
             for i in range(10):
                 backend.incr(f"key_{i}", 60)
-            
+
             # Force cleanup
             backend._cleanup_if_needed()
-            
+
             # Should have at most max_keys
             stats = backend.get_stats()
-            self.assertLessEqual(stats['total_keys'], 5)
+            self.assertLessEqual(stats["total_keys"], 5)
 
     def test_cleanup_expired_keys(self):
         """Test cleanup of expired keys in fixed window mode."""
         with override_settings(RATELIMIT_USE_SLIDING_WINDOW=False):
             backend = MemoryBackend()
-            
+
             # Add a key with short expiry
             backend.incr("short_key", 1)
-            
+
             # Wait for expiry
             time.sleep(1.1)
-            
+
             # Add another key to trigger cleanup
             backend.incr("new_key", 60)
-            
+
             # Force cleanup
             backend._cleanup_if_needed()
-            
+
             # Short key should be cleaned up
             count = backend.get_count("short_key")
             self.assertEqual(count, 0)
@@ -208,12 +206,12 @@ class MemoryBackendTest(TestCase):
         """Test get_stats method."""
         # Initial stats
         stats = self.backend.get_stats()
-        self.assertEqual(stats['total_keys'], 0)
-        self.assertEqual(stats['active_keys'], 0)
-        self.assertEqual(stats['total_requests'], 0)
-        self.assertIn('max_keys', stats)
-        self.assertIn('cleanup_interval', stats)
-        self.assertIn('use_sliding_window', stats)
+        self.assertEqual(stats["total_keys"], 0)
+        self.assertEqual(stats["active_keys"], 0)
+        self.assertEqual(stats["total_requests"], 0)
+        self.assertIn("max_keys", stats)
+        self.assertIn("cleanup_interval", stats)
+        self.assertIn("use_sliding_window", stats)
 
         # Add some data
         self.backend.incr("key1", 60)
@@ -221,40 +219,40 @@ class MemoryBackendTest(TestCase):
         self.backend.incr("key2", 60)
 
         stats = self.backend.get_stats()
-        self.assertEqual(stats['total_keys'], 2)
-        self.assertEqual(stats['active_keys'], 2)
-        self.assertEqual(stats['total_requests'], 3)
+        self.assertEqual(stats["total_keys"], 2)
+        self.assertEqual(stats["active_keys"], 2)
+        self.assertEqual(stats["total_requests"], 3)
 
     def test_clear_all(self):
         """Test clear_all method."""
         # Add some data
         self.backend.incr("key1", 60)
         self.backend.incr("key2", 60)
-        
+
         # Verify data exists
         stats = self.backend.get_stats()
-        self.assertEqual(stats['total_keys'], 2)
-        
+        self.assertEqual(stats["total_keys"], 2)
+
         # Clear all
         self.backend.clear_all()
-        
+
         # Verify cleared
         stats = self.backend.get_stats()
-        self.assertEqual(stats['total_keys'], 0)
+        self.assertEqual(stats["total_keys"], 0)
 
     def test_configuration_settings(self):
         """Test configuration settings are properly loaded."""
         with override_settings(
             RATELIMIT_MEMORY_MAX_KEYS=1000,
             RATELIMIT_MEMORY_CLEANUP_INTERVAL=600,
-            RATELIMIT_USE_SLIDING_WINDOW=False
+            RATELIMIT_USE_SLIDING_WINDOW=False,
         ):
             backend = MemoryBackend()
             stats = backend.get_stats()
-            
-            self.assertEqual(stats['max_keys'], 1000)
-            self.assertEqual(stats['cleanup_interval'], 600)
-            self.assertEqual(stats['use_sliding_window'], False)
+
+            self.assertEqual(stats["max_keys"], 1000)
+            self.assertEqual(stats["cleanup_interval"], 600)
+            self.assertEqual(stats["use_sliding_window"], False)
 
     def test_concurrent_access_different_keys(self):
         """Test concurrent access to different keys."""
@@ -287,7 +285,7 @@ class MemoryBackendTest(TestCase):
         # Check results
         self.assertEqual(len(errors), 0, f"Errors occurred: {errors}")
         self.assertEqual(len(results), 3)
-        
+
         # Each key should have counts from 1 to 20
         for key, counts in results.items():
             self.assertEqual(len(counts), 20)
@@ -297,7 +295,7 @@ class MemoryBackendTest(TestCase):
         """Test resetting a non-existent key doesn't cause errors."""
         # This should not raise an exception
         self.backend.reset("nonexistent_key")
-        
+
         # Verify no data was created
         count = self.backend.get_count("nonexistent_key")
         self.assertEqual(count, 0)
@@ -305,10 +303,10 @@ class MemoryBackendTest(TestCase):
     def test_large_period_values(self):
         """Test with large period values."""
         large_period = 86400  # 24 hours
-        
+
         count = self.backend.incr("large_period_key", large_period)
         self.assertEqual(count, 1)
-        
+
         reset_time = self.backend.get_reset_time("large_period_key")
         self.assertIsNotNone(reset_time)
         self.assertGreater(reset_time, int(time.time() + large_period - 1))
@@ -320,7 +318,7 @@ class MemoryBackendIntegrationTest(TestCase):
     def test_backend_factory_integration(self):
         """Test that the backend factory returns MemoryBackend."""
         from django_smart_ratelimit.backends import get_backend
-        
+
         with override_settings(RATELIMIT_BACKEND="memory"):
             backend = get_backend()
             self.assertIsInstance(backend, MemoryBackend)
@@ -329,67 +327,67 @@ class MemoryBackendIntegrationTest(TestCase):
         """Test integration with the rate limit decorator."""
         from django.http import HttpResponse
         from django.test import RequestFactory
-        
+
         from django_smart_ratelimit import rate_limit
         from django_smart_ratelimit.backends import clear_backend_cache
-        
+
         with override_settings(RATELIMIT_BACKEND="memory"):
             # Clear backend cache to ensure fresh instance
             clear_backend_cache()
-            
-            @rate_limit(key='ip', rate='5/m', backend='memory')
+
+            @rate_limit(key="ip", rate="5/m", backend="memory")
             def test_view(request):
-                return HttpResponse('OK')
-            
+                return HttpResponse("OK")
+
             factory = RequestFactory()
-            request = factory.get('/')
-            request.META['REMOTE_ADDR'] = '127.0.0.1'
-            
+            request = factory.get("/")
+            request.META["REMOTE_ADDR"] = "127.0.0.1"
+
             # First 5 requests should succeed
             for i in range(5):
                 response = test_view(request)
                 self.assertEqual(response.status_code, 200)
                 # Check rate limit headers
-                self.assertIn('X-RateLimit-Limit', response.headers)
-                self.assertEqual(response.headers['X-RateLimit-Limit'], '5')
-            
+                self.assertIn("X-RateLimit-Limit", response.headers)
+                self.assertEqual(response.headers["X-RateLimit-Limit"], "5")
+
             # 6th request should be rate limited
             response = test_view(request)
             self.assertEqual(response.status_code, 429)
 
     def test_middleware_integration(self):
         """Test integration with the rate limit middleware."""
-        from django.test import RequestFactory
         from django.http import HttpResponse
-        
-        from django_smart_ratelimit.middleware import RateLimitMiddleware
+        from django.test import RequestFactory
+
         from django_smart_ratelimit.backends import clear_backend_cache
-        
+        from django_smart_ratelimit.middleware import RateLimitMiddleware
+
         with override_settings(
             RATELIMIT_BACKEND="memory",
             RATELIMIT_MIDDLEWARE={
-                'DEFAULT_RATE': '3/m',
-                'BACKEND': 'memory',
-            }
+                "DEFAULT_RATE": "3/m",
+                "BACKEND": "memory",
+            },
         ):
             # Clear backend cache to ensure fresh instance
             clear_backend_cache()
-            
-            middleware = RateLimitMiddleware(lambda request: HttpResponse('OK'))
-            
+
+            middleware = RateLimitMiddleware(lambda request: HttpResponse("OK"))
+
             factory = RequestFactory()
-            request = factory.get('/')
-            request.META['REMOTE_ADDR'] = '127.0.0.1'
-            
+            request = factory.get("/")
+            request.META["REMOTE_ADDR"] = "127.0.0.1"
+
             # First 3 requests should succeed
             for i in range(3):
                 response = middleware(request)
                 self.assertEqual(response.status_code, 200)
-            
+
             # 4th request should be rate limited
             response = middleware(request)
             self.assertEqual(response.status_code, 429)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

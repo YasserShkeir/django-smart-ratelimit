@@ -119,17 +119,17 @@ def _generate_key(
 
     # Simple template substitution
     if isinstance(key, str):
-        if key == 'ip':
+        if key == "ip":
             # Get IP address from request
-            ip = request.META.get('REMOTE_ADDR', 'unknown')
+            ip = request.META.get("REMOTE_ADDR", "unknown")
             return f"ip:{ip}"
-        elif key == 'user':
+        elif key == "user":
             # Get user ID from request
-            if hasattr(request, 'user') and request.user.is_authenticated:
+            if hasattr(request, "user") and request.user.is_authenticated:
                 return f"user:{request.user.id}"
             else:
                 # Fall back to IP if user is not authenticated
-                ip = request.META.get('REMOTE_ADDR', 'unknown')
+                ip = request.META.get("REMOTE_ADDR", "unknown")
                 return f"ip:{ip}"
         else:
             # For other keys, return as-is
