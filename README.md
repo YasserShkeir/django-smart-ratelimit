@@ -1,9 +1,12 @@
 # Django Smart Ratelimit
 
 [![CI](https://github.com/YasserShkeir/django-smart-ratelimit/workflows/CI/badge.svg)](https://github.com/YasserShkeir/django-smart-ratelimit/actions)
-[![PyPI version](https://badge.fury.io/py/django-smart-ratelimit.svg)](https://badge.fury.io/py/django-smart-ratelimit)
+[![PyPI version](https://img.shields.io/pypi/v/django-smart-ratelimit.svg)](https://pypi.org/project/django-smart-ratelimit/)
+[![PyPI status](https://img.shields.io/pypi/status/django-smart-ratelimit.svg)](https://pypi.org/project/django-smart-ratelimit/)
 [![Python versions](https://img.shields.io/pypi/pyversions/django-smart-ratelimit.svg)](https://pypi.org/project/django-smart-ratelimit/)
-[![Django versions](https://img.shields.io/pypi/djversions/django-smart-ratelimit.svg)](https://pypi.org/project/django-smart-ratelimit/)
+[![Django versions](https://img.shields.io/badge/Django-3.2%20%7C%204.0%20%7C%204.1%20%7C%204.2%20%7C%205.0%20%7C%205.1-blue.svg)](https://pypi.org/project/django-smart-ratelimit/)
+[![Downloads](https://img.shields.io/pypi/dm/django-smart-ratelimit.svg)](https://pypi.org/project/django-smart-ratelimit/)
+[![License](https://img.shields.io/pypi/l/django-smart-ratelimit.svg)](https://github.com/YasserShkeir/django-smart-ratelimit/blob/main/LICENSE)
 
 A flexible and efficient rate limiting library for Django applications with support for multiple backends and sliding window algorithms.
 
