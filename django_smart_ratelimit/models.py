@@ -1,12 +1,8 @@
-"""
-Database models for Django Smart Ratelimit.
-"""
+"""Database models for Django Smart Ratelimit."""
 
-from typing import Any
-
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
-from django.core.exceptions import ValidationError
 
 
 class RateLimitEntry(models.Model):
@@ -47,6 +43,8 @@ class RateLimitEntry(models.Model):
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
 
     class Meta:
+        """Model metadata for RateLimitEntry."""
+
         db_table = "django_smart_ratelimit_entry"
         verbose_name = "Rate Limit Entry"
         verbose_name_plural = "Rate Limit Entries"
@@ -67,6 +65,7 @@ class RateLimitEntry(models.Model):
         return timezone.now() > self.expires_at
 
     def __str__(self) -> str:
+        """Return string representation of the rate limit entry."""
         return f"RateLimit({self.key}, {self.timestamp}, expires: {self.expires_at})"
 
 
@@ -93,12 +92,16 @@ class RateLimitCounter(models.Model):
         help_text="Start of the current rate limit window"
     )
 
-    window_end: models.DateTimeField = models.DateTimeField(help_text="End of the current rate limit window")
+    window_end: models.DateTimeField = models.DateTimeField(
+        help_text="End of the current rate limit window"
+    )
 
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
 
     class Meta:
+        """Model metadata for RateLimitCounter."""
+
         db_table = "django_smart_ratelimit_counter"
         verbose_name = "Rate Limit Counter"
         verbose_name_plural = "Rate Limit Counters"
@@ -122,6 +125,7 @@ class RateLimitCounter(models.Model):
             self.save()
 
     def __str__(self) -> str:
+        """Return string representation of the rate limit counter."""
         return (
             f"Counter({self.key}, {self.count}, {self.window_start}-{self.window_end})"
         )
@@ -168,10 +172,13 @@ class RateLimitConfig(models.Model):
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
 
     class Meta:
+        """Model metadata for RateLimitConfig."""
+
         db_table = "django_smart_ratelimit_config"
         verbose_name = "Rate Limit Configuration"
         verbose_name_plural = "Rate Limit Configurations"
         ordering = ["-created_at"]
 
     def __str__(self) -> str:
+        """Return string representation of the rate limit configuration."""
         return f"Config({self.key_pattern}, {self.rate_limit})"

@@ -1,1 +1,1 @@
-# Generated migrations for Django Smart Ratelimit
+"""Generated migrations for Django Smart Ratelimit."""

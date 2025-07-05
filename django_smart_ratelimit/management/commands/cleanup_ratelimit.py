@@ -1,19 +1,22 @@
-"""
-Management command to clean up expired rate limit entries.
-"""
+"""Management command to clean up expired rate limit entries."""
 
-from django.core.management.base import BaseCommand, CommandError
-from django.utils import timezone
+from datetime import timedelta
+from typing import Any
+
+from django.core.management.base import BaseCommand
 from django.db import transaction
-from django.conf import settings
+from django.utils import timezone
 
-from ...models import RateLimitEntry, RateLimitCounter
+from ...models import RateLimitCounter, RateLimitEntry
 
 
 class Command(BaseCommand):
+    """Django management command to clean up expired rate limit entries."""
+
     help = "Clean up expired rate limit entries from the database"
 
-    def add_arguments(self, parser):
+    def add_arguments(self, parser: Any) -> None:
+        """Add command line arguments."""
         parser.add_argument(
             "--dry-run",
             action="store_true",
@@ -30,7 +33,7 @@ class Command(BaseCommand):
             "--older-than",
             type=int,
             default=0,
-            help="Delete entries older than N hours (default: 0 = expired entries only)",
+            help="Delete entries older than N hours (default: 0 = expired only)",
         )
         parser.add_argument(
             "--key-pattern",
@@ -43,7 +46,8 @@ class Command(BaseCommand):
             help="Enable verbose output",
         )
 
-    def handle(self, *args, **options):
+    def handle(self, *args: Any, **options: Any) -> None:
+        """Handle the command execution."""
         dry_run = options["dry_run"]
         batch_size = options["batch_size"]
         older_than = options["older_than"]
@@ -51,7 +55,7 @@ class Command(BaseCommand):
         verbose = options["verbose"]
 
         if verbose:
-            self.stdout.write(self.style.SUCCESS(f"Starting cleanup with options:"))
+            self.stdout.write(self.style.SUCCESS("Starting cleanup with options:"))
             self.stdout.write(f"  Dry run: {dry_run}")
             self.stdout.write(f"  Batch size: {batch_size}")
             self.stdout.write(f"  Older than: {older_than} hours")
@@ -61,7 +65,7 @@ class Command(BaseCommand):
         cutoff_time = now
 
         if older_than > 0:
-            cutoff_time = now - timezone.timedelta(hours=older_than)
+            cutoff_time = now - timedelta(hours=older_than)
             if verbose:
                 self.stdout.write(f"  Cutoff time: {cutoff_time}")
 
@@ -91,7 +95,14 @@ class Command(BaseCommand):
                 )
             )
 
-    def _cleanup_entries(self, cutoff_time, key_pattern, batch_size, dry_run, verbose):
+    def _cleanup_entries(
+        self,
+        cutoff_time: Any,
+        key_pattern: str,
+        batch_size: int,
+        dry_run: bool,
+        verbose: bool,
+    ) -> int:
         """Clean up rate limit entries."""
         if cutoff_time == timezone.now():
             # Only expired entries
@@ -141,7 +152,14 @@ class Command(BaseCommand):
 
         return cleaned_count
 
-    def _cleanup_counters(self, cutoff_time, key_pattern, batch_size, dry_run, verbose):
+    def _cleanup_counters(
+        self,
+        cutoff_time: Any,
+        key_pattern: str,
+        batch_size: int,
+        dry_run: bool,
+        verbose: bool,
+    ) -> int:
         """Clean up rate limit counters."""
         if cutoff_time == timezone.now():
             # Only expired counters

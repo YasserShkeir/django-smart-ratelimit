@@ -1,1 +1,1 @@
-# Management commands for Django Smart Ratelimit
+"""Management commands for Django Smart Ratelimit."""

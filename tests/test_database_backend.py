@@ -1,24 +1,21 @@
-"""
-Tests for the database backend.
-"""
+"""Tests for the database backend."""
 
 import time
-from datetime import timedelta, datetime, timezone as dt_timezone
+from datetime import datetime, timedelta
+from datetime import timezone as dt_timezone
 from unittest.mock import patch
 
-from django.test import TestCase, TransactionTestCase
-from django.utils import timezone
-from django.db import transaction
 from django.core.management import call_command
-from django.core.management.base import CommandError
+from django.db import transaction
+from django.test import TestCase, TransactionTestCase
 from django.test.utils import override_settings
-from django.core.exceptions import ValidationError
+from django.utils import timezone
 
 from django_smart_ratelimit.backends.database import DatabaseBackend
 from django_smart_ratelimit.models import (
-    RateLimitEntry,
-    RateLimitCounter,
     RateLimitConfig,
+    RateLimitCounter,
+    RateLimitEntry,
 )
 
 
@@ -81,14 +78,18 @@ class DatabaseBackendTests(TestCase):
         window_seconds = 60
 
         # No entries initially
-        count = self.backend.get_count_with_algorithm(key, window_seconds, "sliding_window")
+        count = self.backend.get_count_with_algorithm(
+            key, window_seconds, "sliding_window"
+        )
         self.assertEqual(count, 0)
 
         # Add some entries
         self.backend.incr_with_algorithm(key, window_seconds, "sliding_window")
         self.backend.incr_with_algorithm(key, window_seconds, "sliding_window")
 
-        count = self.backend.get_count_with_algorithm(key, window_seconds, "sliding_window")
+        count = self.backend.get_count_with_algorithm(
+            key, window_seconds, "sliding_window"
+        )
         self.assertEqual(count, 2)
 
     def test_get_count_fixed_window(self):
@@ -97,14 +98,18 @@ class DatabaseBackendTests(TestCase):
         window_seconds = 60
 
         # No counter initially
-        count = self.backend.get_count_with_algorithm(key, window_seconds, "fixed_window")
+        count = self.backend.get_count_with_algorithm(
+            key, window_seconds, "fixed_window"
+        )
         self.assertEqual(count, 0)
 
         # Add some counts
         self.backend.incr_with_algorithm(key, window_seconds, "fixed_window")
         self.backend.incr_with_algorithm(key, window_seconds, "fixed_window")
 
-        count = self.backend.get_count_with_algorithm(key, window_seconds, "fixed_window")
+        count = self.backend.get_count_with_algorithm(
+            key, window_seconds, "fixed_window"
+        )
         self.assertEqual(count, 2)
 
     def test_get_reset_time_sliding_window(self):
@@ -113,13 +118,17 @@ class DatabaseBackendTests(TestCase):
         window_seconds = 60
 
         # No reset time initially
-        reset_time = self.backend.get_reset_time_with_algorithm(key, window_seconds, "sliding_window")
+        reset_time = self.backend.get_reset_time_with_algorithm(
+            key, window_seconds, "sliding_window"
+        )
         self.assertIsNone(reset_time)
 
         # Add an entry
         self.backend.incr_with_algorithm(key, window_seconds, "sliding_window")
 
-        reset_time = self.backend.get_reset_time_with_algorithm(key, window_seconds, "sliding_window")
+        reset_time = self.backend.get_reset_time_with_algorithm(
+            key, window_seconds, "sliding_window"
+        )
         self.assertIsNotNone(reset_time)
         self.assertIsInstance(reset_time, int)
 
@@ -129,13 +138,17 @@ class DatabaseBackendTests(TestCase):
         window_seconds = 60
 
         # No reset time initially
-        reset_time = self.backend.get_reset_time_with_algorithm(key, window_seconds, "fixed_window")
+        reset_time = self.backend.get_reset_time_with_algorithm(
+            key, window_seconds, "fixed_window"
+        )
         self.assertIsNone(reset_time)
 
         # Add a counter
         self.backend.incr_with_algorithm(key, window_seconds, "fixed_window")
 
-        reset_time = self.backend.get_reset_time_with_algorithm(key, window_seconds, "fixed_window")
+        reset_time = self.backend.get_reset_time_with_algorithm(
+            key, window_seconds, "fixed_window"
+        )
         self.assertIsNotNone(reset_time)
         self.assertIsInstance(reset_time, int)
 
@@ -295,7 +308,9 @@ class DatabaseBackendTransactionTests(TransactionTestCase):
 
         def increment_in_transaction():
             with transaction.atomic():
-                return self.backend.incr_with_algorithm(key, window_seconds, "sliding_window")
+                return self.backend.incr_with_algorithm(
+                    key, window_seconds, "sliding_window"
+                )
 
         # Simulate concurrent increments
         count1 = increment_in_transaction()
@@ -312,7 +327,9 @@ class DatabaseBackendTransactionTests(TransactionTestCase):
 
         def increment_in_transaction():
             with transaction.atomic():
-                return self.backend.incr_with_algorithm(key, window_seconds, "fixed_window")
+                return self.backend.incr_with_algorithm(
+                    key, window_seconds, "fixed_window"
+                )
 
         # Simulate concurrent increments
         count1 = increment_in_transaction()
@@ -517,9 +534,10 @@ class DatabaseBackendIntegrationTests(TestCase):
 
     def test_with_decorator(self):
         """Test database backend with rate limit decorator."""
-        from django_smart_ratelimit import rate_limit
         from django.http import HttpResponse
         from django.test import RequestFactory
+
+        from django_smart_ratelimit import rate_limit
 
         factory = RequestFactory()
 
@@ -583,29 +601,29 @@ class DatabaseBackendEdgeCaseTests(TestCase):
     def test_get_count_with_algorithm_key_length_validation(self):
         """Test that get_count_with_algorithm validates key length."""
         long_key = "test:" + "x" * 500  # Very long key
-        
+
         with self.assertRaises(ValueError) as context:
             self.backend.get_count_with_algorithm(long_key, 60, "sliding_window")
-        
+
         self.assertIn("Key length cannot exceed 255 characters", str(context.exception))
-    
+
     def test_get_count_with_algorithm_empty_key_validation(self):
         """Test that get_count_with_algorithm validates empty keys."""
         with self.assertRaises(ValueError) as context:
             self.backend.get_count_with_algorithm("", 60, "sliding_window")
-        
+
         self.assertIn("Key cannot be empty", str(context.exception))
-        
+
         with self.assertRaises(ValueError) as context:
             self.backend.get_count_with_algorithm("   ", 60, "sliding_window")
-        
+
         self.assertIn("Key cannot be empty", str(context.exception))
-    
+
     def test_get_count_with_algorithm_negative_window_validation(self):
         """Test that get_count_with_algorithm validates negative window seconds."""
         with self.assertRaises(ValueError) as context:
             self.backend.get_count_with_algorithm("test:key", -60, "sliding_window")
-        
+
         self.assertIn("Window seconds must be positive", str(context.exception))
 
     def test_negative_window_seconds(self):
@@ -629,7 +647,9 @@ class DatabaseBackendEdgeCaseTests(TestCase):
         self.assertEqual(count, 1)
 
         # Should work with fixed window too
-        count = self.backend.incr_with_algorithm(key + "_fixed", large_window, "fixed_window")
+        count = self.backend.incr_with_algorithm(
+            key + "_fixed", large_window, "fixed_window"
+        )
         self.assertEqual(count, 1)
 
     def test_unicode_keys(self):
@@ -690,7 +710,9 @@ class DatabaseBackendEdgeCaseTests(TestCase):
     def test_database_connection_failure(self):
         """Test graceful handling of database connection failures."""
         # Mock database connection failure
-        with patch('django_smart_ratelimit.models.RateLimitEntry.objects') as mock_entry:
+        with patch(
+            "django_smart_ratelimit.models.RateLimitEntry.objects"
+        ) as mock_entry:
             mock_entry.create.side_effect = Exception("Database connection failed")
 
             key = "test:db_failure"
@@ -700,12 +722,14 @@ class DatabaseBackendEdgeCaseTests(TestCase):
     def test_health_check_failure_scenarios(self):
         """Test health check under various failure conditions."""
         # Test database connectivity failure
-        with patch('django_smart_ratelimit.models.RateLimitEntry.objects') as mock_entry:
+        with patch(
+            "django_smart_ratelimit.models.RateLimitEntry.objects"
+        ) as mock_entry:
             mock_entry.count.side_effect = Exception("Connection failed")
 
             health = self.backend.health_check()
-            self.assertFalse(health['healthy'])
-            self.assertIn('Failed', health['details']['database_connection'])
+            self.assertFalse(health["healthy"])
+            self.assertIn("Failed", health["details"]["database_connection"])
 
     def test_cleanup_threshold_behavior(self):
         """Test cleanup threshold behavior edge cases."""
@@ -728,11 +752,15 @@ class DatabaseBackendEdgeCaseTests(TestCase):
 
         # Test sliding window with many increments
         for i in range(1000):
-            count = self.backend.incr_with_algorithm(key, window_seconds, "sliding_window")
+            count = self.backend.incr_with_algorithm(
+                key, window_seconds, "sliding_window"
+            )
             self.assertEqual(count, i + 1)
 
         # Verify count is correct
-        final_count = self.backend.get_count_with_algorithm(key, window_seconds, "sliding_window")
+        final_count = self.backend.get_count_with_algorithm(
+            key, window_seconds, "sliding_window"
+        )
         self.assertEqual(final_count, 1000)
 
     def test_sliding_window_partial_expiration(self):
@@ -753,7 +781,9 @@ class DatabaseBackendEdgeCaseTests(TestCase):
         time.sleep(6)
 
         # Should only count the second entry
-        count = self.backend.get_count_with_algorithm(key, window_seconds, "sliding_window")
+        count = self.backend.get_count_with_algorithm(
+            key, window_seconds, "sliding_window"
+        )
         self.assertEqual(count, 1)
 
     def test_mixed_algorithm_operations(self):
@@ -806,7 +836,7 @@ class DatabaseBackendEdgeCaseTests(TestCase):
         key = "test:timezone"
 
         # Test around DST transition (mock different timezones)
-        with patch('django.utils.timezone.now') as mock_now:
+        with patch("django.utils.timezone.now") as mock_now:
             # Mock a specific time
             fixed_time = datetime(2025, 3, 10, 2, 30, 0, tzinfo=dt_timezone.utc)
             mock_now.return_value = fixed_time
@@ -830,7 +860,7 @@ class DatabaseBackendEdgeCaseTests(TestCase):
             key="test:validation",
             timestamp=now,
             expires_at=now - timedelta(hours=1),  # Expires in the past
-            algorithm="sliding_window"
+            algorithm="sliding_window",
         )
 
         with self.assertRaises(ValidationError):
@@ -839,11 +869,11 @@ class DatabaseBackendEdgeCaseTests(TestCase):
     def test_window_calculation_precision(self):
         """Test window calculation precision with various intervals."""
         test_cases = [
-            1,      # 1 second
-            60,     # 1 minute
-            3600,   # 1 hour
+            1,  # 1 second
+            60,  # 1 minute
+            3600,  # 1 hour
             86400,  # 1 day
-            604800, # 1 week
+            604800,  # 1 week
         ]
 
         for window_seconds in test_cases:
@@ -861,8 +891,12 @@ class DatabaseBackendEdgeCaseTests(TestCase):
     def test_cleanup_with_database_errors(self):
         """Test cleanup behavior when database operations fail."""
         # Mock database error during cleanup
-        with patch('django_smart_ratelimit.models.RateLimitEntry.objects') as mock_entry:
-            mock_entry.filter.return_value.delete.side_effect = Exception("Delete failed")
+        with patch(
+            "django_smart_ratelimit.models.RateLimitEntry.objects"
+        ) as mock_entry:
+            mock_entry.filter.return_value.delete.side_effect = Exception(
+                "Delete failed"
+            )
 
             # Should handle the error gracefully
             try:
@@ -877,18 +911,20 @@ class DatabaseBackendEdgeCaseTests(TestCase):
         """Test stats calculation with empty database."""
         stats = self.backend.get_stats()
 
-        self.assertEqual(stats['backend'], 'database')
-        self.assertEqual(stats['entries']['total'], 0)
-        self.assertEqual(stats['counters']['total'], 0)
-        self.assertEqual(stats['entries']['expired'], 0)
-        self.assertEqual(stats['counters']['expired'], 0)
+        self.assertEqual(stats["backend"], "database")
+        self.assertEqual(stats["entries"]["total"], 0)
+        self.assertEqual(stats["counters"]["total"], 0)
+        self.assertEqual(stats["entries"]["expired"], 0)
+        self.assertEqual(stats["counters"]["expired"], 0)
 
     def test_reset_time_calculation_edge_cases(self):
         """Test reset time calculation in various edge cases."""
         key = "test:reset_time"
 
         # Test when no entries exist
-        reset_time = self.backend.get_reset_time_with_algorithm(key, 60, "sliding_window")
+        reset_time = self.backend.get_reset_time_with_algorithm(
+            key, 60, "sliding_window"
+        )
         self.assertIsNone(reset_time)
 
         # Test when counter doesn't exist (fixed window)
@@ -901,10 +937,12 @@ class DatabaseBackendEdgeCaseTests(TestCase):
             key=key,
             timestamp=old_time,
             expires_at=old_time + timedelta(hours=1),
-            algorithm="sliding_window"
+            algorithm="sliding_window",
         )
 
-        reset_time = self.backend.get_reset_time_with_algorithm(key, 60, "sliding_window")
+        reset_time = self.backend.get_reset_time_with_algorithm(
+            key, 60, "sliding_window"
+        )
         self.assertIsNotNone(reset_time)
         # Reset time should be in the past for old entries
         self.assertLess(reset_time, int(timezone.now().timestamp()))
@@ -912,54 +950,58 @@ class DatabaseBackendEdgeCaseTests(TestCase):
     def test_whitespace_only_key_validation(self):
         """Test that whitespace-only keys are properly rejected."""
         whitespace_keys = ["   ", "\t", "\n", "\r", " \t\n\r "]
-        
+
         for key in whitespace_keys:
             with self.assertRaises(ValueError) as context:
                 self.backend.incr_with_algorithm(key, 60, "sliding_window")
-            
+
             self.assertIn("Key cannot be empty", str(context.exception))
-            
+
             with self.assertRaises(ValueError) as context:
                 self.backend.get_count_with_algorithm(key, 60, "sliding_window")
-            
+
             self.assertIn("Key cannot be empty", str(context.exception))
-    
+
     def test_key_length_boundary_conditions(self):
         """Test key length at exact boundaries."""
         # Test exactly 255 characters (should work)
         key_255 = "test:" + "x" * 250  # 255 characters total
         count = self.backend.incr_with_algorithm(key_255, 60, "sliding_window")
         self.assertEqual(count, 1)
-        
+
         # Test exactly 256 characters (should fail)
         key_256 = "test:" + "x" * 251  # 256 characters total
         with self.assertRaises(ValueError) as context:
             self.backend.incr_with_algorithm(key_256, 60, "sliding_window")
-        
+
         self.assertIn("Key length cannot exceed 255 characters", str(context.exception))
-    
+
     def test_extreme_window_boundary_values(self):
         """Test extreme window boundary values."""
         key = "test:extreme_window"
-        
+
         # Test 1 second window
         count = self.backend.incr_with_algorithm(key + "_1s", 1, "sliding_window")
         self.assertEqual(count, 1)
-        
+
         # Test very large window (10 years)
         large_window = 10 * 365 * 24 * 3600  # 10 years in seconds
-        count = self.backend.incr_with_algorithm(key + "_10y", large_window, "sliding_window")
+        count = self.backend.incr_with_algorithm(
+            key + "_10y", large_window, "sliding_window"
+        )
         self.assertEqual(count, 1)
-        
+
         # Test maximum integer value (if system supports it)
         try:
             max_int = 2**31 - 1  # 32-bit signed int max
-            count = self.backend.incr_with_algorithm(key + "_max", max_int, "sliding_window")
+            count = self.backend.incr_with_algorithm(
+                key + "_max", max_int, "sliding_window"
+            )
             self.assertEqual(count, 1)
         except (OverflowError, ValueError, Exception):
             # If system doesn't support such large values, that's acceptable
             pass
-    
+
     def test_special_character_keys_comprehensive(self):
         """Test comprehensive set of special characters in keys."""
         special_chars_keys = [
@@ -991,20 +1033,22 @@ class DatabaseBackendEdgeCaseTests(TestCase):
             "test:key`with`backticks",
             "test:key~with~tildes",
         ]
-        
+
         for key in special_chars_keys:
             if len(key) <= 255:  # Only test if within length limit
                 try:
                     count = self.backend.incr_with_algorithm(key, 60, "sliding_window")
                     self.assertEqual(count, 1)
-                    
+
                     # Verify we can read it back
-                    retrieved_count = self.backend.get_count_with_algorithm(key, 60, "sliding_window")
+                    retrieved_count = self.backend.get_count_with_algorithm(
+                        key, 60, "sliding_window"
+                    )
                     self.assertEqual(retrieved_count, 1)
                 except (ValueError, Exception):
                     # Some special characters might be rejected, which is acceptable
                     pass
-    
+
     def test_null_and_control_characters(self):
         """Test handling of null and control characters in keys."""
         control_chars = [
@@ -1013,7 +1057,7 @@ class DatabaseBackendEdgeCaseTests(TestCase):
             "test:key\x1fwith\x1fcontrol",
             "test:key\x7fwith\x7fdelete",
         ]
-        
+
         for key in control_chars:
             try:
                 # These should either work or raise a reasonable error
@@ -1038,13 +1082,15 @@ class DatabaseBackendStressTests(TestCase):
         """Test rapid increments on the same key."""
         key = "test:rapid"
         window_seconds = 60
-        
+
         # Rapid increments
         counts = []
         for i in range(50):
-            count = self.backend.incr_with_algorithm(key, window_seconds, "sliding_window")
+            count = self.backend.incr_with_algorithm(
+                key, window_seconds, "sliding_window"
+            )
             counts.append(count)
-        
+
         # Verify counts are consecutive
         self.assertEqual(counts, list(range(1, 51)))
 
@@ -1052,13 +1098,15 @@ class DatabaseBackendStressTests(TestCase):
         """Test handling many different keys simultaneously."""
         window_seconds = 60
         num_keys = 100
-        
+
         # Create many different keys
         for i in range(num_keys):
             key = f"test:many_keys:{i}"
-            count = self.backend.incr_with_algorithm(key, window_seconds, "sliding_window")
+            count = self.backend.incr_with_algorithm(
+                key, window_seconds, "sliding_window"
+            )
             self.assertEqual(count, 1)
-        
+
         # Verify all keys exist
         total_entries = RateLimitEntry.objects.count()
         self.assertEqual(total_entries, num_keys)
@@ -1067,29 +1115,32 @@ class DatabaseBackendStressTests(TestCase):
         """Test that cleanup actually reduces memory usage."""
         key_prefix = "test:memory"
         window_seconds = 1  # Short window for quick expiration
-        
+
         # Create many entries
         for i in range(100):
-            self.backend.incr_with_algorithm(f"{key_prefix}:{i}", window_seconds, "sliding_window")
-        
+            self.backend.incr_with_algorithm(
+                f"{key_prefix}:{i}", window_seconds, "sliding_window"
+            )
+
         initial_count = RateLimitEntry.objects.count()
         self.assertEqual(initial_count, 100)
-        
+
         # Wait for entries to expire
         time.sleep(2)
-        
+
         # Force cleanup
         cleaned = self.backend.cleanup_expired()
-        
+
         # Should have cleaned up expired entries
         remaining_count = RateLimitEntry.objects.count()
         self.assertLess(remaining_count, initial_count)
+        self.assertGreaterEqual(cleaned, 0)  # Use the cleaned variable
 
     def test_alternating_algorithms_same_key(self):
         """Test alternating between algorithms on the same key."""
         key = "test:alternating"
         window_seconds = 60
-        
+
         # Alternate between algorithms
         for i in range(10):
             algorithm = "sliding_window" if i % 2 == 0 else "fixed_window"
@@ -1101,26 +1152,32 @@ class DatabaseBackendStressTests(TestCase):
     def test_fixed_window_across_multiple_windows(self):
         """Test fixed window behavior across multiple time windows."""
         key = "test:multi_window"
-        
+
         with patch.object(self.backend, "_get_window_times") as mock_times:
             now = timezone.now()
-            
+
             # Window 1
             mock_times.return_value = (now, now + timedelta(minutes=1))
             count1 = self.backend.incr_with_algorithm(key, 60, "fixed_window")
             count2 = self.backend.incr_with_algorithm(key, 60, "fixed_window")
             self.assertEqual(count1, 1)
             self.assertEqual(count2, 2)
-            
+
             # Window 2 (1 minute later)
             window2_start = now + timedelta(minutes=1)
-            mock_times.return_value = (window2_start, window2_start + timedelta(minutes=1))
+            mock_times.return_value = (
+                window2_start,
+                window2_start + timedelta(minutes=1),
+            )
             count3 = self.backend.incr_with_algorithm(key, 60, "fixed_window")
             self.assertEqual(count3, 1)  # Should reset for new window
-            
+
             # Window 3 (2 minutes later)
             window3_start = now + timedelta(minutes=2)
-            mock_times.return_value = (window3_start, window3_start + timedelta(minutes=1))
+            mock_times.return_value = (
+                window3_start,
+                window3_start + timedelta(minutes=1),
+            )
             count4 = self.backend.incr_with_algorithm(key, 60, "fixed_window")
             self.assertEqual(count4, 1)  # Should reset again
 
@@ -1128,59 +1185,69 @@ class DatabaseBackendStressTests(TestCase):
         """Test sliding window gradual expiration over time."""
         key = "test:gradual"
         window_seconds = 5
-        
+
         # Add entries over time
         counts = []
         for i in range(5):
-            count = self.backend.incr_with_algorithm(key, window_seconds, "sliding_window")
+            count = self.backend.incr_with_algorithm(
+                key, window_seconds, "sliding_window"
+            )
             counts.append(count)
             time.sleep(1)
-        
+
         # All entries should still be in window
         self.assertEqual(counts, [1, 2, 3, 4, 5])
-        
+
         # Wait for first entries to expire
         time.sleep(3)
-        
+
         # Add another entry - some should have expired
-        final_count = self.backend.incr_with_algorithm(key, window_seconds, "sliding_window")
+        final_count = self.backend.incr_with_algorithm(
+            key, window_seconds, "sliding_window"
+        )
         self.assertLess(final_count, 6)
 
     def test_error_recovery_database_operations(self):
         """Test error recovery during database operations."""
         key = "test:error_recovery"
-        
+
         # Test recovery from entry creation failure
-        with patch('django_smart_ratelimit.models.RateLimitEntry.objects.create') as mock_create:
+        with patch(
+            "django_smart_ratelimit.models.RateLimitEntry.objects.create"
+        ) as mock_create:
             mock_create.side_effect = Exception("DB Error")
-            
+
             # First call should raise exception
             with self.assertRaises(Exception):
                 self.backend.incr_with_algorithm(key, 60, "sliding_window")
-        
+
         # Backend should still be usable after error (outside the patch context)
-        count = self.backend.incr_with_algorithm(key + "_recovery", 60, "sliding_window")
+        count = self.backend.incr_with_algorithm(
+            key + "_recovery", 60, "sliding_window"
+        )
         self.assertEqual(count, 1)
 
     def test_concurrent_operations_different_algorithms(self):
         """Test concurrent operations with different algorithms."""
         key = "test:concurrent_mixed"
         window_seconds = 60
-        
+
         def sliding_increment():
-            return self.backend.incr_with_algorithm(key, window_seconds, "sliding_window")
-        
+            return self.backend.incr_with_algorithm(
+                key, window_seconds, "sliding_window"
+            )
+
         def fixed_increment():
             return self.backend.incr_with_algorithm(key, window_seconds, "fixed_window")
-        
+
         # Simulate concurrent operations
         sliding_count = sliding_increment()
         fixed_count = fixed_increment()
-        
+
         # Both should succeed independently
         self.assertEqual(sliding_count, 1)
         self.assertEqual(fixed_count, 1)
-        
+
         # Verify both types of records exist
         self.assertTrue(RateLimitEntry.objects.filter(key=key).exists())
         self.assertTrue(RateLimitCounter.objects.filter(key=key).exists())
@@ -1188,34 +1255,38 @@ class DatabaseBackendStressTests(TestCase):
     def test_stats_accuracy_under_load(self):
         """Test that stats remain accurate under load."""
         key_prefix = "test:stats_load"
-        
+
         # Create mixed entries and counters
         for i in range(50):
-            self.backend.incr_with_algorithm(f"{key_prefix}:sliding:{i}", 60, "sliding_window")
-            self.backend.incr_with_algorithm(f"{key_prefix}:fixed:{i}", 60, "fixed_window")
-        
+            self.backend.incr_with_algorithm(
+                f"{key_prefix}:sliding:{i}", 60, "sliding_window"
+            )
+            self.backend.incr_with_algorithm(
+                f"{key_prefix}:fixed:{i}", 60, "fixed_window"
+            )
+
         stats = self.backend.get_stats()
-        
+
         # Should accurately count all entries
-        self.assertEqual(stats['entries']['total'], 50)
-        self.assertEqual(stats['counters']['total'], 50)
-        self.assertEqual(stats['entries']['active'], 50)
-        self.assertEqual(stats['counters']['active'], 50)
+        self.assertEqual(stats["entries"]["total"], 50)
+        self.assertEqual(stats["counters"]["total"], 50)
+        self.assertEqual(stats["entries"]["active"], 50)
+        self.assertEqual(stats["counters"]["active"], 50)
 
     def test_cleanup_threshold_edge_cases(self):
         """Test cleanup threshold behavior in edge cases."""
         # Test with threshold = 1 (should cleanup after every entry)
         backend = DatabaseBackend(cleanup_threshold=1)
-        
+
         # Create entry that will expire immediately
         now = timezone.now()
         RateLimitEntry.objects.create(
             key="test:threshold_edge",
             timestamp=now - timedelta(hours=2),
             expires_at=now - timedelta(hours=1),
-            algorithm="sliding_window"
+            algorithm="sliding_window",
         )
-        
+
         # Adding any new entry should trigger cleanup
         cleaned = backend._cleanup_expired_entries(force=False)
         self.assertGreaterEqual(cleaned, 1)
@@ -1230,14 +1301,16 @@ class DatabaseBackendStressTests(TestCase):
             "test:symbols:αβγδε",
             "test:mixed:user🔥test_123",
         ]
-        
+
         for key in special_keys:
             try:
                 count = self.backend.incr_with_algorithm(key, 60, "sliding_window")
                 self.assertEqual(count, 1)
-                
+
                 # Verify we can read it back
-                retrieved_count = self.backend.get_count_with_algorithm(key, 60, "sliding_window")
+                retrieved_count = self.backend.get_count_with_algorithm(
+                    key, 60, "sliding_window"
+                )
                 self.assertEqual(retrieved_count, 1)
             except ValueError:
                 # Some special characters might be rejected, which is acceptable
@@ -1247,19 +1320,21 @@ class DatabaseBackendStressTests(TestCase):
         """Test precision with microsecond-level timing."""
         key = "test:precision"
         window_seconds = 60
-        
+
         # Create entries with microsecond precision
         start_time = time.time()
         counts = []
         for i in range(10):
-            count = self.backend.incr_with_algorithm(key, window_seconds, "sliding_window")
+            count = self.backend.incr_with_algorithm(
+                key, window_seconds, "sliding_window"
+            )
             counts.append(count)
             # Small delay to ensure different timestamps
             time.sleep(0.001)
-        
+
         end_time = time.time()
         elapsed = end_time - start_time
-        
+
         # Should handle rapid operations (< 1 second total)
         self.assertLess(elapsed, 1.0)
         self.assertEqual(counts, list(range(1, 11)))
@@ -1267,24 +1342,24 @@ class DatabaseBackendStressTests(TestCase):
     def test_window_boundary_precision(self):
         """Test precision at exact window boundaries."""
         key = "test:boundary_precision"
-        
+
         with patch.object(self.backend, "_get_window_times") as mock_times:
             base_time = timezone.now().replace(microsecond=0)
-            
+
             # Set exact window boundary
             window_start = base_time
             window_end = base_time + timedelta(seconds=60)
             mock_times.return_value = (window_start, window_end)
-            
+
             # Add entry at start of window
             count1 = self.backend.incr_with_algorithm(key, 60, "fixed_window")
             self.assertEqual(count1, 1)
-            
+
             # Move to exact end of window
             window_start2 = window_end
             window_end2 = window_start2 + timedelta(seconds=60)
             mock_times.return_value = (window_start2, window_end2)
-            
+
             # Should start new window
             count2 = self.backend.incr_with_algorithm(key, 60, "fixed_window")
             self.assertEqual(count2, 1)
@@ -1292,82 +1367,86 @@ class DatabaseBackendStressTests(TestCase):
     def test_get_count_with_algorithm_key_length_validation(self):
         """Test that get_count_with_algorithm validates key length."""
         long_key = "test:" + "x" * 500  # Very long key
-        
+
         with self.assertRaises(ValueError) as context:
             self.backend.get_count_with_algorithm(long_key, 60, "sliding_window")
-        
+
         self.assertIn("Key length cannot exceed 255 characters", str(context.exception))
-    
+
     def test_get_count_with_algorithm_empty_key_validation(self):
         """Test that get_count_with_algorithm validates empty keys."""
         with self.assertRaises(ValueError) as context:
             self.backend.get_count_with_algorithm("", 60, "sliding_window")
-        
+
         self.assertIn("Key cannot be empty", str(context.exception))
-        
+
         with self.assertRaises(ValueError) as context:
             self.backend.get_count_with_algorithm("   ", 60, "sliding_window")
-        
+
         self.assertIn("Key cannot be empty", str(context.exception))
-    
+
     def test_get_count_with_algorithm_negative_window_validation(self):
         """Test that get_count_with_algorithm validates negative window seconds."""
         with self.assertRaises(ValueError) as context:
             self.backend.get_count_with_algorithm("test:key", -60, "sliding_window")
-        
+
         self.assertIn("Window seconds must be positive", str(context.exception))
 
     def test_whitespace_only_key_validation(self):
         """Test that whitespace-only keys are properly rejected."""
         whitespace_keys = ["   ", "\t", "\n", "\r", " \t\n\r "]
-        
+
         for key in whitespace_keys:
             with self.assertRaises(ValueError) as context:
                 self.backend.incr_with_algorithm(key, 60, "sliding_window")
-            
+
             self.assertIn("Key cannot be empty", str(context.exception))
-            
+
             with self.assertRaises(ValueError) as context:
                 self.backend.get_count_with_algorithm(key, 60, "sliding_window")
-            
+
             self.assertIn("Key cannot be empty", str(context.exception))
-    
+
     def test_key_length_boundary_conditions(self):
         """Test key length at exact boundaries."""
         # Test exactly 255 characters (should work)
         key_255 = "test:" + "x" * 250  # 255 characters total
         count = self.backend.incr_with_algorithm(key_255, 60, "sliding_window")
         self.assertEqual(count, 1)
-        
+
         # Test exactly 256 characters (should fail)
         key_256 = "test:" + "x" * 251  # 256 characters total
         with self.assertRaises(ValueError) as context:
             self.backend.incr_with_algorithm(key_256, 60, "sliding_window")
-        
+
         self.assertIn("Key length cannot exceed 255 characters", str(context.exception))
-    
+
     def test_extreme_window_boundary_values(self):
         """Test extreme window boundary values."""
         key = "test:extreme_window"
-        
+
         # Test 1 second window
         count = self.backend.incr_with_algorithm(key + "_1s", 1, "sliding_window")
         self.assertEqual(count, 1)
-        
+
         # Test very large window (10 years)
         large_window = 10 * 365 * 24 * 3600  # 10 years in seconds
-        count = self.backend.incr_with_algorithm(key + "_10y", large_window, "sliding_window")
+        count = self.backend.incr_with_algorithm(
+            key + "_10y", large_window, "sliding_window"
+        )
         self.assertEqual(count, 1)
-        
+
         # Test maximum integer value (if system supports it)
         try:
             max_int = 2**31 - 1  # 32-bit signed int max
-            count = self.backend.incr_with_algorithm(key + "_max", max_int, "sliding_window")
+            count = self.backend.incr_with_algorithm(
+                key + "_max", max_int, "sliding_window"
+            )
             self.assertEqual(count, 1)
         except (OverflowError, ValueError, Exception):
             # If system doesn't support such large values, that's acceptable
             pass
-    
+
     def test_special_character_keys_comprehensive(self):
         """Test comprehensive set of special characters in keys."""
         special_chars_keys = [
@@ -1399,20 +1478,22 @@ class DatabaseBackendStressTests(TestCase):
             "test:key`with`backticks",
             "test:key~with~tildes",
         ]
-        
+
         for key in special_chars_keys:
             if len(key) <= 255:  # Only test if within length limit
                 try:
                     count = self.backend.incr_with_algorithm(key, 60, "sliding_window")
                     self.assertEqual(count, 1)
-                    
+
                     # Verify we can read it back
-                    retrieved_count = self.backend.get_count_with_algorithm(key, 60, "sliding_window")
+                    retrieved_count = self.backend.get_count_with_algorithm(
+                        key, 60, "sliding_window"
+                    )
                     self.assertEqual(retrieved_count, 1)
                 except (ValueError, Exception):
                     # Some special characters might be rejected, which is acceptable
                     pass
-    
+
     def test_null_and_control_characters(self):
         """Test handling of null and control characters in keys."""
         control_chars = [
@@ -1421,7 +1502,7 @@ class DatabaseBackendStressTests(TestCase):
             "test:key\x1fwith\x1fcontrol",
             "test:key\x7fwith\x7fdelete",
         ]
-        
+
         for key in control_chars:
             try:
                 # These should either work or raise a reasonable error
