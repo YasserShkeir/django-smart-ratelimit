@@ -329,12 +329,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Changelog
 
-### v0.1.0 (Initial Release)
-
-- Basic decorator and middleware support
-- Redis backend with sliding window algorithm
-- Comprehensive test suite
-- Documentation and examples
+See [CHANGELOG.md](CHANGELOG.md) for detailed version history and release notes.
 
 ## Support
 
