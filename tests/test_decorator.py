@@ -184,10 +184,10 @@ class RateLimitIntegrationTests(TestCase):
     def test_rate_limit_with_redis_backend(self, mock_redis_module):
         """Test rate limiting with Redis backend integration."""
         from django_smart_ratelimit.backends import clear_backend_cache
-        
+
         # Clear backend cache to ensure fresh instance
         clear_backend_cache()
-        
+
         # Mock Redis client
         mock_redis_client = Mock()
         mock_redis_module.Redis.return_value = mock_redis_client
