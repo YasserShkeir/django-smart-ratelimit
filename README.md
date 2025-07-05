@@ -186,11 +186,13 @@ X-RateLimit-Reset: 1640995200
 Simple and memory-efficient algorithm that resets the counter at fixed intervals.
 
 **Pros:**
+
 - Low memory usage
 - Simple implementation
 - Predictable reset times
 
 **Cons:**
+
 - Potential for burst traffic
 - Less accurate limiting
 
@@ -199,11 +201,13 @@ Simple and memory-efficient algorithm that resets the counter at fixed intervals
 More accurate algorithm that maintains a sliding window of requests.
 
 **Pros:**
+
 - Accurate rate limiting
 - No burst traffic issues
 - Smooth rate limiting
 
 **Cons:**
+
 - Higher memory usage
 - More complex implementation
 
@@ -211,32 +215,32 @@ More accurate algorithm that maintains a sliding window of requests.
 
 ### Decorator Parameters
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `key` | `str` or `callable` | Required | Rate limit key or key function |
-| `rate` | `str` | Required | Rate limit (e.g., '10/m') |
-| `block` | `bool` | `True` | Block requests when limit exceeded |
-| `backend` | `str` | `None` | Backend to use (uses default if None) |
+| Parameter | Type                | Default  | Description                           |
+| --------- | ------------------- | -------- | ------------------------------------- |
+| `key`     | `str` or `callable` | Required | Rate limit key or key function        |
+| `rate`    | `str`               | Required | Rate limit (e.g., '10/m')             |
+| `block`   | `bool`              | `True`   | Block requests when limit exceeded    |
+| `backend` | `str`               | `None`   | Backend to use (uses default if None) |
 
 ### Middleware Settings
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `DEFAULT_RATE` | `str` | `'100/m'` | Default rate limit |
-| `BACKEND` | `str` | `'redis'` | Backend to use |
-| `KEY_FUNCTION` | `str` | `None` | Import path to key function |
-| `BLOCK` | `bool` | `True` | Block requests when limit exceeded |
-| `SKIP_PATHS` | `list` | `[]` | Paths to skip rate limiting |
-| `RATE_LIMITS` | `dict` | `{}` | Path-specific rate limits |
+| Setting        | Type   | Default   | Description                        |
+| -------------- | ------ | --------- | ---------------------------------- |
+| `DEFAULT_RATE` | `str`  | `'100/m'` | Default rate limit                 |
+| `BACKEND`      | `str`  | `'redis'` | Backend to use                     |
+| `KEY_FUNCTION` | `str`  | `None`    | Import path to key function        |
+| `BLOCK`        | `bool` | `True`    | Block requests when limit exceeded |
+| `SKIP_PATHS`   | `list` | `[]`      | Paths to skip rate limiting        |
+| `RATE_LIMITS`  | `dict` | `{}`      | Path-specific rate limits          |
 
 ### Backend Settings
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `RATELIMIT_BACKEND` | `str` | `'redis'` | Backend to use |
-| `RATELIMIT_REDIS` | `dict` | `{}` | Redis configuration |
-| `RATELIMIT_USE_SLIDING_WINDOW` | `bool` | `True` | Use sliding window algorithm |
-| `RATELIMIT_KEY_PREFIX` | `str` | `'ratelimit:'` | Redis key prefix |
+| Setting                        | Type   | Default        | Description                  |
+| ------------------------------ | ------ | -------------- | ---------------------------- |
+| `RATELIMIT_BACKEND`            | `str`  | `'redis'`      | Backend to use               |
+| `RATELIMIT_REDIS`              | `dict` | `{}`           | Redis configuration          |
+| `RATELIMIT_USE_SLIDING_WINDOW` | `bool` | `True`         | Use sliding window algorithm |
+| `RATELIMIT_KEY_PREFIX`         | `str`  | `'ratelimit:'` | Redis key prefix             |
 
 ## Development
 
@@ -318,6 +322,23 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - 📖 [Documentation](docs/design.md)
 - 🐛 [Issue Tracker](https://github.com/YasserShkeir/django-smart-ratelimit/issues)
 - 💬 [Discussions](https://github.com/YasserShkeir/django-smart-ratelimit/discussions)
+
+## 💖 Support the Project
+
+If this library has saved you time and effort, consider supporting its development:
+
+### Cryptocurrency Donations
+
+- **USDT (Ethereum)**: `0x202943b3a6CC168F92871d9e295537E6cbc53Ff4`
+
+### Alternative Support Methods
+
+- ⭐ **Star this repository** on GitHub
+- 🐛 **Report bugs** and suggest features
+- 🔀 **Contribute** code improvements
+- 📢 **Share** with your team and community
+
+Your support helps maintain and improve this open-source project! 🙏
 
 ## Acknowledgments
 
