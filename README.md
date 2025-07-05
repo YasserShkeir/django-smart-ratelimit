@@ -81,6 +81,20 @@ RATELIMIT_REDIS = {
 RATELIMIT_USE_SLIDING_WINDOW = True  # or False for fixed window
 ```
 
+#### Memory Backend
+
+```python
+# settings.py
+RATELIMIT_BACKEND = 'memory'
+
+# Memory backend configuration
+RATELIMIT_MEMORY_MAX_KEYS = 10000  # Maximum number of keys to store
+RATELIMIT_MEMORY_CLEANUP_INTERVAL = 300  # Cleanup interval in seconds
+
+# Algorithm selection
+RATELIMIT_USE_SLIDING_WINDOW = True  # or False for fixed window
+```
+
 ## Usage Examples
 
 ### Decorator Examples
@@ -238,12 +252,14 @@ More accurate algorithm that maintains a sliding window of requests.
 
 ### Backend Settings
 
-| Setting                        | Type   | Default        | Description                  |
-| ------------------------------ | ------ | -------------- | ---------------------------- |
-| `RATELIMIT_BACKEND`            | `str`  | `'redis'`      | Backend to use               |
-| `RATELIMIT_REDIS`              | `dict` | `{}`           | Redis configuration          |
-| `RATELIMIT_USE_SLIDING_WINDOW` | `bool` | `True`         | Use sliding window algorithm |
-| `RATELIMIT_KEY_PREFIX`         | `str`  | `'ratelimit:'` | Redis key prefix             |
+| Setting                              | Type   | Default        | Description                         |
+| ------------------------------------ | ------ | -------------- | ----------------------------------- |
+| `RATELIMIT_BACKEND`                  | `str`  | `'redis'`      | Backend to use (`'redis'`, `'memory'`) |
+| `RATELIMIT_REDIS`                    | `dict` | `{}`           | Redis configuration                 |
+| `RATELIMIT_MEMORY_MAX_KEYS`          | `int`  | `10000`        | Maximum keys for memory backend     |
+| `RATELIMIT_MEMORY_CLEANUP_INTERVAL`  | `int`  | `300`          | Cleanup interval (seconds)          |
+| `RATELIMIT_USE_SLIDING_WINDOW`       | `bool` | `True`         | Use sliding window algorithm        |
+| `RATELIMIT_KEY_PREFIX`               | `str`  | `'ratelimit:'` | Redis key prefix                    |
 
 ## Development
 

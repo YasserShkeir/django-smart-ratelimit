@@ -13,6 +13,7 @@ from django.test import TestCase, override_settings
 from django_smart_ratelimit.backends import get_backend
 from django_smart_ratelimit.backends.base import BaseBackend
 from django_smart_ratelimit.backends.redis_backend import RedisBackend
+from django_smart_ratelimit.backends.memory import MemoryBackend
 
 
 class BackendSelectionTests(TestCase):
@@ -39,6 +40,17 @@ class BackendSelectionTests(TestCase):
 
             backend = get_backend("redis")
             self.assertIsInstance(backend, RedisBackend)
+
+    def test_get_backend_memory(self):
+        """Test getting Memory backend explicitly."""
+        backend = get_backend("memory")
+        self.assertIsInstance(backend, MemoryBackend)
+
+    @override_settings(RATELIMIT_BACKEND="memory")
+    def test_get_backend_memory_from_settings(self):
+        """Test getting memory backend from Django settings."""
+        backend = get_backend()
+        self.assertIsInstance(backend, MemoryBackend)
 
     def test_get_backend_unknown(self):
         """Test getting unknown backend raises error."""

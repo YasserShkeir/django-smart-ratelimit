@@ -127,6 +127,7 @@ When reporting bugs, please include:
 ### Feature Requests
 
 For new features:
+- **Check the [Features Roadmap](FEATURES_ROADMAP.md) first** - your feature might already be planned
 - Explain the use case and motivation
 - Provide implementation suggestions if possible
 - Consider backwards compatibility
@@ -136,10 +137,20 @@ For new features:
 
 We welcome:
 - Bug fixes
-- New features
+- **New features from the [Features Roadmap](FEATURES_ROADMAP.md)**
 - Performance improvements
 - Documentation improvements
 - Test coverage improvements
+
+#### Working on Roadmap Features
+
+If you want to work on a feature from our roadmap:
+
+1. **Review the [Features Roadmap](FEATURES_ROADMAP.md)** to understand the requirements
+2. **Comment on the related GitHub issue** to claim the feature
+3. **Follow the specific implementation guidelines** listed for that feature
+4. **Include all required tests** as specified in the roadmap
+5. **Update the roadmap** with your progress and completion date
 
 ## Pull Request Process
 
@@ -186,17 +197,22 @@ We welcome:
 
 ### Adding New Features
 
+**Important**: Before implementing any new features, please check the [Features Roadmap](FEATURES_ROADMAP.md) which contains detailed implementation guidelines, testing requirements, and tracking for all planned features.
+
 1. **Design considerations**
    - Backwards compatibility
    - Performance impact
    - Configuration options
    - Error handling
+   - **Follow roadmap specifications** if the feature is listed
 
 2. **Implementation steps**
-   - Add feature code
-   - Add comprehensive tests
-   - Update documentation
-   - Add configuration options
+   - **Review roadmap requirements** for the specific feature
+   - Add feature code following roadmap guidelines
+   - Add comprehensive tests as specified in roadmap
+   - Update documentation as required
+   - Add configuration options per roadmap specs
+   - **Update roadmap progress** when complete
 
 ## Release Process
 

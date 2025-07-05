@@ -119,9 +119,21 @@ def _generate_key(
 
     # Simple template substitution
     if isinstance(key, str):
-        # For now, just return the key as-is
-        # TODO: Implement proper template substitution
-        return key
+        if key == 'ip':
+            # Get IP address from request
+            ip = request.META.get('REMOTE_ADDR', 'unknown')
+            return f"ip:{ip}"
+        elif key == 'user':
+            # Get user ID from request
+            if hasattr(request, 'user') and request.user.is_authenticated:
+                return f"user:{request.user.id}"
+            else:
+                # Fall back to IP if user is not authenticated
+                ip = request.META.get('REMOTE_ADDR', 'unknown')
+                return f"ip:{ip}"
+        else:
+            # For other keys, return as-is
+            return key
 
     raise ImproperlyConfigured(f"Invalid key type: {type(key)}")
 

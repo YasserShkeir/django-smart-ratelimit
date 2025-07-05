@@ -11,6 +11,9 @@ from django.core.exceptions import ImproperlyConfigured
 
 from .base import BaseBackend
 
+# Backend instance cache
+_backend_instances = {}
+
 
 def get_backend(backend_name: Optional[str] = None) -> BaseBackend:
     """
@@ -20,17 +23,34 @@ def get_backend(backend_name: Optional[str] = None) -> BaseBackend:
         backend_name: Specific backend to use, or None for default
 
     Returns:
-        Configured backend instance
+        Configured backend instance (cached for reuse)
     """
     if backend_name is None:
         backend_name = getattr(settings, "RATELIMIT_BACKEND", "redis")
 
+    # Return cached instance if available
+    if backend_name in _backend_instances:
+        return _backend_instances[backend_name]
+
+    # Create new instance based on backend name
     if backend_name == "redis":
         from .redis_backend import RedisBackend
-
-        return RedisBackend()
+        backend = RedisBackend()
+    elif backend_name == "memory":
+        from .memory import MemoryBackend
+        backend = MemoryBackend()
     else:
         raise ImproperlyConfigured(f"Unknown backend: {backend_name}")
 
+    # Cache the instance
+    _backend_instances[backend_name] = backend
+    return backend
 
-__all__ = ["get_backend", "BaseBackend"]
+
+def clear_backend_cache():
+    """Clear the backend instance cache. Useful for testing."""
+    global _backend_instances
+    _backend_instances.clear()
+
+
+__all__ = ["get_backend", "BaseBackend", "clear_backend_cache"]

@@ -64,8 +64,8 @@ def api_sensitive(request):
 
 
 # Example Django settings.py configuration
-EXAMPLE_SETTINGS = """
-# settings.py
+REDIS_BACKEND_SETTINGS = """
+# settings.py - Redis Backend Configuration
 
 # Basic configuration
 RATELIMIT_BACKEND = 'redis'
@@ -100,6 +100,41 @@ RATELIMIT_MIDDLEWARE = {
 }
 """
 
+# Example Django settings.py configuration for Memory Backend
+MEMORY_BACKEND_SETTINGS = """
+# settings.py - Memory Backend Configuration
+
+# Basic configuration
+RATELIMIT_BACKEND = 'memory'
+
+# Memory backend specific settings
+RATELIMIT_MEMORY_MAX_KEYS = 10000        # Maximum number of keys to store
+RATELIMIT_MEMORY_CLEANUP_INTERVAL = 300  # Cleanup interval in seconds
+
+# Use sliding window algorithm for more accurate rate limiting
+RATELIMIT_USE_SLIDING_WINDOW = True
+
+# Middleware configuration
+MIDDLEWARE = [
+    'django_smart_ratelimit.middleware.RateLimitMiddleware',
+    # ... other middleware
+]
+
+RATELIMIT_MIDDLEWARE = {
+    'DEFAULT_RATE': '100/m',  # 100 requests per minute by default
+    'BACKEND': 'memory',
+    'BLOCK': True,
+    'SKIP_PATHS': ['/admin/', '/health/', '/metrics/'],
+    'RATE_LIMITS': {
+        '/api/public/': '1000/h',    # Public API: 1000 requests per hour
+        '/api/private/': '100/h',    # Private API: 100 requests per hour
+        '/auth/login/': '5/m',       # Login: 5 attempts per minute
+        '/auth/register/': '3/h',    # Registration: 3 attempts per hour
+        '/upload/': '10/h',          # File uploads: 10 per hour
+    },
+}
+"""
+
 # Example URL configuration
 EXAMPLE_URLS = """
 # urls.py
@@ -125,7 +160,10 @@ if __name__ == "__main__":
     )
     print("Copy the functions and configurations into your Django application.")
     print("\nSettings configuration:")
-    print(EXAMPLE_SETTINGS)
+    print("Redis Backend Configuration:")
+    print(REDIS_BACKEND_SETTINGS)
+    print("\nMemory Backend Configuration:")
+    print(MEMORY_BACKEND_SETTINGS)
     print("\nURL configuration:")
     print(EXAMPLE_URLS)
     print("\nFor more information, see the README.md file.")
