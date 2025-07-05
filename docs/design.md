@@ -23,7 +23,8 @@ Django Smart Ratelimit is a flexible and efficient rate limiting library for Dja
           ▼
 ┌─────────────────────┐
 │   Backend Layer     │
-│   (Redis/Memory)    │
+│ (Redis/Database/    │
+│     Memory)         │
 └─────────────────────┘
 ```
 
@@ -144,8 +145,16 @@ RATELIMIT_REDIS = {
     'password': None,
 }
 
+# Database Backend
+RATELIMIT_BACKEND = 'database'
+RATELIMIT_DATABASE_CLEANUP_THRESHOLD = 1000
+
+# Memory Backend
+RATELIMIT_BACKEND = 'memory'
+RATELIMIT_MEMORY_MAX_KEYS = 10000
+
 # Algorithm Selection
-RATELIMIT_USE_SLIDING_WINDOW = True  # vs Fixed Window
+RATELIMIT_ALGORITHM = "sliding_window"  # vs "fixed_window"
 RATELIMIT_KEY_PREFIX = 'ratelimit:'
 ```
 
@@ -203,25 +212,3 @@ X-RateLimit-Reset: 1640995200
 
 ### Atomic Operations
 All rate limiting operations are atomic using Lua scripts to prevent race conditions.
-
-## Future Enhancements
-
-1. **Additional Backends**
-   - Memory backend for development
-   - Database backend for simple deployments
-   - Distributed cache backends
-
-2. **Advanced Features**
-   - Rate limiting by user groups
-   - Dynamic rate limits based on load
-   - Rate limiting with quotas and refill rates
-
-3. **Monitoring**
-   - Metrics collection
-   - Rate limit analytics
-   - Health check endpoints
-
-4. **Template System**
-   - Advanced key templating
-   - Context-aware key generation
-   - Request attribute interpolation

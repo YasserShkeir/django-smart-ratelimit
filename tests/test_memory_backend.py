@@ -93,7 +93,7 @@ class MemoryBackendTest(TestCase):
         self.assertGreaterEqual(reset_time, int(start_time + 60))
         self.assertLessEqual(reset_time, int(start_time + 61))
 
-    @override_settings(RATELIMIT_USE_SLIDING_WINDOW=True)
+    @override_settings(RATELIMIT_ALGORITHM="sliding_window")
     def test_sliding_window_algorithm(self):
         """Test sliding window algorithm."""
         backend = MemoryBackend()
@@ -112,7 +112,7 @@ class MemoryBackendTest(TestCase):
         count3 = backend.incr("test_key", 2)
         self.assertEqual(count3, 2)  # Only second and third requests
 
-    @override_settings(RATELIMIT_USE_SLIDING_WINDOW=False)
+    @override_settings(RATELIMIT_ALGORITHM="fixed_window")
     def test_fixed_window_algorithm(self):
         """Test fixed window algorithm."""
         backend = MemoryBackend()
@@ -183,7 +183,7 @@ class MemoryBackendTest(TestCase):
 
     def test_cleanup_expired_keys(self):
         """Test cleanup of expired keys in fixed window mode."""
-        with override_settings(RATELIMIT_USE_SLIDING_WINDOW=False):
+        with override_settings(RATELIMIT_ALGORITHM="fixed_window"):
             backend = MemoryBackend()
 
             # Add a key with short expiry
@@ -211,7 +211,7 @@ class MemoryBackendTest(TestCase):
         self.assertEqual(stats["total_requests"], 0)
         self.assertIn("max_keys", stats)
         self.assertIn("cleanup_interval", stats)
-        self.assertIn("use_sliding_window", stats)
+        self.assertIn("algorithm", stats)
 
         # Add some data
         self.backend.incr("key1", 60)
@@ -245,14 +245,14 @@ class MemoryBackendTest(TestCase):
         with override_settings(
             RATELIMIT_MEMORY_MAX_KEYS=1000,
             RATELIMIT_MEMORY_CLEANUP_INTERVAL=600,
-            RATELIMIT_USE_SLIDING_WINDOW=False,
+            RATELIMIT_ALGORITHM="fixed_window",
         ):
             backend = MemoryBackend()
             stats = backend.get_stats()
 
             self.assertEqual(stats["max_keys"], 1000)
             self.assertEqual(stats["cleanup_interval"], 600)
-            self.assertEqual(stats["use_sliding_window"], False)
+            self.assertEqual(stats["algorithm"], "fixed_window")
 
     def test_concurrent_access_different_keys(self):
         """Test concurrent access to different keys."""

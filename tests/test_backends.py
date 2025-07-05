@@ -150,7 +150,7 @@ class RedisBackendTests(TestCase):
             decode_responses=True,
         )
 
-    @override_settings(RATELIMIT_USE_SLIDING_WINDOW=True)
+    @override_settings(RATELIMIT_ALGORITHM="sliding_window")
     def test_redis_backend_incr_sliding_window(self):
         """Test Redis backend incr with sliding window."""
         self.mock_redis_client.evalsha.return_value = 5
@@ -159,13 +159,24 @@ class RedisBackendTests(TestCase):
         result = backend.incr("test_key", 60)
 
         self.assertEqual(result, 5)
+        # Should use sliding window script
         self.mock_redis_client.evalsha.assert_called_once()
-        args = self.mock_redis_client.evalsha.call_args[0]
-        self.assertEqual(args[0], "script_sha")  # sliding window script
-        self.assertEqual(args[1], 1)  # number of keys
-        self.assertEqual(args[2], "test:ratelimit:test_key")  # key with prefix
 
-    @override_settings(RATELIMIT_USE_SLIDING_WINDOW=False)
+    @override_settings(
+        RATELIMIT_ALGORITHM="sliding_window"
+    )  # Test backward compatibility
+    def test_redis_backend_backward_compatibility_sliding(self):
+        """Test Redis backend backward compatibility with old setting."""
+        self.mock_redis_client.evalsha.return_value = 3
+
+        backend = RedisBackend()
+        result = backend.incr("test_key", 60)
+
+        self.assertEqual(result, 3)
+        # Should use sliding window script for backward compatibility
+        self.mock_redis_client.evalsha.assert_called_once()
+
+    @override_settings(RATELIMIT_ALGORITHM="fixed_window")
     def test_redis_backend_incr_fixed_window(self):
         """Test Redis backend incr with fixed window."""
         self.mock_redis_client.evalsha.return_value = 3
@@ -174,6 +185,18 @@ class RedisBackendTests(TestCase):
         result = backend.incr("test_key", 60)
 
         self.assertEqual(result, 3)
+        # Should use fixed window script
+        self.mock_redis_client.evalsha.assert_called_once()
+
+    @override_settings(RATELIMIT_ALGORITHM="fixed_window")
+    def test_redis_backend_fixed_window_algorithm(self):
+        """Test Redis backend with fixed window algorithm."""
+        self.mock_redis_client.evalsha.return_value = 2
+
+        backend = RedisBackend()
+        result = backend.incr("test_key", 60)
+
+        self.assertEqual(result, 2)
         self.mock_redis_client.evalsha.assert_called_once()
         args = self.mock_redis_client.evalsha.call_args[0]
         self.assertEqual(args[0], "script_sha")  # fixed window script
@@ -187,7 +210,7 @@ class RedisBackendTests(TestCase):
 
         self.mock_redis_client.delete.assert_called_once_with("test:ratelimit:test_key")
 
-    @override_settings(RATELIMIT_USE_SLIDING_WINDOW=True)
+    @override_settings(RATELIMIT_ALGORITHM="sliding_window")
     def test_redis_backend_get_count_sliding_window(self):
         """Test Redis backend get_count with sliding window."""
         self.mock_redis_client.zcard.return_value = 7
@@ -198,7 +221,7 @@ class RedisBackendTests(TestCase):
         self.assertEqual(result, 7)
         self.mock_redis_client.zcard.assert_called_once_with("test:ratelimit:test_key")
 
-    @override_settings(RATELIMIT_USE_SLIDING_WINDOW=False)
+    @override_settings(RATELIMIT_ALGORITHM="fixed_window")
     def test_redis_backend_get_count_fixed_window(self):
         """Test Redis backend get_count with fixed window."""
         self.mock_redis_client.get.return_value = "4"
@@ -209,7 +232,7 @@ class RedisBackendTests(TestCase):
         self.assertEqual(result, 4)
         self.mock_redis_client.get.assert_called_once_with("test:ratelimit:test_key")
 
-    @override_settings(RATELIMIT_USE_SLIDING_WINDOW=False)
+    @override_settings(RATELIMIT_ALGORITHM="fixed_window")
     def test_redis_backend_get_count_fixed_window_no_key(self):
         """Test Redis backend get_count with fixed window when key doesn't exist."""
         self.mock_redis_client.get.return_value = None

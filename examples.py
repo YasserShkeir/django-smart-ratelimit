@@ -76,7 +76,7 @@ RATELIMIT_REDIS = {
 }
 
 # Use sliding window algorithm for more accurate rate limiting
-RATELIMIT_USE_SLIDING_WINDOW = True
+RATELIMIT_ALGORITHM = "sliding_window"
 
 # Middleware configuration
 MIDDLEWARE = [
@@ -112,7 +112,7 @@ RATELIMIT_MEMORY_MAX_KEYS = 10000        # Maximum number of keys to store
 RATELIMIT_MEMORY_CLEANUP_INTERVAL = 300  # Cleanup interval in seconds
 
 # Use sliding window algorithm for more accurate rate limiting
-RATELIMIT_USE_SLIDING_WINDOW = True
+RATELIMIT_ALGORITHM = "sliding_window"
 
 # Middleware configuration
 MIDDLEWARE = [

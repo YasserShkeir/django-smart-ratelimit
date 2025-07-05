@@ -15,7 +15,7 @@ A flexible and efficient rate limiting library for Django applications with supp
 - 🚀 **High Performance**: Atomic operations using Redis Lua scripts
 - 🔧 **Flexible Configuration**: Both decorator and middleware support
 - 🪟 **Multiple Algorithms**: Fixed window and sliding window rate limiting
-- 🔌 **Multiple Backends**: Redis backend with extensible architecture
+- 🔌 **Multiple Backends**: Redis, Database, and Memory backends with extensible architecture
 - 📊 **Rich Headers**: Standard rate limiting headers
 - 🛡️ **Production Ready**: Comprehensive testing and error handling
 
@@ -78,7 +78,7 @@ RATELIMIT_REDIS = {
 }
 
 # Algorithm selection
-RATELIMIT_USE_SLIDING_WINDOW = True  # or False for fixed window
+RATELIMIT_ALGORITHM = 'sliding_window'  # or 'fixed_window'
 ```
 
 #### Memory Backend
@@ -92,7 +92,20 @@ RATELIMIT_MEMORY_MAX_KEYS = 10000  # Maximum number of keys to store
 RATELIMIT_MEMORY_CLEANUP_INTERVAL = 300  # Cleanup interval in seconds
 
 # Algorithm selection
-RATELIMIT_USE_SLIDING_WINDOW = True  # or False for fixed window
+RATELIMIT_ALGORITHM = "sliding_window"  # or "fixed_window"
+```
+
+#### Database Backend
+
+```python
+# settings.py
+RATELIMIT_BACKEND = 'database'
+
+# Database backend configuration
+RATELIMIT_DATABASE_CLEANUP_THRESHOLD = 1000  # Cleanup threshold for entries
+
+# Algorithm selection
+RATELIMIT_ALGORITHM = "sliding_window"  # or "fixed_window"
 ```
 
 ## Usage Examples
@@ -252,14 +265,15 @@ More accurate algorithm that maintains a sliding window of requests.
 
 ### Backend Settings
 
-| Setting                              | Type   | Default        | Description                         |
-| ------------------------------------ | ------ | -------------- | ----------------------------------- |
-| `RATELIMIT_BACKEND`                  | `str`  | `'redis'`      | Backend to use (`'redis'`, `'memory'`) |
-| `RATELIMIT_REDIS`                    | `dict` | `{}`           | Redis configuration                 |
-| `RATELIMIT_MEMORY_MAX_KEYS`          | `int`  | `10000`        | Maximum keys for memory backend     |
-| `RATELIMIT_MEMORY_CLEANUP_INTERVAL`  | `int`  | `300`          | Cleanup interval (seconds)          |
-| `RATELIMIT_USE_SLIDING_WINDOW`       | `bool` | `True`         | Use sliding window algorithm        |
-| `RATELIMIT_KEY_PREFIX`               | `str`  | `'ratelimit:'` | Redis key prefix                    |
+| Setting                                | Type   | Default            | Description                                             |
+| -------------------------------------- | ------ | ------------------ | ------------------------------------------------------- |
+| `RATELIMIT_BACKEND`                    | `str`  | `'redis'`          | Backend to use (`'redis'`, `'database'`, `'memory'`)    |
+| `RATELIMIT_ALGORITHM`                  | `str`  | `'sliding_window'` | Algorithm to use (`'sliding_window'`, `'fixed_window'`) |
+| `RATELIMIT_REDIS`                      | `dict` | `{}`               | Redis configuration                                     |
+| `RATELIMIT_DATABASE_CLEANUP_THRESHOLD` | `int`  | `1000`             | Cleanup threshold for database backend                  |
+| `RATELIMIT_MEMORY_MAX_KEYS`            | `int`  | `10000`            | Maximum keys for memory backend                         |
+| `RATELIMIT_MEMORY_CLEANUP_INTERVAL`    | `int`  | `300`              | Cleanup interval (seconds)                              |
+| `RATELIMIT_KEY_PREFIX`                 | `str`  | `'ratelimit:'`     | Redis key prefix                                        |
 
 ## Development
 

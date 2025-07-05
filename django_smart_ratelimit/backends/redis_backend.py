@@ -113,9 +113,7 @@ class RedisBackend(BaseBackend):
         self.fixed_window_sha = self.redis.script_load(self.FIXED_WINDOW_SCRIPT)
 
         # Configuration
-        self.use_sliding_window = getattr(
-            settings, "RATELIMIT_USE_SLIDING_WINDOW", True
-        )
+        self.algorithm = getattr(settings, "RATELIMIT_ALGORITHM", "sliding_window")
         self.key_prefix = getattr(settings, "RATELIMIT_KEY_PREFIX", "ratelimit:")
 
     def incr(self, key: str, period: int) -> int:
@@ -128,7 +126,7 @@ class RedisBackend(BaseBackend):
         full_key = self._make_key(key)
         now = time.time()
 
-        if self.use_sliding_window:
+        if self.algorithm == "sliding_window":
             # Use sliding window algorithm
             count = self.redis.evalsha(
                 self.sliding_window_sha,
@@ -139,7 +137,7 @@ class RedisBackend(BaseBackend):
                 now,
             )
         else:
-            # Use fixed window algorithm
+            # Use fixed window algorithm (default for unknown algorithms)
             count = self.redis.evalsha(
                 self.fixed_window_sha,
                 1,
@@ -160,7 +158,7 @@ class RedisBackend(BaseBackend):
         """Get the current count for the given key."""
         full_key = self._make_key(key)
 
-        if self.use_sliding_window:
+        if self.algorithm == "sliding_window":
             # For sliding window, count non-expired entries
             # We don't know the window size here, so we'll return the
             # total count. This is a limitation of the current design.

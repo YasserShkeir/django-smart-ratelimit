@@ -42,6 +42,10 @@ def get_backend(backend_name: Optional[str] = None) -> BaseBackend:
         from .memory import MemoryBackend
 
         backend = MemoryBackend()
+    elif backend_name == "database":
+        from .database import DatabaseBackend
+
+        backend = DatabaseBackend()
     else:
         raise ImproperlyConfigured(f"Unknown backend: {backend_name}")
 

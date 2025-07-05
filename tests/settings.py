@@ -47,7 +47,7 @@ RATELIMIT_REDIS = {
     "db": int(os.environ.get("REDIS_DB", "0")),
 }
 
-RATELIMIT_USE_SLIDING_WINDOW = True
+RATELIMIT_ALGORITHM = "sliding_window"
 RATELIMIT_KEY_PREFIX = "test:ratelimit:"
 
 # Test middleware configuration

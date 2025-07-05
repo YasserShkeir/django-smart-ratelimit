@@ -8,7 +8,7 @@ single-server deployments.
 
 import threading
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 from django.conf import settings
 
@@ -47,9 +47,9 @@ class MemoryBackend(BaseBackend):
 
         # Cleanup tracking
         self._last_cleanup = time.time()
-        self._use_sliding_window = getattr(
-            settings, "RATELIMIT_USE_SLIDING_WINDOW", True
-        )
+
+        # Configuration
+        self._algorithm = getattr(settings, "RATELIMIT_ALGORITHM", "sliding_window")
 
     def incr(self, key: str, period: int) -> int:
         """
@@ -75,7 +75,7 @@ class MemoryBackend(BaseBackend):
 
             expiry_time, requests = self._data[key]
 
-            if self._use_sliding_window:
+            if self._algorithm == "sliding_window":
                 # Sliding window: remove old requests
                 cutoff_time = now - period
                 requests = [(ts, uid) for ts, uid in requests if ts > cutoff_time]
@@ -89,7 +89,7 @@ class MemoryBackend(BaseBackend):
                 self._data[key] = (expiry_time, requests)
                 return len(requests)
             else:
-                # Fixed window: reset if expired
+                # Fixed window: reset if expired (default for unknown algorithms)
                 if now >= expiry_time:
                     requests = [(now, unique_id)]
                     expiry_time = now + period
@@ -129,7 +129,7 @@ class MemoryBackend(BaseBackend):
 
             expiry_time, requests = self._data[key]
 
-            if self._use_sliding_window:
+            if self._algorithm == "sliding_window":
                 # Count requests in sliding window
                 # We need to estimate the period from the data
                 if not requests:
@@ -182,7 +182,7 @@ class MemoryBackend(BaseBackend):
         # Cleanup expired keys
         expired_keys = []
         for key, (expiry_time, requests) in self._data.items():
-            if self._use_sliding_window:
+            if self._algorithm == "sliding_window":
                 # For sliding window, we can't easily determine if a key is expired
                 # without knowing the period, so we keep all keys
                 continue
@@ -213,7 +213,7 @@ class MemoryBackend(BaseBackend):
         with self._lock:
             self._data.clear()
 
-    def get_stats(self) -> Dict[str, int]:
+    def get_stats(self) -> Dict[str, Union[int, str]]:
         """
         Get statistics about the memory backend.
 
@@ -226,7 +226,7 @@ class MemoryBackend(BaseBackend):
             total_requests = 0
 
             for key, (expiry_time, requests) in self._data.items():
-                if self._use_sliding_window or now < expiry_time:
+                if self._algorithm == "sliding_window" or now < expiry_time:
                     active_keys += 1
                     total_requests += len(requests)
 
@@ -237,5 +237,5 @@ class MemoryBackend(BaseBackend):
                 "max_keys": self._max_keys,
                 "cleanup_interval": self._cleanup_interval,
                 "last_cleanup": int(self._last_cleanup),
-                "use_sliding_window": self._use_sliding_window,
+                "algorithm": self._algorithm,
             }
