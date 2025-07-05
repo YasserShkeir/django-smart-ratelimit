@@ -82,13 +82,13 @@ jobs:
         pip install -e .[dev]
 
     - name: Run black
-      run: black --check django_smart_ratelimit tests
+      run: black --check --line-length=88 django_smart_ratelimit tests
 
     - name: Run flake8
-      run: flake8 django_smart_ratelimit tests
+      run: flake8 --max-line-length=88 --extend-ignore=E203,W503 django_smart_ratelimit tests
 
     - name: Run isort
-      run: isort --check-only django_smart_ratelimit tests
+      run: isort --check-only --line-length=88 django_smart_ratelimit tests
 
     - name: Run mypy
       run: mypy django_smart_ratelimit
