@@ -183,12 +183,18 @@ class RateLimitIntegrationTests(TestCase):
     @patch("django_smart_ratelimit.backends.redis_backend.redis")
     def test_rate_limit_with_redis_backend(self, mock_redis_module):
         """Test rate limiting with Redis backend integration."""
+        from django_smart_ratelimit.backends import clear_backend_cache
+        
+        # Clear backend cache to ensure fresh instance
+        clear_backend_cache()
+        
         # Mock Redis client
         mock_redis_client = Mock()
         mock_redis_module.Redis.return_value = mock_redis_client
         mock_redis_client.ping.return_value = True
         mock_redis_client.script_load.return_value = "script_sha"
         mock_redis_client.evalsha.return_value = 1
+        mock_redis_client.ttl.return_value = 60
 
         @rate_limit(key="integration_test", rate="5/s")
         def test_view(request):
