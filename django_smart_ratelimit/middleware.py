@@ -12,10 +12,12 @@ from django.http import HttpRequest, HttpResponse
 
 # Compatibility for Django < 4.2
 try:
-    from django.http import HttpResponseTooManyRequests
+    from django.http import HttpResponseTooManyRequests  # type: ignore
 except ImportError:
 
-    class HttpResponseTooManyRequests(HttpResponse):
+    class HttpResponseTooManyRequests(HttpResponse):  # type: ignore
+        """HTTP 429 Too Many Requests response class."""
+
         status_code = 429
 
 
@@ -26,15 +28,16 @@ from .backends import get_backend
 
 
 class RateLimitMiddleware:
-    """
-    Middleware for applying rate limiting to Django requests.
+    """Middleware for applying rate limiting to Django requests.
 
     Configuration in settings.py:
 
     RATELIMIT_MIDDLEWARE = {
         'DEFAULT_RATE': '100/m',  # 100 requests per minute
         'BACKEND': 'redis',
-        'KEY_FUNCTION': 'django_smart_ratelimit.middleware.default_key_function',
+        'KEY_FUNCTION': (
+            'django_smart_ratelimit.middleware.default_key_function'
+        ),
         'BLOCK': True,
         'SKIP_PATHS': ['/admin/', '/api/health/'],
         'RATE_LIMITS': {
@@ -45,6 +48,7 @@ class RateLimitMiddleware:
     """
 
     def __init__(self, get_response: Callable):
+        """Initialize the middleware with configuration."""
         self.get_response = get_response
 
         # Load configuration
@@ -62,7 +66,6 @@ class RateLimitMiddleware:
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
         """Process the request and apply rate limiting."""
-
         # Check if path should be skipped
         if self._should_skip_path(request.path):
             return self.get_response(request)
@@ -154,8 +157,7 @@ class RateLimitMiddleware:
 
 
 def default_key_function(request: HttpRequest) -> str:
-    """
-    Default key function that uses the client IP address.
+    """Generate default key function that uses the client IP address.
 
     Args:
         request: The Django request object

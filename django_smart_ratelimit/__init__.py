@@ -1,5 +1,4 @@
-"""
-Django Smart Rate Limiting Library
+"""Django Smart Rate Limiting Library.
 
 A flexible and efficient rate limiting library for Django applications
 with support for multiple backends and sliding window algorithms.

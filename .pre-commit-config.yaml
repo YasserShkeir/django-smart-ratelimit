@@ -23,16 +23,17 @@ repos:
     hooks:
       - id: flake8
         additional_dependencies: [flake8-docstrings]
+        args: ["--max-line-length=88", "--extend-ignore=E203,W503", "--per-file-ignores=tests/*:D,examples.py:D"]
 
   - repo: https://github.com/pycqa/isort
     rev: 5.12.0
     hooks:
       - id: isort
-        args: ["--profile", "black"]
+        args: ["--profile", "black", "--line-length", "88"]
 
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.5.1
     hooks:
       - id: mypy
         additional_dependencies: [django-stubs, types-redis]
-        exclude: ^(tests/|docs/)
+        exclude: ^(tests/|docs/|examples\.py)

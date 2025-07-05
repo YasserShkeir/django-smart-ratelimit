@@ -5,7 +5,7 @@ This module contains tests for all backend implementations.
 """
 
 import time
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, patch
 
 from django.core.exceptions import ImproperlyConfigured
 from django.test import TestCase, override_settings
@@ -104,7 +104,9 @@ class RedisBackendTests(TestCase):
         self.assertEqual(self.mock_redis_client.script_load.call_count, 2)
 
     def test_redis_backend_initialization_no_redis_module(self):
-        """Test Redis backend initialization when redis module is not available."""
+        """
+        Test Redis backend initialization when redis module is not available.
+        """
         with patch("django_smart_ratelimit.backends.redis_backend.redis", None):
             with self.assertRaises(ImproperlyConfigured):
                 RedisBackend()
@@ -126,7 +128,7 @@ class RedisBackendTests(TestCase):
     )
     def test_redis_backend_custom_configuration(self):
         """Test Redis backend with custom configuration."""
-        backend = RedisBackend()
+        RedisBackend()  # Just test initialization
 
         self.mock_redis_module.Redis.assert_called_once_with(
             host="custom-host",
@@ -199,7 +201,9 @@ class RedisBackendTests(TestCase):
 
     @override_settings(RATELIMIT_USE_SLIDING_WINDOW=False)
     def test_redis_backend_get_count_fixed_window_no_key(self):
-        """Test Redis backend get_count with fixed window when key doesn't exist."""
+        """
+        Test Redis backend get_count with fixed window when key doesn't exist.
+        """
         self.mock_redis_client.get.return_value = None
 
         backend = RedisBackend()
@@ -288,7 +292,7 @@ class RedisBackendScriptTests(TestCase):
 
     def test_sliding_window_script_loading(self):
         """Test that sliding window script is loaded correctly."""
-        backend = RedisBackend()
+        RedisBackend()  # Just test script loading
 
         # Verify script_load was called twice (sliding + fixed window)
         self.assertEqual(self.mock_redis_client.script_load.call_count, 2)
@@ -302,7 +306,7 @@ class RedisBackendScriptTests(TestCase):
 
     def test_fixed_window_script_loading(self):
         """Test that fixed window script is loaded correctly."""
-        backend = RedisBackend()
+        RedisBackend()  # Just test script loading
 
         # Verify script_load was called twice (sliding + fixed window)
         self.assertEqual(self.mock_redis_client.script_load.call_count, 2)

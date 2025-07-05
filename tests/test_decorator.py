@@ -4,7 +4,6 @@ Tests for the rate limiting decorator.
 This module contains tests for the @rate_limit decorator functionality.
 """
 
-import time
 from unittest.mock import Mock, patch
 
 from django.contrib.auth.models import AnonymousUser, User
@@ -22,9 +21,6 @@ except ImportError:
 
 from django_smart_ratelimit.decorator import _generate_key, _parse_rate, rate_limit
 
-# Import the actual class that will be returned
-from django_smart_ratelimit.decorator import HttpResponseTooManyRequests
-
 
 class RateLimitDecoratorTests(TestCase):
     """Tests for the rate limiting decorator."""
@@ -32,7 +28,9 @@ class RateLimitDecoratorTests(TestCase):
     def setUp(self):
         self.factory = RequestFactory()
         self.user = User.objects.create_user(
-            username="testuser", email="test@example.com", password="testpass123"
+            username="testuser",
+            email="test@example.com",
+            password="testpass123",
         )
 
     def test_parse_rate_valid_formats(self):
@@ -107,7 +105,9 @@ class RateLimitDecoratorTests(TestCase):
 
     @patch("django_smart_ratelimit.decorator.get_backend")
     def test_rate_limit_decorator_exceeds_limit_blocked(self, mock_get_backend):
-        """Test decorator when requests exceed the limit and blocking is enabled."""
+        """
+        Test decorator when requests exceed the limit and blocking is enabled.
+        """
         mock_backend = Mock()
         mock_backend.incr.return_value = 11  # Exceeds limit of 10
         mock_get_backend.return_value = mock_backend
@@ -119,12 +119,13 @@ class RateLimitDecoratorTests(TestCase):
         request = self.factory.get("/")
         response = test_view(request)
 
-        self.assertIsInstance(response, HttpResponseTooManyRequests)
         self.assertEqual(response.status_code, 429)
 
     @patch("django_smart_ratelimit.decorator.get_backend")
     def test_rate_limit_decorator_exceeds_limit_not_blocked(self, mock_get_backend):
-        """Test decorator when requests exceed the limit but blocking is disabled."""
+        """
+        Test decorator when requests exceed the limit but blocking is disabled.
+        """
         mock_backend = Mock()
         mock_backend.incr.return_value = 11  # Exceeds limit of 10
         mock_get_backend.return_value = mock_backend

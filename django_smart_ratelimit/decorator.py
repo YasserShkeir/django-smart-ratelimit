@@ -13,14 +13,15 @@ from django.http import HttpRequest, HttpResponse
 
 # Compatibility for Django < 4.2
 try:
-    from django.http import HttpResponseTooManyRequests
+    from django.http import HttpResponseTooManyRequests  # type: ignore
 except ImportError:
 
-    class HttpResponseTooManyRequests(HttpResponse):
+    class HttpResponseTooManyRequests(HttpResponse):  # type: ignore
+        """HTTP 429 Too Many Requests response class."""
+
         status_code = 429
 
 
-from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 
 from .backends import get_backend
@@ -32,8 +33,7 @@ def rate_limit(
     block: bool = True,
     backend: Optional[str] = None,
 ) -> Callable:
-    """
-    Decorator to apply rate limiting to a view or function.
+    """Apply rate limiting to a view or function.
 
     Args:
         key: Rate limit key or callable that returns a key
@@ -52,7 +52,7 @@ def rate_limit(
 
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
-        def wrapper(*args, **kwargs) -> Any:
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             # Get the request object
             request = None
             if args and hasattr(args[0], "META"):
@@ -111,7 +111,7 @@ def rate_limit(
 
 
 def _generate_key(
-    key: Union[str, Callable], request: HttpRequest, *args, **kwargs
+    key: Union[str, Callable], request: HttpRequest, *args: Any, **kwargs: Any
 ) -> str:
     """Generate the rate limit key from the provided key template or callable."""
     if callable(key):

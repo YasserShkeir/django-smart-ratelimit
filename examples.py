@@ -120,7 +120,9 @@ urlpatterns = [
 if __name__ == "__main__":
     print("Django Smart Ratelimit Examples")
     print("=" * 40)
-    print("\nThis file contains example usage of the django-smart-ratelimit library.")
+    print(
+        "\nThis file contains example usage of the " "django-smart-ratelimit library."
+    )
     print("Copy the functions and configurations into your Django application.")
     print("\nSettings configuration:")
     print(EXAMPLE_SETTINGS)

@@ -9,7 +9,6 @@ import os
 import pytest
 
 from django.conf import settings
-from django.test.utils import get_runner
 
 
 def pytest_configure(config):

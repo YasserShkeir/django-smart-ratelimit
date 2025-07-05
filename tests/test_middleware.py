@@ -1,22 +1,23 @@
 """
-Tests for the ratfrom django_smart_ratelimit.middleware import (
-    RateLimitMiddleware,
-    _default_key_function,
-    _user_key_function,
-)
-
-# Import the actual class that will be returned
-from django_smart_ratelimit.middleware import HttpResponseTooManyRequestsiting middleware.
+Tests for the rate limiting middleware.
 
 This module contains tests for the RateLimitMiddleware functionality.
 """
 
-import time
 from unittest.mock import Mock, patch
 
 from django.contrib.auth.models import User
 from django.http import HttpResponse
 from django.test import RequestFactory, TestCase, override_settings
+
+# Compatibility for Django < 4.2
+try:
+    from django.http import HttpResponseTooManyRequests
+except ImportError:
+
+    class HttpResponseTooManyRequests(HttpResponse):
+        status_code = 429
+
 
 from django_smart_ratelimit.middleware import (
     RateLimitMiddleware,
@@ -31,7 +32,9 @@ class RateLimitMiddlewareTests(TestCase):
     def setUp(self):
         self.factory = RequestFactory()
         self.user = User.objects.create_user(
-            username="testuser", email="test@example.com", password="testpass123"
+            username="testuser",
+            email="test@example.com",
+            password="testpass123",
         )
 
     def test_default_key_function(self):
@@ -211,7 +214,7 @@ class RateLimitMiddlewareTests(TestCase):
         with override_settings(
             RATELIMIT_MIDDLEWARE={
                 "DEFAULT_RATE": "10/m",
-                "KEY_FUNCTION": "django_smart_ratelimit.middleware.user_key_function",
+                "KEY_FUNCTION": ("django_smart_ratelimit.middleware.user_key_function"),
             }
         ):
             middleware = RateLimitMiddleware(get_response)
