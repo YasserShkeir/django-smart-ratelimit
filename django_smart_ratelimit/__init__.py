@@ -4,7 +4,7 @@ A flexible and efficient rate limiting library for Django applications
 with support for multiple backends and sliding window algorithms.
 """
 
-__version__ = "0.1.1"
+__version__ = "0.2.0"
 __author__ = "Yasser Shkeir"
 
 from .decorator import rate_limit
