@@ -1,6 +1,8 @@
 # Changelog
 
-All notable changes to this project will b[Unreleased]: https://github.com/YasserShkeir/django-smart-ratelimit/compare/v0.1.1...HEAD
+All notable changes to this project will b[U[Unreleased]: https://github.com/YasserShkeir/django-smart-ratelimit/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/YasserShkeir/django-smart-ratelimit/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/YasserShkeir/django-smart-ratelimit/releases/tag/v0.1.0eleased]: https://github.com/YasserShkeir/django-smart-ratelimit/compare/v0.1.1...HEAD
 [0.1.1]: https://github.com/YasserShkeir/django-smart-ratelimit/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/YasserShkeir/django-smart-ratelimit/releases/tag/v0.1.0documented in this file.
 
