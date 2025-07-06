@@ -10,6 +10,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release planning
 
+## [0.3.1] - 2025-07-06
+
+### Added
+- 💖 Support section with USDT donation address
+- 🔧 Enhanced README organization and clarity
+
+### Changed
+- 📖 Improved documentation formatting and structure
+- 🎨 Better emoji usage in support section
+
+## [0.3.0] - 2025-07-06
+
+### Added
+- 🔀 Multi-backend support with automatic fallback
+- 🏥 Backend health monitoring and status reporting
+- 🏭 Backend factory for dynamic backend instantiation
+- 📊 Comprehensive multi-backend test suite (35+ tests)
+- 🛠️ Enhanced management command documentation
+- 📋 Complete documentation reorganization
+- 🔍 Health check and cleanup management commands
+- 📈 Production-ready monitoring and alerting support
+
+### Changed
+- 📖 Refactored README for better organization
+- 🔧 Improved backend selection logic
+- 🧪 Enhanced test coverage and quality
+- 📋 Updated examples with multi-backend configurations
+
+### Fixed
+- 🔗 Fixed all documentation links and references
+- 🧹 Cleaned up old documentation and broken links
+
 ## [0.2.0] - 2025-07-05
 
 ### Added

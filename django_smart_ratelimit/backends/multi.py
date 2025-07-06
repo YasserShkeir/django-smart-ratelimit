@@ -74,34 +74,39 @@ class MultiBackend(BaseBackend):
         Args:
             **kwargs: Configuration options including:
                 - backends: List of backend configurations
-                - fallback_strategy: How to handle fallbacks ("first_healthy", "round_robin")
+                - fallback_strategy: How to handle fallbacks
+                  ("first_healthy", "round_robin")
                 - health_check_interval: How often to check backend health
                 - health_check_timeout: Timeout for health checks
         """
         from django.conf import settings
-        
+
         self.backends: List[Tuple[str, BaseBackend]] = []
         self.fallback_strategy = kwargs.get(
-            "fallback_strategy", 
-            getattr(settings, "RATELIMIT_MULTI_BACKEND_STRATEGY", "first_healthy")
+            "fallback_strategy",
+            getattr(
+                settings,
+                "RATELIMIT_MULTI_BACKEND_STRATEGY",
+                "first_healthy",
+            ),
         )
         self.health_checker = BackendHealthChecker(
             check_interval=kwargs.get(
-                "health_check_interval", 
-                getattr(settings, "RATELIMIT_HEALTH_CHECK_INTERVAL", 30)
+                "health_check_interval",
+                getattr(settings, "RATELIMIT_HEALTH_CHECK_INTERVAL", 30),
             ),
             timeout=kwargs.get(
-                "health_check_timeout", 
-                getattr(settings, "RATELIMIT_HEALTH_CHECK_TIMEOUT", 5)
+                "health_check_timeout",
+                getattr(settings, "RATELIMIT_HEALTH_CHECK_TIMEOUT", 5),
             ),
         )
         self._current_backend_index = 0
-        
+
         # Get backends from kwargs or settings
         backends = kwargs.get("backends")
         if not backends:
             backends = getattr(settings, "RATELIMIT_BACKENDS", [])
-        
+
         self._setup_backends(backends)
 
     def _setup_backends(self, backend_configs: List[Dict[str, Any]]) -> None:
@@ -154,7 +159,9 @@ class MultiBackend(BaseBackend):
 
         return None
 
-    def _execute_with_fallback(self, method_name: str, *args: Any, **kwargs: Any) -> Any:
+    def _execute_with_fallback(
+        self, method_name: str, *args: Any, **kwargs: Any
+    ) -> Any:
         """
         Execute method with fallback to healthy backends.
 

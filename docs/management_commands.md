@@ -218,9 +218,9 @@ def check_ratelimit_health():
             text=True,
             check=True
         )
-        
+
         health_data = json.loads(result.stdout)
-        
+
         if health_data.get('healthy', False):
             print("✓ Rate limiting backends are healthy")
             return True
@@ -228,7 +228,7 @@ def check_ratelimit_health():
             print("✗ Rate limiting backends are unhealthy")
             print(json.dumps(health_data, indent=2))
             return False
-            
+
     except subprocess.CalledProcessError as e:
         print(f"✗ Health check failed: {e}")
         return False

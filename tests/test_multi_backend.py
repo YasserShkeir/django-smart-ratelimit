@@ -428,9 +428,7 @@ class TestMultiBackend:
         with patch.object(BackendFactory, "create_backend") as mock_create:
             mock_create.return_value = backend
 
-            config = {
-                "backends": [{"backend": "mock.Backend1"}]  # No name provided
-            }
+            config = {"backends": [{"backend": "mock.Backend1"}]}  # No name provided
 
             multi_backend = MultiBackend(**config)
             assert len(multi_backend.backends) == 1
@@ -456,7 +454,7 @@ class TestMultiBackend:
 
             # Make backend healthy again
             backend.fail_operations = False
-            
+
             # Wait for health check to expire
             time.sleep(0.2)
 
@@ -527,9 +525,7 @@ class TestMultiBackend:
 
     def test_backend_config_missing_backend_key(self):
         """Test handling of backend config without 'backend' key."""
-        config = {
-            "backends": [{"name": "invalid"}]  # Missing 'backend' key
-        }
+        config = {"backends": [{"name": "invalid"}]}  # Missing 'backend' key
 
         # Should not raise exception during init, but should have no backends
         with pytest.raises(ValueError):
@@ -545,7 +541,7 @@ class TestMultiBackend:
             config = {"backends": [{"name": "backend1", "backend": "mock.Backend1"}]}
 
             multi_backend = MultiBackend(**config)
-            
+
             # Test get_count_with_window (should delegate to get_count)
             count = multi_backend.get_count_with_window("test_key", 60)
             assert count == 1
@@ -632,6 +628,6 @@ class TestMultiBackend:
                 ("increment", "key", 60, 10),
                 ("cleanup_expired",),
             ]
-            
+
             for expected_call in expected_calls:
                 assert expected_call in backend.operation_calls
