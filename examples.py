@@ -28,29 +28,93 @@ def api_user_limited(request):
     return JsonResponse({"data": "User-specific data", "user_id": request.user.id})
 
 
-# Example 3: Custom key function
-def custom_key_function(request):
-    """Generate a custom key based on user or IP."""
+# Example 3: Custom key function with API keys
+def api_key_based_key(request):
+    """Generate key based on API key or IP."""
+    api_key = request.headers.get("X-API-Key")
+    if api_key:
+        return f"api_key:{api_key}"
+    return f"ip:{request.META.get('REMOTE_ADDR', 'unknown')}"
+
+
+@rate_limit(key=api_key_based_key, rate="1000/h")
+def api_with_keys(request):
+    """API endpoint that uses API keys for rate limiting."""
+    return JsonResponse({"message": "API key-based rate limited endpoint"})
+
+
+# Example 4: Custom tenant-based rate limiting
+def tenant_key_function(request):
+    """Generate key based on tenant ID from headers."""
+    tenant_id = request.headers.get("X-Tenant-ID")
+    if tenant_id:
+        return f"tenant:{tenant_id}"
+    # Fallback to user or IP
     if request.user.is_authenticated:
         return f"user:{request.user.id}"
-    else:
-        return f"ip:{request.META.get('REMOTE_ADDR', 'unknown')}"
+    return f"ip:{request.META.get('REMOTE_ADDR', 'unknown')}"
 
 
-@rate_limit(key=custom_key_function, rate="50/m")
-def api_smart_limited(request):
-    """API endpoint with smart rate limiting."""
-    return JsonResponse({"message": "Smart rate limited endpoint"})
+@rate_limit(key=tenant_key_function, rate="500/h")
+def tenant_api(request):
+    """Multi-tenant API with tenant-specific rate limiting."""
+    return JsonResponse({"tenant_data": "Tenant-specific data"})
 
 
-# Example 4: Non-blocking rate limiting (just adds headers)
+# Example 5: Database model-based key
+def custom_user_key(request):
+    """Generate key using custom user model."""
+    # Example: Using a custom User model or profile
+    if hasattr(request, "custom_user") and request.custom_user:
+        return f"custom_user:{request.custom_user.id}"
+    elif request.user.is_authenticated:
+        return f"django_user:{request.user.id}"
+    return f"ip:{request.META.get('REMOTE_ADDR', 'unknown')}"
+
+
+@rate_limit(key=custom_user_key, rate="100/h")
+def custom_user_api(request):
+    """API using custom user identification."""
+    return JsonResponse({"message": "Custom user-based rate limiting"})
+
+
+# Example 6: JWT-based rate limiting
+def jwt_subject_key(request):
+    """Extract user ID from JWT token."""
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        try:
+            # Note: In production, properly verify the JWT signature
+            # pip install PyJWT
+            import base64
+            import json
+
+            token = auth_header.split(" ")[1]
+            # Decode JWT payload (without verification for example)
+            payload_part = token.split(".")[1]
+            # Add padding if needed
+            payload_part += "=" * (4 - len(payload_part) % 4)
+            payload = json.loads(base64.urlsafe_b64decode(payload_part))
+            return f"jwt_sub:{payload.get('sub', 'unknown')}"
+        except Exception:
+            pass
+    return f"ip:{request.META.get('REMOTE_ADDR', 'unknown')}"
+
+
+@rate_limit(key=jwt_subject_key, rate="200/h")
+def jwt_protected_api(request):
+    """JWT-protected API with token-based rate limiting."""
+    return JsonResponse({"protected_data": "JWT-protected endpoint"})
+
+
+# Example 7: Non-blocking rate limiting (just adds headers)
 @rate_limit(key="ip", rate="5/m", block=False)
 def api_non_blocking(request):
     """API endpoint that doesn't block but adds rate limit headers."""
     return JsonResponse({"message": "Non-blocking rate limited endpoint"})
 
 
-# Example 5: Different rates for different endpoints
+# Example 8: Different rates for different endpoints
 @rate_limit(key="user", rate="1000/h")
 def api_high_limit(request):
     """High-traffic API endpoint."""
@@ -135,6 +199,54 @@ RATELIMIT_MIDDLEWARE = {
 }
 """
 
+# Example Django settings.py configuration for Database Backend
+DATABASE_BACKEND_SETTINGS = """
+# settings.py - Database Backend Configuration
+
+# Basic configuration
+RATELIMIT_BACKEND = 'database'
+
+# Database backend specific settings
+RATELIMIT_DATABASE_CLEANUP_THRESHOLD = 1000  # Cleanup threshold for entries
+
+# Use sliding window algorithm for more accurate rate limiting
+RATELIMIT_ALGORITHM = "sliding_window"
+
+# Add to INSTALLED_APPS
+INSTALLED_APPS = [
+    # ... your other apps
+    'django_smart_ratelimit',
+]
+
+# Run migrations
+# python manage.py makemigrations django_smart_ratelimit
+# python manage.py migrate
+
+# Middleware configuration
+MIDDLEWARE = [
+    'django_smart_ratelimit.middleware.RateLimitMiddleware',
+    # ... other middleware
+]
+
+RATELIMIT_MIDDLEWARE = {
+    'DEFAULT_RATE': '100/m',  # 100 requests per minute by default
+    'BACKEND': 'database',
+    'BLOCK': True,
+    'SKIP_PATHS': ['/admin/', '/health/', '/metrics/'],
+    'RATE_LIMITS': {
+        '/api/public/': '1000/h',    # Public API: 1000 requests per hour
+        '/api/private/': '100/h',    # Private API: 100 requests per hour
+        '/auth/login/': '5/m',       # Login: 5 attempts per minute
+        '/auth/register/': '3/h',    # Registration: 3 attempts per hour
+        '/upload/': '10/h',          # File uploads: 10 per hour
+    },
+}
+
+# Management commands for cleanup
+# python manage.py cleanup_ratelimit --dry-run
+# python manage.py cleanup_ratelimit --older-than 24  # Clean entries older than 24h
+"""
+
 # Example URL configuration
 EXAMPLE_URLS = """
 # urls.py
@@ -143,10 +255,18 @@ from django.urls import path
 from . import views
 
 urlpatterns = [
+    # Basic examples
     path('api/basic/', views.api_basic, name='api_basic'),
     path('api/user/', views.api_user_limited, name='api_user'),
-    path('api/smart/', views.api_smart_limited, name='api_smart'),
     path('api/non-blocking/', views.api_non_blocking, name='api_non_blocking'),
+
+    # Advanced key-based examples
+    path('api/keys/', views.api_with_keys, name='api_keys'),
+    path('api/tenant/', views.tenant_api, name='tenant_api'),
+    path('api/custom-user/', views.custom_user_api, name='custom_user_api'),
+    path('api/jwt/', views.jwt_protected_api, name='jwt_api'),
+
+    # Different rate limits
     path('api/high-limit/', views.api_high_limit, name='api_high_limit'),
     path('api/sensitive/', views.api_sensitive, name='api_sensitive'),
 ]
@@ -164,6 +284,8 @@ if __name__ == "__main__":
     print(REDIS_BACKEND_SETTINGS)
     print("\nMemory Backend Configuration:")
     print(MEMORY_BACKEND_SETTINGS)
+    print("\nDatabase Backend Configuration:")
+    print(DATABASE_BACKEND_SETTINGS)
     print("\nURL configuration:")
     print(EXAMPLE_URLS)
     print("\nFor more information, see the README.md file.")

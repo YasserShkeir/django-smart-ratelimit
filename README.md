@@ -131,15 +131,113 @@ def user_api(request):
 #### Custom Key Functions
 
 ```python
-def custom_key(request):
-    if request.user.is_authenticated:
-        return f"user:{request.user.id}"
+# Example 1: Using custom user ID from headers
+def api_key_based_key(request):
+    api_key = request.headers.get('X-API-Key')
+    if api_key:
+        return f"api_key:{api_key}"
     return f"ip:{request.META.get('REMOTE_ADDR')}"
 
-@rate_limit(key=custom_key, rate='50/m')
-def smart_api(request):
+@rate_limit(key=api_key_based_key, rate='1000/h')
+def api_endpoint(request):
+    return JsonResponse({'data': '...'})
+
+# Example 2: Using custom tenant/organization ID
+def tenant_key(request):
+    tenant_id = request.headers.get('X-Tenant-ID')
+    if tenant_id:
+        return f"tenant:{tenant_id}"
+    # Fallback to IP if no tenant ID
+    return f"ip:{request.META.get('REMOTE_ADDR')}"
+
+@rate_limit(key=tenant_key, rate='500/h')
+def tenant_api(request):
+    return JsonResponse({'tenant_data': '...'})
+
+# Example 3: Using database model IDs
+def custom_user_key(request):
+    # Get custom user ID from your own User model
+    if hasattr(request, 'custom_user') and request.custom_user:
+        return f"custom_user:{request.custom_user.id}"
+    elif request.user.is_authenticated:
+        return f"django_user:{request.user.id}"
+    return f"ip:{request.META.get('REMOTE_ADDR')}"
+
+@rate_limit(key=custom_user_key, rate='100/h')
+def custom_user_api(request):
+    return JsonResponse({'user_data': '...'})
+
+# Example 4: Using JWT token subject
+def jwt_subject_key(request):
+    # Extract subject from JWT token
+    auth_header = request.headers.get('Authorization', '')
+    if auth_header.startswith('Bearer '):
+        try:
+            import jwt
+            token = auth_header.split(' ')[1]
+            payload = jwt.decode(token, options={"verify_signature": False})
+            return f"jwt_sub:{payload.get('sub')}"
+        except:
+            pass
+    return f"ip:{request.META.get('REMOTE_ADDR')}"
+
+@rate_limit(key=jwt_subject_key, rate='200/h')
+def jwt_protected_api(request):
+    return JsonResponse({'protected_data': '...'})
+
+# Example 5: Using session-based identification
+def session_key(request):
+    if request.session.session_key:
+        return f"session:{request.session.session_key}"
+    return f"ip:{request.META.get('REMOTE_ADDR')}"
+
+@rate_limit(key=session_key, rate='50/m')
+def session_api(request):
+    return JsonResponse({'session_data': '...'})
+```
+
+#### Advanced Key Examples
+
+```python
+# Composite keys for complex scenarios
+def composite_key(request):
+    """Use multiple identifiers for more precise rate limiting."""
+    identifiers = []
+
+    # Add API key if present
+    if api_key := request.headers.get('X-API-Key'):
+        identifiers.append(f"api:{api_key}")
+
+    # Add user ID if authenticated
+    if request.user.is_authenticated:
+        identifiers.append(f"user:{request.user.id}")
+
+    # Add IP as fallback
+    identifiers.append(f"ip:{request.META.get('REMOTE_ADDR')}")
+
+    # Use the most specific identifier available
+    return identifiers[0]
+
+@rate_limit(key=composite_key, rate='100/h')
+def flexible_api(request):
     return JsonResponse({'data': '...'})
 ```
+
+#### Built-in Key Shortcuts
+
+The library also provides built-in key shortcuts for common patterns:
+
+````python
+# Built-in shortcuts
+@rate_limit(key='ip', rate='10/m')          # Uses IP address
+@rate_limit(key='user', rate='100/h')       # Uses Django user ID
+@rate_limit(key='user_or_ip', rate='50/m')  # Uses user ID if authenticated, IP otherwise
+
+# String template format (for simple cases)
+@rate_limit(key='custom_id:{custom_id}', rate='100/h')  # You can access request attributes
+def templated_api(request):
+    # The {custom_id} will be replaced with request.custom_id if it exists
+    return JsonResponse({'data': '...'})
 
 #### Non-blocking Rate Limiting
 
@@ -150,7 +248,7 @@ def api_with_headers(request):
     # X-RateLimit-Remaining will be 0 when limit is exceeded
     # but the request continues processing normally
     return JsonResponse({'data': '...'})
-```
+````
 
 ### Middleware Examples
 
