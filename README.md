@@ -366,20 +366,20 @@ See [CHANGELOG.md](CHANGELOG.md) for detailed version history and release notes.
 
 ## 💖 Support the Project
 
-If this library has saved you time and effort, consider supporting its development:
+If this library has saved you time and effort, consider helping us maintain this project and support future development:
 
-### Cryptocurrency Donations
+### Financial Support
 
 - **USDT (Ethereum)**: `0x202943b3a6CC168F92871d9e295537E6cbc53Ff4`
 
-### Alternative Support Methods
+### Community Support
 
 - ⭐ **Star this repository** on GitHub
 - 🐛 **Report bugs** and suggest features
 - 🔀 **Contribute** code improvements
 - 📢 **Share** with your team and community
 
-Your support helps maintain and improve this open-source project! 🙏
+Your support helps us maintain this open-source project and develop new packages for the community! 🙏
 
 ## Acknowledgments
 
