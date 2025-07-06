@@ -63,6 +63,9 @@ This document tracks the planned improvements and new features for Django Smart 
   - Use Django ORM for database operations ✅
   - Add database cleanup management command ✅
   - Consider database-specific optimizations ✅
+- **Database Compatibility**:
+  - **Currently Supported**: PostgreSQL, MySQL/MariaDB, SQLite, Oracle, SQL Server
+  - **Future Support**: MongoDB, DynamoDB, InfluxDB, CouchDB, GraphQL adapters (see features 4-8 below)
 
 ### 3. Multi-Backend Support
 - [ ] **Status**: Not Started
@@ -80,6 +83,96 @@ This document tracks the planned improvements and new features for Django Smart 
   - Implement health checks for backends
   - Add configuration for backend priorities
   - Handle backend failures gracefully
+
+### 4. MongoDB Backend
+- [ ] **Status**: Not Started
+- [ ] **Completed Date**:
+- **Description**: NoSQL backend using MongoDB for rate limiting
+- **Files to Create/Modify**:
+  - `django_smart_ratelimit/backends/mongodb.py`
+  - `tests/test_mongodb_backend.py`
+- **Tests Required**:
+  - MongoDB operations tests
+  - TTL index tests
+  - Performance tests
+  - Connection handling tests
+- **Implementation Notes**:
+  - Use pymongo for MongoDB operations
+  - Implement TTL collections for automatic cleanup
+  - Add MongoDB connection pooling
+  - Support for MongoDB Atlas and self-hosted instances
+
+### 5. DynamoDB Backend
+- [ ] **Status**: Not Started
+- [ ] **Completed Date**:
+- **Description**: AWS DynamoDB backend for serverless deployments
+- **Files to Create/Modify**:
+  - `django_smart_ratelimit/backends/dynamodb.py`
+  - `tests/test_dynamodb_backend.py`
+- **Tests Required**:
+  - DynamoDB operations tests
+  - TTL functionality tests
+  - Performance tests
+  - AWS credential handling tests
+- **Implementation Notes**:
+  - Use boto3 for DynamoDB operations
+  - Implement TTL attributes for automatic cleanup
+  - Add support for DynamoDB local for testing
+  - Handle AWS credentials and regions properly
+
+### 6. InfluxDB Backend
+- [ ] **Status**: Not Started
+- [ ] **Completed Date**:
+- **Description**: Time-series database backend for analytics and monitoring
+- **Files to Create/Modify**:
+  - `django_smart_ratelimit/backends/influxdb.py`
+  - `tests/test_influxdb_backend.py`
+- **Tests Required**:
+  - Time-series operations tests
+  - Query performance tests
+  - Retention policy tests
+  - Connection handling tests
+- **Implementation Notes**:
+  - Use influxdb-client for InfluxDB operations
+  - Implement retention policies for data cleanup
+  - Add support for InfluxDB Cloud and self-hosted
+  - Optimize for time-series queries and analytics
+
+### 7. CouchDB Backend
+- [ ] **Status**: Not Started
+- [ ] **Completed Date**:
+- **Description**: Document database backend using CouchDB
+- **Files to Create/Modify**:
+  - `django_smart_ratelimit/backends/couchdb.py`
+  - `tests/test_couchdb_backend.py`
+- **Tests Required**:
+  - Document operations tests
+  - View/index tests
+  - Replication tests
+  - Performance tests
+- **Implementation Notes**:
+  - Use couchdb library for CouchDB operations
+  - Implement views for efficient querying
+  - Add support for CouchDB clustering
+  - Handle document conflicts gracefully
+
+### 8. GraphQL Backend Adapter
+- [ ] **Status**: Not Started
+- [ ] **Completed Date**:
+- **Description**: Adapter for GraphQL-based database systems
+- **Files to Create/Modify**:
+  - `django_smart_ratelimit/backends/graphql_adapter.py`
+  - `tests/test_graphql_adapter.py`
+- **Tests Required**:
+  - GraphQL query tests
+  - Mutation tests
+  - Schema validation tests
+  - Performance tests
+- **Implementation Notes**:
+  - Use graphql-core for GraphQL operations
+  - Support for various GraphQL backends (Hasura, PostGraphile, etc.)
+  - Implement rate limiting schema extensions
+  - Add configurable GraphQL endpoints
 
 ---
 
