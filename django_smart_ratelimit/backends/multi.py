@@ -118,11 +118,18 @@ class MultiBackend(BaseBackend):
         """
         for config in backend_configs:
             backend_path = config.get("backend")
-            backend_name = config.get("name", backend_path)
+            backend_name = config.get("name") or backend_path
             backend_config = config.get("config", {})
 
             if not backend_path:
                 logger.warning("Backend configuration missing 'backend' key")
+                continue
+
+            # Ensure backend_name is a string
+            if not backend_name:
+                logger.warning(
+                    "Backend configuration missing both 'name' and 'backend' keys"
+                )
                 continue
 
             try:
