@@ -146,7 +146,9 @@ def smart_api(request):
 ```python
 @rate_limit(key='ip', rate='10/m', block=False)
 def api_with_headers(request):
-    # This will add headers but not block requests
+    # This will add rate limit headers but not block requests
+    # X-RateLimit-Remaining will be 0 when limit is exceeded
+    # but the request continues processing normally
     return JsonResponse({'data': '...'})
 ```
 
@@ -201,13 +203,24 @@ The library supports several rate formats:
 
 ## Response Headers
 
-When rate limiting is applied, the following headers are added:
+When rate limiting is applied, the following headers are added to all responses:
 
 ```
 X-RateLimit-Limit: 100
 X-RateLimit-Remaining: 75
 X-RateLimit-Reset: 1640995200
 ```
+
+### Header Behavior
+
+- **When `block=True` (default)**: Headers are added to successful responses. When the limit is exceeded, a 429 status is returned with headers.
+- **When `block=False`**: Headers are always added to responses, even when the limit is exceeded. The `X-RateLimit-Remaining` will be `0` when the limit is exceeded, but the request continues processing normally.
+
+### Header Descriptions
+
+- `X-RateLimit-Limit`: The maximum number of requests allowed in the current window
+- `X-RateLimit-Remaining`: The number of requests remaining in the current window
+- `X-RateLimit-Reset`: Unix timestamp when the current window resets
 
 ## Algorithms
 
