@@ -245,3 +245,330 @@ Contributors are recognized in:
 - Project documentation
 
 Thank you for contributing to Django Smart Ratelimit!
+
+## Advanced Configuration Examples
+
+### Multi-Backend Configurations
+
+#### High Availability Setup
+
+```python
+# settings.py - Production multi-backend setup
+RATELIMIT_BACKENDS = [
+    {
+        'name': 'primary_redis',
+        'backend': 'redis',
+        'config': {
+            'host': 'redis-primary.example.com',
+            'port': 6379,
+            'db': 0,
+            'password': 'your-redis-password',
+            'socket_timeout': 0.1,
+        }
+    },
+    {
+        'name': 'fallback_redis',
+        'backend': 'redis',
+        'config': {
+            'host': 'redis-fallback.example.com',
+            'port': 6379,
+            'db': 0,
+            'password': 'your-redis-password',
+            'socket_timeout': 0.1,
+        }
+    },
+    {
+        'name': 'emergency_database',
+        'backend': 'database',
+        'config': {
+            'cleanup_threshold': 1000,
+        }
+    }
+]
+RATELIMIT_MULTI_BACKEND_STRATEGY = 'first_healthy'
+RATELIMIT_HEALTH_CHECK_INTERVAL = 30
+RATELIMIT_HEALTH_CHECK_TIMEOUT = 5
+```
+
+#### Load Balancing Setup
+
+```python
+# settings.py - Round-robin load balancing
+RATELIMIT_BACKENDS = [
+    {
+        'name': 'redis_1',
+        'backend': 'redis',
+        'config': {'host': 'redis-1.example.com'}
+    },
+    {
+        'name': 'redis_2',
+        'backend': 'redis',
+        'config': {'host': 'redis-2.example.com'}
+    },
+    {
+        'name': 'redis_3',
+        'backend': 'redis',
+        'config': {'host': 'redis-3.example.com'}
+    }
+]
+RATELIMIT_MULTI_BACKEND_STRATEGY = 'round_robin'
+```
+
+### Complex Key Function Examples
+
+#### Enterprise API Key Management
+
+```python
+# utils/ratelimit.py
+def enterprise_api_key(request):
+    """Complex key function for enterprise API management."""
+    api_key = request.headers.get('X-API-Key')
+
+    if api_key:
+        # Look up API key in your system
+        try:
+            api_key_obj = APIKey.objects.select_related('organization').get(
+                key=api_key,
+                is_active=True
+            )
+            # Use organization-based limiting
+            return f"org:{api_key_obj.organization.id}"
+        except APIKey.DoesNotExist:
+            # Invalid API key, use IP limiting
+            pass
+
+    # Fallback to user or IP
+    if request.user.is_authenticated:
+        return f"user:{request.user.id}"
+
+    return f"ip:{request.META.get('REMOTE_ADDR')}"
+
+# Apply to views
+@rate_limit(key=enterprise_api_key, rate='10000/h')
+def enterprise_api(request):
+    return JsonResponse({'data': '...'})
+```
+
+#### JWT Token-Based Limiting
+
+```python
+# utils/ratelimit.py
+import jwt
+from django.conf import settings
+
+def jwt_subject_key(request):
+    """Extract rate limiting key from JWT token."""
+    auth_header = request.headers.get('Authorization', '')
+
+    if auth_header.startswith('Bearer '):
+        try:
+            token = auth_header.split(' ')[1]
+            # Decode without verification for key extraction
+            payload = jwt.decode(
+                token,
+                options={"verify_signature": False}
+            )
+
+            # Use JWT subject for rate limiting
+            if 'sub' in payload:
+                return f"jwt_sub:{payload['sub']}"
+
+            # Or use custom claims
+            if 'org_id' in payload:
+                return f"org:{payload['org_id']}"
+
+        except jwt.InvalidTokenError:
+            pass
+
+    # Fallback to IP
+    return f"ip:{request.META.get('REMOTE_ADDR')}"
+```
+
+### Performance Tuning
+
+#### Redis Optimization
+
+```python
+# settings.py - Optimized Redis configuration
+RATELIMIT_REDIS = {
+    'host': 'localhost',
+    'port': 6379,
+    'db': 0,
+    'password': None,
+    'socket_timeout': 0.1,          # Fast timeout
+    'socket_connect_timeout': 0.1,  # Fast connection
+    'socket_keepalive': True,       # Keep connections alive
+    'socket_keepalive_options': {},
+    'connection_pool_kwargs': {
+        'max_connections': 50,      # Pool size
+        'retry_on_timeout': True,
+    },
+    'key_prefix': 'rl:',           # Short prefix
+}
+
+# Use sliding window for accuracy
+RATELIMIT_ALGORITHM = 'sliding_window'
+```
+
+#### Database Backend Tuning
+
+```python
+# settings.py - Database backend optimization
+RATELIMIT_DATABASE_CLEANUP_THRESHOLD = 5000  # Clean more frequently
+RATELIMIT_ALGORITHM = 'fixed_window'          # Faster for DB
+
+# Add database indexes (in your migration)
+"""
+ALTER TABLE django_smart_ratelimit_ratelimitentry
+ADD INDEX idx_key_window (key, window_start);
+
+ALTER TABLE django_smart_ratelimit_ratelimitcounter
+ADD INDEX idx_key_expires (key, expires_at);
+"""
+```
+
+### Testing Configuration
+
+#### Development Settings
+
+```python
+# settings/development.py
+RATELIMIT_BACKEND = 'memory'
+RATELIMIT_MEMORY_MAX_KEYS = 1000
+RATELIMIT_ALGORITHM = 'fixed_window'
+
+# Disable rate limiting in development
+RATELIMIT_ENABLE = False  # Custom setting you can check
+```
+
+#### Testing Settings
+
+```python
+# settings/testing.py
+RATELIMIT_BACKEND = 'memory'
+RATELIMIT_MEMORY_MAX_KEYS = 100
+
+# Override in tests
+from django.test.utils import override_settings
+
+@override_settings(RATELIMIT_BACKEND='memory')
+class MyTestCase(TestCase):
+    def test_rate_limiting(self):
+        # Your test code here
+        pass
+```
+
+### Monitoring and Alerting
+
+#### Health Check Script
+
+```python
+#!/usr/bin/env python
+# scripts/health_check.py
+import os
+import sys
+import django
+from django.conf import settings
+
+# Setup Django
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'myproject.settings')
+django.setup()
+
+from django_smart_ratelimit.backends import get_backend
+
+def check_backend_health():
+    """Check rate limiting backend health."""
+    try:
+        backend = get_backend()
+
+        if hasattr(backend, 'get_backend_status'):
+            # Multi-backend
+            status = backend.get_backend_status()
+            stats = backend.get_stats()
+
+            if stats['healthy_backends'] == 0:
+                print("❌ All backends are unhealthy!")
+                return False
+            elif stats['healthy_backends'] < stats['total_backends']:
+                print(f"⚠️  {stats['healthy_backends']}/{stats['total_backends']} backends healthy")
+                return True
+            else:
+                print("✅ All backends healthy")
+                return True
+        else:
+            # Single backend
+            backend.get_count('_health_check')
+            print("✅ Backend healthy")
+            return True
+
+    except Exception as e:
+        print(f"❌ Backend health check failed: {e}")
+        return False
+
+if __name__ == '__main__':
+    if not check_backend_health():
+        sys.exit(1)
+```
+
+#### Automated Cleanup Script
+
+```python
+#!/usr/bin/env python
+# scripts/cleanup_ratelimit.py
+import os
+import sys
+import django
+from django.core.management import call_command
+
+# Setup Django
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'myproject.settings')
+django.setup()
+
+def cleanup_ratelimit_data():
+    """Automated cleanup of rate limit data."""
+    try:
+        # Dry run first
+        print("🔍 Checking what would be cleaned...")
+        call_command('cleanup_ratelimit', '--dry-run', '--verbose')
+
+        # Actual cleanup
+        print("🧹 Starting cleanup...")
+        call_command('cleanup_ratelimit', '--verbose', '--batch-size', '1000')
+
+        print("✅ Cleanup completed successfully")
+        return True
+
+    except Exception as e:
+        print(f"❌ Cleanup failed: {e}")
+        return False
+
+if __name__ == '__main__':
+    if not cleanup_ratelimit_data():
+        sys.exit(1)
+```
+
+## Development Best Practices
+
+### Code Style Guidelines
+
+1. **Follow PEP 8** with line length of 88 characters
+2. **Use type hints** for all function parameters and return values
+3. **Add docstrings** for all public functions and classes
+4. **Use descriptive variable names** and avoid abbreviations
+5. **Keep functions small** and focused on single responsibility
+
+### Testing Guidelines
+
+1. **Write comprehensive tests** for all new features
+2. **Include edge cases** and error conditions
+3. **Use meaningful test names** that describe the scenario
+4. **Mock external dependencies** (Redis, database) when appropriate
+5. **Test both success and failure paths**
+
+### Documentation Standards
+
+1. **Update README** for user-facing changes
+2. **Add docstrings** with examples for complex functions
+3. **Update CHANGELOG** for all changes
+4. **Include configuration examples** for new features
+5. **Add migration guides** for breaking changes

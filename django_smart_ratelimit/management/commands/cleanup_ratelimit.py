@@ -11,7 +11,28 @@ from ...models import RateLimitCounter, RateLimitEntry
 
 
 class Command(BaseCommand):
-    """Django management command to clean up expired rate limit entries."""
+    """
+    Django management command to clean up expired rate limit entries.
+
+    This command removes expired rate limit entries from the database backend
+    to prevent storage bloat and maintain performance.
+
+    Examples:
+        # Clean up all expired entries
+        python manage.py cleanup_ratelimit
+
+        # Dry run to see what would be deleted
+        python manage.py cleanup_ratelimit --dry-run
+
+        # Clean entries older than 24 hours
+        python manage.py cleanup_ratelimit --older-than 24
+
+        # Clean specific key patterns
+        python manage.py cleanup_ratelimit --key-pattern "api:*"
+
+        # Use smaller batch sizes for large databases
+        python manage.py cleanup_ratelimit --batch-size 500
+    """
 
     help = "Clean up expired rate limit entries from the database"
 
@@ -21,29 +42,38 @@ class Command(BaseCommand):
             "--dry-run",
             action="store_true",
             dest="dry_run",
-            help="Show what would be deleted without actually deleting",
+            help=(
+                "Show what would be deleted without actually deleting "
+                "(safe preview mode)"
+            ),
         )
         parser.add_argument(
             "--batch-size",
             type=int,
             default=1000,
-            help="Number of records to delete in each batch (default: 1000)",
+            help="Number of records to delete in each batch (default: 1000). "
+            "Use smaller values for large databases to avoid locks.",
         )
         parser.add_argument(
             "--older-than",
             type=int,
             default=0,
-            help="Delete entries older than N hours (default: 0 = expired only)",
+            help="Delete entries older than N hours (default: 0 = expired only). "
+            "Use positive values to clean old but not yet expired entries.",
         )
         parser.add_argument(
             "--key-pattern",
             type=str,
-            help="Only clean entries matching this key pattern (supports wildcards)",
+            help=(
+                "Only clean entries matching this key pattern "
+                "(supports SQL LIKE wildcards). "
+                "Examples: 'api:*', 'user:123:*', '*login*'"
+            ),
         )
         parser.add_argument(
             "--verbose",
             action="store_true",
-            help="Enable verbose output",
+            help="Enable verbose output with detailed progress information",
         )
 
     def handle(self, *args: Any, **options: Any) -> None:

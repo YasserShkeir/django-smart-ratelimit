@@ -158,6 +158,42 @@ RATELIMIT_ALGORITHM = "sliding_window"  # vs "fixed_window"
 RATELIMIT_KEY_PREFIX = 'ratelimit:'
 ```
 
+### Multi-Backend Support
+
+```python
+RATELIMIT_BACKEND = 'django_smart_ratelimit.backends.multi.MultiBackend'
+RATELIMIT_BACKEND_CONFIG = {
+    'backends': [
+        {
+            'name': 'primary_redis',
+            'backend': 'django_smart_ratelimit.backends.redis_backend.RedisBackend',
+            'config': {
+                'host': 'redis-1.example.com',
+                'port': 6379,
+                'db': 0,
+            }
+        },
+        {
+            'name': 'secondary_redis',
+            'backend': 'django_smart_ratelimit.backends.redis_backend.RedisBackend',
+            'config': {
+                'host': 'redis-2.example.com',
+                'port': 6379,
+                'db': 0,
+            }
+        },
+        {
+            'name': 'fallback_database',
+            'backend': 'django_smart_ratelimit.backends.database.DatabaseBackend',
+            'config': {}
+        }
+    ],
+    'fallback_strategy': 'first_healthy',  # or 'round_robin'
+    'health_check_interval': 30,  # seconds
+    'health_check_timeout': 5,    # seconds
+}
+```
+
 ## Key Generation
 
 ### String Templates

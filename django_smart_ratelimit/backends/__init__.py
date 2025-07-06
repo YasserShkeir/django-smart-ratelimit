@@ -10,6 +10,7 @@ from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 
 from .base import BaseBackend
+from .factory import BackendFactory
 
 # Backend instance cache
 _backend_instances: Dict[str, BaseBackend] = {}
@@ -26,7 +27,11 @@ def get_backend(backend_name: Optional[str] = None) -> BaseBackend:
         Configured backend instance (cached for reuse)
     """
     if backend_name is None:
-        backend_name = getattr(settings, "RATELIMIT_BACKEND", "redis")
+        # Check if multi-backend is configured
+        if hasattr(settings, "RATELIMIT_BACKENDS") and settings.RATELIMIT_BACKENDS:
+            backend_name = "multi"
+        else:
+            backend_name = getattr(settings, "RATELIMIT_BACKEND", "redis")
 
     # Return cached instance if available
     if backend_name in _backend_instances:
@@ -46,8 +51,19 @@ def get_backend(backend_name: Optional[str] = None) -> BaseBackend:
         from .database import DatabaseBackend
 
         backend = DatabaseBackend()
+    elif backend_name == "multi":
+        from .multi import MultiBackend
+
+        backend = MultiBackend()
     else:
-        raise ImproperlyConfigured(f"Unknown backend: {backend_name}")
+        # Try to create backend using factory for full path
+        try:
+            # Check if it's a simple name or full path
+            if "." not in backend_name:
+                raise ImproperlyConfigured(f"Unknown backend: {backend_name}")
+            backend = BackendFactory.create_backend(backend_name)
+        except (ImportError, AttributeError, ValueError):
+            raise ImproperlyConfigured(f"Unknown backend: {backend_name}")
 
     # Cache the instance
     _backend_instances[backend_name] = backend

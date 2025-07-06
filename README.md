@@ -8,42 +8,63 @@
 [![Downloads](https://img.shields.io/pypi/dm/django-smart-ratelimit.svg)](https://pypi.org/project/django-smart-ratelimit/)
 [![License](https://img.shields.io/pypi/l/django-smart-ratelimit.svg)](https://github.com/YasserShkeir/django-smart-ratelimit/blob/main/LICENSE)
 
-A flexible and efficient rate limiting library for Django applications with support for multiple backends and sliding window algorithms.
+A flexible and efficient rate limiting library for Django applications with support for multiple backends and automatic fallback.
 
-## Features
+## ✨ Features
 
-- 🚀 **High Performance**: Atomic operations using Redis Lua scripts
-- 🔧 **Flexible Configuration**: Both decorator and middleware support
+- 🚀 **High Performance**: Atomic operations using Redis Lua scripts and optimized algorithms
+- 🔧 **Flexible Configuration**: Both decorator and middleware support with custom key functions
 - 🪟 **Multiple Algorithms**: Fixed window and sliding window rate limiting
-- 🔌 **Multiple Backends**: Redis, Database, and Memory backends with extensible architecture
-- 📊 **Rich Headers**: Standard rate limiting headers
-- 🛡️ **Production Ready**: Comprehensive testing and error handling
+- 🔌 **Multiple Backends**: Redis, Database, Memory, and Multi-Backend with automatic fallback
+- 📊 **Rich Headers**: Standard rate limiting headers (X-RateLimit-\*)
+- 🛡️ **Production Ready**: Comprehensive testing, error handling, and monitoring
+- 🔄 **Auto-Fallback**: Seamless failover between backends when one goes down
+- 📈 **Health Monitoring**: Built-in health checks and status reporting
 
-## Quick Start
+## 🚀 Quick Setup
 
-### Installation
+### 1. Installation
 
 ```bash
 pip install django-smart-ratelimit
 ```
 
-### Basic Usage
+### 2. Add to Django Settings
 
-#### Decorator Style
+```python
+# settings.py
+INSTALLED_APPS = [
+    # ... your apps
+    'django_smart_ratelimit',
+]
+
+# Basic Redis configuration (recommended for production)
+RATELIMIT_BACKEND = 'redis'
+RATELIMIT_REDIS = {
+    'host': 'localhost',
+    'port': 6379,
+    'db': 0,
+}
+```
+
+### 3. Choose Your Style
+
+#### Option A: Decorator Style (View-Level)
 
 ```python
 from django_smart_ratelimit import rate_limit
+from django.http import JsonResponse
 
 @rate_limit(key='ip', rate='10/m')
-def my_view(request):
-    return HttpResponse('Hello World')
-
-@rate_limit(key='user:{user.id}', rate='100/h', block=True)
 def api_endpoint(request):
-    return JsonResponse({'data': 'some data'})
+    return JsonResponse({'message': 'Hello World'})
+
+@rate_limit(key='user', rate='100/h', block=True)
+def user_api(request):
+    return JsonResponse({'data': 'user-specific data'})
 ```
 
-#### Middleware Style
+#### Option B: Middleware Style (Application-Level)
 
 ```python
 # settings.py
@@ -54,434 +75,227 @@ MIDDLEWARE = [
 
 RATELIMIT_MIDDLEWARE = {
     'DEFAULT_RATE': '100/m',
-    'BACKEND': 'redis',
-    'SKIP_PATHS': ['/admin/', '/health/'],
     'RATE_LIMITS': {
         '/api/': '1000/h',
         '/auth/login/': '5/m',
-    }
+    },
+    'SKIP_PATHS': ['/admin/', '/health/'],
 }
 ```
 
-### Configuration
+### 4. Test It Works
 
-#### Redis Backend
+```bash
+# Check backend health
+python manage.py ratelimit_health
+
+# Test with curl
+curl -I http://localhost:8000/api/endpoint/
+# Look for X-RateLimit-* headers
+```
+
+That's it! You now have rate limiting protection. 🎉
+
+## 📖 Documentation
+
+### Core Concepts
+
+- **[Backend Configuration](docs/backends.md)** - Redis, Database, Memory, and Multi-Backend setup
+- **[Architecture & Design](docs/design.md)** - Core architecture, algorithms, and design decisions
+- **[Management Commands](docs/management_commands.md)** - Health checks and cleanup commands
+
+### Advanced Configuration
+
+- **[Multi-Backend Examples](docs/backends.md#multi-backend-high-availability)** - High availability with automatic fallback
+- **[Complex Key Functions](CONTRIBUTING.md#complex-key-function-examples)** - Enterprise API keys, JWT tokens, custom patterns
+- **[Performance Tuning](CONTRIBUTING.md#performance-tuning)** - Optimization tips and best practices
+- **[Monitoring Setup](CONTRIBUTING.md#monitoring-and-alerting)** - Production monitoring and alerting
+
+### Development & Contributing
+
+- **[Contributing Guide](CONTRIBUTING.md)** - Development setup, testing, and code guidelines
+- **[Features Roadmap](FEATURES_ROADMAP.md)** - Planned features and implementation status
+- **[Release Guide](RELEASE_GUIDE.md)** - Release process and version management
+
+## 🏗️ Basic Examples
+
+### Decorator Examples
+
+```python
+from django_smart_ratelimit import rate_limit
+
+# Basic IP-based limiting
+@rate_limit(key='ip', rate='10/m')
+def public_api(request):
+    return JsonResponse({'message': 'Hello World'})
+
+# User-based limiting (requires authentication)
+@rate_limit(key='user', rate='100/h')
+def user_dashboard(request):
+    return JsonResponse({'user_data': '...'})
+
+# Custom key with fallback
+@rate_limit(key='user_or_ip', rate='50/h')
+def flexible_api(request):
+    return JsonResponse({'data': '...'})
+
+# Block when limit exceeded (default is to continue)
+@rate_limit(key='ip', rate='5/m', block=True)
+def strict_api(request):
+    return JsonResponse({'sensitive': 'data'})
+```
+
+### Middleware Configuration
 
 ```python
 # settings.py
+RATELIMIT_MIDDLEWARE = {
+    # Default rate for all paths
+    'DEFAULT_RATE': '100/m',
+
+    # Path-specific rates
+    'RATE_LIMITS': {
+        '/api/auth/': '10/m',      # Authentication endpoints
+        '/api/upload/': '5/h',     # File uploads
+        '/api/search/': '50/m',    # Search endpoints
+        '/api/': '200/h',          # General API
+    },
+
+    # Paths to skip (no rate limiting)
+    'SKIP_PATHS': [
+        '/admin/',
+        '/health/',
+        '/static/',
+    ],
+
+    # Custom key function
+    'KEY_FUNCTION': 'myapp.utils.get_api_key_or_ip',
+
+    # Block requests when limit exceeded
+    'BLOCK': True,
+}
+```
+
+## 🔧 Backend Options
+
+### Redis (Recommended for Production)
+
+```python
 RATELIMIT_BACKEND = 'redis'
 RATELIMIT_REDIS = {
     'host': 'localhost',
     'port': 6379,
     'db': 0,
-    'password': None,
+    'password': 'your-password',  # if needed
+    'socket_timeout': 0.1,
 }
-
-# Algorithm selection
-RATELIMIT_ALGORITHM = 'sliding_window'  # or 'fixed_window'
 ```
 
-#### Memory Backend
+### Database (Good for Small Scale)
 
 ```python
-# settings.py
-RATELIMIT_BACKEND = 'memory'
-
-# Memory backend configuration
-RATELIMIT_MEMORY_MAX_KEYS = 10000  # Maximum number of keys to store
-RATELIMIT_MEMORY_CLEANUP_INTERVAL = 300  # Cleanup interval in seconds
-
-# Algorithm selection
-RATELIMIT_ALGORITHM = "sliding_window"  # or "fixed_window"
-```
-
-#### Database Backend
-
-```python
-# settings.py
 RATELIMIT_BACKEND = 'database'
-
-# Database backend configuration
-RATELIMIT_DATABASE_CLEANUP_THRESHOLD = 1000  # Cleanup threshold for entries
-
-# Algorithm selection
-RATELIMIT_ALGORITHM = "sliding_window"  # or "fixed_window"
+# No additional configuration needed
+# Uses your default Django database
 ```
 
-## Usage Examples
-
-### Decorator Examples
-
-#### Basic Rate Limiting
+### Memory (Development Only)
 
 ```python
-from django_smart_ratelimit import rate_limit
-
-# Limit by IP address
-@rate_limit(key='ip', rate='10/m')
-def public_api(request):
-    return JsonResponse({'message': 'Hello World'})
-
-# Limit by user
-@rate_limit(key='user', rate='100/h')
-def user_api(request):
-    return JsonResponse({'user_data': '...'})
+RATELIMIT_BACKEND = 'memory'
+RATELIMIT_MEMORY_MAX_KEYS = 10000
 ```
 
-#### Custom Key Functions
+### Multi-Backend (High Availability)
 
 ```python
-# Example 1: Using custom user ID from headers
-def api_key_based_key(request):
-    api_key = request.headers.get('X-API-Key')
-    if api_key:
-        return f"api_key:{api_key}"
-    return f"ip:{request.META.get('REMOTE_ADDR')}"
-
-@rate_limit(key=api_key_based_key, rate='1000/h')
-def api_endpoint(request):
-    return JsonResponse({'data': '...'})
-
-# Example 2: Using custom tenant/organization ID
-def tenant_key(request):
-    tenant_id = request.headers.get('X-Tenant-ID')
-    if tenant_id:
-        return f"tenant:{tenant_id}"
-    # Fallback to IP if no tenant ID
-    return f"ip:{request.META.get('REMOTE_ADDR')}"
-
-@rate_limit(key=tenant_key, rate='500/h')
-def tenant_api(request):
-    return JsonResponse({'tenant_data': '...'})
-
-# Example 3: Using database model IDs
-def custom_user_key(request):
-    # Get custom user ID from your own User model
-    if hasattr(request, 'custom_user') and request.custom_user:
-        return f"custom_user:{request.custom_user.id}"
-    elif request.user.is_authenticated:
-        return f"django_user:{request.user.id}"
-    return f"ip:{request.META.get('REMOTE_ADDR')}"
-
-@rate_limit(key=custom_user_key, rate='100/h')
-def custom_user_api(request):
-    return JsonResponse({'user_data': '...'})
-
-# Example 4: Using JWT token subject
-def jwt_subject_key(request):
-    # Extract subject from JWT token
-    auth_header = request.headers.get('Authorization', '')
-    if auth_header.startswith('Bearer '):
-        try:
-            import jwt
-            token = auth_header.split(' ')[1]
-            payload = jwt.decode(token, options={"verify_signature": False})
-            return f"jwt_sub:{payload.get('sub')}"
-        except:
-            pass
-    return f"ip:{request.META.get('REMOTE_ADDR')}"
-
-@rate_limit(key=jwt_subject_key, rate='200/h')
-def jwt_protected_api(request):
-    return JsonResponse({'protected_data': '...'})
-
-# Example 5: Using session-based identification
-def session_key(request):
-    if request.session.session_key:
-        return f"session:{request.session.session_key}"
-    return f"ip:{request.META.get('REMOTE_ADDR')}"
-
-@rate_limit(key=session_key, rate='50/m')
-def session_api(request):
-    return JsonResponse({'session_data': '...'})
-```
-
-#### Advanced Key Examples
-
-```python
-# Composite keys for complex scenarios
-def composite_key(request):
-    """Use multiple identifiers for more precise rate limiting."""
-    identifiers = []
-
-    # Add API key if present
-    if api_key := request.headers.get('X-API-Key'):
-        identifiers.append(f"api:{api_key}")
-
-    # Add user ID if authenticated
-    if request.user.is_authenticated:
-        identifiers.append(f"user:{request.user.id}")
-
-    # Add IP as fallback
-    identifiers.append(f"ip:{request.META.get('REMOTE_ADDR')}")
-
-    # Use the most specific identifier available
-    return identifiers[0]
-
-@rate_limit(key=composite_key, rate='100/h')
-def flexible_api(request):
-    return JsonResponse({'data': '...'})
-```
-
-#### Built-in Key Shortcuts
-
-The library also provides built-in key shortcuts for common patterns:
-
-````python
-# Built-in shortcuts
-@rate_limit(key='ip', rate='10/m')          # Uses IP address
-@rate_limit(key='user', rate='100/h')       # Uses Django user ID
-@rate_limit(key='user_or_ip', rate='50/m')  # Uses user ID if authenticated, IP otherwise
-
-# String template format (for simple cases)
-@rate_limit(key='custom_id:{custom_id}', rate='100/h')  # You can access request attributes
-def templated_api(request):
-    # The {custom_id} will be replaced with request.custom_id if it exists
-    return JsonResponse({'data': '...'})
-
-#### Non-blocking Rate Limiting
-
-```python
-@rate_limit(key='ip', rate='10/m', block=False)
-def api_with_headers(request):
-    # This will add rate limit headers but not block requests
-    # X-RateLimit-Remaining will be 0 when limit is exceeded
-    # but the request continues processing normally
-    return JsonResponse({'data': '...'})
-````
-
-### Middleware Examples
-
-#### Path-based Rate Limiting
-
-```python
-RATELIMIT_MIDDLEWARE = {
-    'DEFAULT_RATE': '100/m',
-    'RATE_LIMITS': {
-        '/api/public/': '1000/h',
-        '/api/private/': '100/h',
-        '/auth/': '5/m',
-        '/upload/': '10/h',
+RATELIMIT_BACKENDS = [
+    {
+        'name': 'primary_redis',
+        'backend': 'redis',
+        'config': {'host': 'redis-primary.example.com'}
+    },
+    {
+        'name': 'fallback_redis',
+        'backend': 'redis',
+        'config': {'host': 'redis-fallback.example.com'}
+    },
+    {
+        'name': 'emergency_db',
+        'backend': 'database',
+        'config': {}
     }
-}
+]
+RATELIMIT_MULTI_BACKEND_STRATEGY = 'first_healthy'
 ```
 
-#### Custom Key Functions
+## 🔍 Monitoring
 
-```python
-# utils.py
-def user_key_function(request):
-    if request.user.is_authenticated:
-        return f"user:{request.user.id}"
-    return f"ip:{request.META.get('REMOTE_ADDR')}"
-
-def api_key_function(request):
-    api_key = request.META.get('HTTP_X_API_KEY')
-    if api_key:
-        return f"api_key:{api_key}"
-    return f"ip:{request.META.get('REMOTE_ADDR')}"
-
-# settings.py
-RATELIMIT_MIDDLEWARE = {
-    'KEY_FUNCTION': 'myapp.utils.user_key_function',
-    'RATE_LIMITS': {
-        '/api/': '1000/h',
-    }
-}
-```
-
-## Rate Formats
-
-The library supports several rate formats:
-
-- `10/s` - 10 requests per second
-- `100/m` - 100 requests per minute
-- `1000/h` - 1000 requests per hour
-- `10000/d` - 10000 requests per day
-
-## Response Headers
-
-When rate limiting is applied, the following headers are added to all responses:
-
-```
-X-RateLimit-Limit: 100
-X-RateLimit-Remaining: 75
-X-RateLimit-Reset: 1640995200
-```
-
-### Header Behavior
-
-- **When `block=True` (default)**: Headers are added to successful responses. When the limit is exceeded, a 429 status is returned with headers.
-- **When `block=False`**: Headers are always added to responses, even when the limit is exceeded. The `X-RateLimit-Remaining` will be `0` when the limit is exceeded, but the request continues processing normally.
-
-### Header Descriptions
-
-- `X-RateLimit-Limit`: The maximum number of requests allowed in the current window
-- `X-RateLimit-Remaining`: The number of requests remaining in the current window
-- `X-RateLimit-Reset`: Unix timestamp when the current window resets
-
-## Algorithms
-
-### Fixed Window
-
-Simple and memory-efficient algorithm that resets the counter at fixed intervals.
-
-**Pros:**
-
-- Low memory usage
-- Simple implementation
-- Predictable reset times
-
-**Cons:**
-
-- Potential for burst traffic
-- Less accurate limiting
-
-### Sliding Window
-
-More accurate algorithm that maintains a sliding window of requests.
-
-**Pros:**
-
-- Accurate rate limiting
-- No burst traffic issues
-- Smooth rate limiting
-
-**Cons:**
-
-- Higher memory usage
-- More complex implementation
-
-## Configuration Reference
-
-### Decorator Parameters
-
-| Parameter | Type                | Default  | Description                           |
-| --------- | ------------------- | -------- | ------------------------------------- |
-| `key`     | `str` or `callable` | Required | Rate limit key or key function        |
-| `rate`    | `str`               | Required | Rate limit (e.g., '10/m')             |
-| `block`   | `bool`              | `True`   | Block requests when limit exceeded    |
-| `backend` | `str`               | `None`   | Backend to use (uses default if None) |
-
-### Middleware Settings
-
-| Setting        | Type   | Default   | Description                        |
-| -------------- | ------ | --------- | ---------------------------------- |
-| `DEFAULT_RATE` | `str`  | `'100/m'` | Default rate limit                 |
-| `BACKEND`      | `str`  | `'redis'` | Backend to use                     |
-| `KEY_FUNCTION` | `str`  | `None`    | Import path to key function        |
-| `BLOCK`        | `bool` | `True`    | Block requests when limit exceeded |
-| `SKIP_PATHS`   | `list` | `[]`      | Paths to skip rate limiting        |
-| `RATE_LIMITS`  | `dict` | `{}`      | Path-specific rate limits          |
-
-### Backend Settings
-
-| Setting                                | Type   | Default            | Description                                             |
-| -------------------------------------- | ------ | ------------------ | ------------------------------------------------------- |
-| `RATELIMIT_BACKEND`                    | `str`  | `'redis'`          | Backend to use (`'redis'`, `'database'`, `'memory'`)    |
-| `RATELIMIT_ALGORITHM`                  | `str`  | `'sliding_window'` | Algorithm to use (`'sliding_window'`, `'fixed_window'`) |
-| `RATELIMIT_REDIS`                      | `dict` | `{}`               | Redis configuration                                     |
-| `RATELIMIT_DATABASE_CLEANUP_THRESHOLD` | `int`  | `1000`             | Cleanup threshold for database backend                  |
-| `RATELIMIT_MEMORY_MAX_KEYS`            | `int`  | `10000`            | Maximum keys for memory backend                         |
-| `RATELIMIT_MEMORY_CLEANUP_INTERVAL`    | `int`  | `300`              | Cleanup interval (seconds)                              |
-| `RATELIMIT_KEY_PREFIX`                 | `str`  | `'ratelimit:'`     | Redis key prefix                                        |
-
-## Development
-
-### Running Tests
+### Health Checks
 
 ```bash
-# Install development dependencies
-pip install -e .[dev]
+# Basic health check
+python manage.py ratelimit_health
 
-# Run tests
-pytest
+# Detailed status
+python manage.py ratelimit_health --verbose
 
-# Run tests with coverage
-pytest --cov=django_smart_ratelimit --cov-report=html
-
-# Run specific test file
-pytest tests/test_decorator.py
+# JSON output for monitoring
+python manage.py ratelimit_health --json
 ```
 
-### Code Quality
+### Cleanup (Database Backend)
 
 ```bash
-# Format code
-black django_smart_ratelimit tests
+# Clean expired entries
+python manage.py cleanup_ratelimit
 
-# Check linting
-flake8 django_smart_ratelimit tests
+# Preview what would be deleted
+python manage.py cleanup_ratelimit --dry-run
 
-# Type checking
-mypy django_smart_ratelimit
+# Clean entries older than 24 hours
+python manage.py cleanup_ratelimit --older-than 24
 ```
 
-### Pre-commit Hooks
+## 🆚 Comparison
 
-```bash
-# Install pre-commit hooks
-pre-commit install
+| Feature           | django-smart-ratelimit      | django-ratelimit   | django-rest-framework |
+| ----------------- | --------------------------- | ------------------ | --------------------- |
+| Multiple Backends | ✅ Redis, DB, Memory, Multi | ❌ Cache only      | ❌ Cache only         |
+| Sliding Window    | ✅                          | ❌                 | ❌                    |
+| Auto-Fallback     | ✅                          | ❌                 | ❌                    |
+| Health Monitoring | ✅                          | ❌                 | ❌                    |
+| Standard Headers  | ✅                          | ❌                 | ⚠️ Limited            |
+| Atomic Operations | ✅                          | ⚠️ Race conditions | ⚠️ Race conditions    |
+| Production Ready  | ✅                          | ⚠️                 | ⚠️                    |
 
-# Run hooks manually
-pre-commit run --all-files
-```
+## 🤝 Contributing
 
-## Contributing
+We welcome contributions! See our [Contributing Guide](CONTRIBUTING.md) for details on:
 
-We welcome contributions! Please follow these steps:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes
-4. Add tests for your changes
-5. Run the test suite (`pytest`)
-6. Commit your changes (`git commit -m 'Add amazing feature'`)
-7. Push to the branch (`git push origin feature/amazing-feature`)
-8. Open a Pull Request
-
-### Contribution Guidelines
-
-- Write tests for new features
-- Follow the existing code style
-- Add docstrings to new functions and classes
-- Update documentation as needed
-- Add type hints where appropriate
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Changelog
-
-See [CHANGELOG.md](CHANGELOG.md) for detailed version history and release notes.
-
-## Support
-
-- 📖 [Documentation](docs/design.md)
-- 🐛 [Issue Tracker](https://github.com/YasserShkeir/django-smart-ratelimit/issues)
-- 💬 [Discussions](https://github.com/YasserShkeir/django-smart-ratelimit/discussions)
+- Setting up the development environment
+- Running tests and code quality checks
+- Submitting pull requests
+- Code style guidelines
 
 ## 💖 Support the Project
 
-If this library has saved you time and effort, consider helping us maintain this project and support future development:
-
-### Financial Support
+If you find this project helpful and want to support its development, you can make a donation:
 
 - **USDT (Ethereum)**: `0x202943b3a6CC168F92871d9e295537E6cbc53Ff4`
 
-### Community Support
+Your support helps maintain and improve this open-source project for the Django community! 🙏
 
-- ⭐ **Star this repository** on GitHub
-- 🐛 **Report bugs** and suggest features
-- 🔀 **Contribute** code improvements
-- 📢 **Share** with your team and community
+## 📜 License
 
-Your support helps us maintain this open-source project and develop new packages for the community! 🙏
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## Acknowledgments
+## 🙏 Acknowledgments
 
-- Created by Yasser Shkeir
-- Inspired by existing Django rate limiting libraries
-- Thanks to the Django and Redis communities
-- Special thanks to all contributors
+- Inspired by various rate limiting implementations in the Django ecosystem
+- Built with performance and reliability in mind for production use
+- Community feedback and contributions help make this better
+
+---
+
+**[Documentation](docs/)** • **[Examples](examples.py)** • **[Contributing](CONTRIBUTING.md)** • **[Issues](https://github.com/YasserShkeir/django-smart-ratelimit/issues)**

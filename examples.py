@@ -199,6 +199,126 @@ RATELIMIT_MIDDLEWARE = {
 }
 """
 
+# Example Django settings.py configuration for Multi-Backend Support
+MULTI_BACKEND_SETTINGS = """
+# settings.py - Multi-Backend Configuration
+
+# Full path configuration for more control
+RATELIMIT_BACKEND = 'django_smart_ratelimit.backends.multi.MultiBackend'
+RATELIMIT_BACKEND_CONFIG = {
+    'backends': [
+        {
+            'name': 'primary_redis',
+            'backend': 'django_smart_ratelimit.backends.redis_backend.RedisBackend',
+            'config': {
+                'host': 'redis-primary.example.com',
+                'port': 6379,
+                'db': 0,
+            }
+        },
+        {
+            'name': 'fallback_redis',
+            'backend': 'django_smart_ratelimit.backends.redis_backend.RedisBackend',
+            'config': {
+                'host': 'redis-fallback.example.com',
+                'port': 6379,
+                'db': 0,
+            }
+        },
+        {
+            'name': 'emergency_memory',
+            'backend': 'django_smart_ratelimit.backends.memory.MemoryBackend',
+            'config': {
+                'max_entries': 1000,
+            }
+        }
+    ],
+    'fallback_strategy': 'first_healthy',  # or 'round_robin'
+    'health_check_interval': 30,  # seconds
+    'health_check_timeout': 5,    # seconds
+}
+
+# Alternative simple configuration
+RATELIMIT_BACKEND = 'multi'
+RATELIMIT_MULTI_BACKENDS = [
+    {
+        'name': 'redis_primary',
+        'backend': 'redis',
+        'config': {'host': 'redis-1.example.com', 'port': 6379, 'db': 0}
+    },
+    {
+        'name': 'redis_secondary',
+        'backend': 'redis',
+        'config': {'host': 'redis-2.example.com', 'port': 6379, 'db': 0}
+    },
+    {
+        'name': 'database_fallback',
+        'backend': 'database',
+        'config': {}
+    }
+]
+
+# Use sliding window algorithm for more accurate rate limiting
+RATELIMIT_ALGORITHM = "sliding_window"
+
+# Middleware configuration
+MIDDLEWARE = [
+    'django_smart_ratelimit.middleware.RateLimitMiddleware',
+    # ... other middleware
+]
+
+RATELIMIT_MIDDLEWARE = {
+    'DEFAULT_RATE': '100/m',  # 100 requests per minute by default
+    'BACKEND': 'multi',
+    'BLOCK': True,
+    'SKIP_PATHS': ['/admin/', '/health/', '/metrics/'],
+    'RATE_LIMITS': {
+        '/api/public/': '1000/h',    # Public API: 1000 requests per hour
+        '/api/private/': '100/h',    # Private API: 100 requests per hour
+        '/auth/login/': '5/m',       # Login: 5 attempts per minute
+        '/auth/register/': '3/h',    # Registration: 3 attempts per hour
+        '/upload/': '10/h',          # File uploads: 10 per hour
+    },
+}
+"""
+
+# Example for monitoring multi-backend status
+MULTI_BACKEND_MONITORING = """
+# monitoring.py - Multi-Backend Health Monitoring
+
+from django_smart_ratelimit.backends import get_backend
+
+def check_ratelimit_health():
+    '''Check the health of all rate limit backends.'''
+    backend = get_backend()
+
+    if hasattr(backend, 'get_backend_status'):
+        # Multi-backend
+        status = backend.get_backend_status()
+        stats = backend.get_stats()
+
+        print(f"Total backends: {stats['total_backends']}")
+        print(f"Healthy backends: {stats['healthy_backends']}")
+        print(f"Fallback strategy: {stats['fallback_strategy']}")
+
+        for name, info in status.items():
+            print(f"Backend {name}: {'✓' if info['healthy'] else '✗'}")
+            print(f"  Class: {info['backend_class']}")
+            print(f"  Last check: {info['last_check']}")
+    else:
+        # Single backend
+        try:
+            backend.get_count('_health_check', 60)
+            print("Single backend: ✓ Healthy")
+        except Exception as e:
+            print(f"Single backend: ✗ Unhealthy - {e}")
+
+# Use in Django management command or monitoring endpoint
+# python manage.py shell
+# >>> from monitoring import check_ratelimit_health
+# >>> check_ratelimit_health()
+"""
+
 # Example Django settings.py configuration for Database Backend
 DATABASE_BACKEND_SETTINGS = """
 # settings.py - Database Backend Configuration
@@ -286,6 +406,10 @@ if __name__ == "__main__":
     print(MEMORY_BACKEND_SETTINGS)
     print("\nDatabase Backend Configuration:")
     print(DATABASE_BACKEND_SETTINGS)
+    print("\nMulti-Backend Configuration:")
+    print(MULTI_BACKEND_SETTINGS)
+    print("\nMulti-Backend Monitoring:")
+    print(MULTI_BACKEND_MONITORING)
     print("\nURL configuration:")
     print(EXAMPLE_URLS)
     print("\nFor more information, see the README.md file.")
