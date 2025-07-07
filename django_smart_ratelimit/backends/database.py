@@ -6,6 +6,7 @@ from datetime import timezone as dt_timezone
 from typing import Any, Dict, Optional, Tuple
 
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 
 from ..models import RateLimitCounter, RateLimitEntry
@@ -61,24 +62,28 @@ class DatabaseBackend(BaseBackend):
         now = timezone.now()
         expires_at = now + timedelta(seconds=window_seconds)
 
-        # Remove expired entries
-        RateLimitEntry.objects.filter(key=key, expires_at__lt=now).delete()
+        with transaction.atomic():
+            # Remove expired entries
+            RateLimitEntry.objects.filter(key=key, expires_at__lt=now).delete()
 
-        # Add new entry
-        RateLimitEntry.objects.create(
-            key=key, timestamp=now, expires_at=expires_at, algorithm="sliding_window"
-        )
+            # Add new entry
+            RateLimitEntry.objects.create(
+                key=key,
+                timestamp=now,
+                expires_at=expires_at,
+                algorithm="sliding_window",
+            )
 
-        # Count current entries in the window
-        count = RateLimitEntry.objects.filter(
-            key=key, timestamp__gte=now - timedelta(seconds=window_seconds)
-        ).count()
+            # Count current entries in the window
+            count = RateLimitEntry.objects.filter(
+                key=key, timestamp__gte=now - timedelta(seconds=window_seconds)
+            ).count()
 
-        return count
+            return count
 
     def _incr_fixed_window(self, key: str, window_seconds: int) -> int:
         """
-        Increment counter for fixed window algorithm.
+        Increment counter for fixed window algorithm using atomic database operations.
 
         Args:
             key: The rate limit key
@@ -94,25 +99,33 @@ class DatabaseBackend(BaseBackend):
             counter, created = RateLimitCounter.objects.get_or_create(
                 key=key,
                 defaults={
-                    "count": 0,
+                    "count": 1,  # Start with 1 for new counter
                     "window_start": window_start,
                     "window_end": window_end,
                 },
             )
 
-            # If counter exists but is from a different window, reset it
-            if not created and (
-                counter.window_start != window_start or counter.window_end != window_end
-            ):
-                counter.count = 0
+            if created:
+                # New counter created with count=1
+                return 1
+
+            # Counter exists - check if it's from the current window
+            if counter.window_start != window_start or counter.window_end != window_end:
+                # Reset counter for new window using atomic update
+                counter.count = 1
                 counter.window_start = window_start
                 counter.window_end = window_end
+                counter.save()
+                return 1
+            else:
+                # Increment existing counter atomically using F() expression
+                RateLimitCounter.objects.filter(
+                    key=key, window_start=window_start, window_end=window_end
+                ).update(count=F("count") + 1)
 
-            # Increment counter
-            counter.count += 1
-            counter.save()
-
-            return counter.count
+                # Refresh from database to get the updated count
+                counter.refresh_from_db()
+                return counter.count
 
     def incr(self, key: str, period: int) -> int:
         """
