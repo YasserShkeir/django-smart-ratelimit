@@ -10,6 +10,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - Initial release planning
 
+## [0.3.2] - 2025-07-07
+
+### Fixed
+- 🔧 **CRITICAL**: Resolved race conditions in database backend increment operations
+- ⚡ Implemented atomic F() expressions for database-level counter updates
+- 🛡️ Added proper transaction handling to prevent data corruption
+- 📊 Enhanced concurrency safety for high-traffic applications
+
+### Changed
+- 🔄 Replaced Python-level `+=` operations with database-level `F('count') + 1`
+- 🏗️ Improved fixed window and sliding window algorithm consistency
+- 📈 Better handling of concurrent requests in database backend
+
+### Technical Notes
+- This is a critical security and data integrity fix
+- Recommended upgrade for all production deployments
+- Addresses community-reported race condition issues
+
 ## [0.3.1] - 2025-07-06
 
 ### Added
