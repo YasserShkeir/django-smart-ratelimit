@@ -248,3 +248,65 @@ X-RateLimit-Reset: 1640995200
 
 ### Atomic Operations
 All rate limiting operations are atomic using Lua scripts to prevent race conditions.
+
+## Conditional Rate Limiting
+
+### Skip Conditions
+
+The `skip_if` parameter allows conditional bypassing of rate limiting based on request characteristics.
+
+```python
+@rate_limit(
+    key='ip',
+    rate='100/h',
+    skip_if=lambda request: request.user.is_staff
+)
+def protected_view(request):
+    """Rate limited for regular users, unlimited for staff."""
+    pass
+```
+
+### Skip Function Design
+
+Skip functions receive the request object and return a boolean:
+
+```python
+def complex_skip_logic(request):
+    """Complex skip logic with multiple conditions."""
+    # Skip for staff users
+    if request.user.is_staff:
+        return True
+
+    # Skip for internal IP addresses
+    ip = request.META.get('REMOTE_ADDR', '')
+    if ip.startswith('192.168.') or ip.startswith('10.'):
+        return True
+
+    # Skip during maintenance windows
+    from django.utils import timezone
+    hour = timezone.now().hour
+    if 2 <= hour <= 4:  # 2-4 AM maintenance
+        return True
+
+    return False
+
+@rate_limit(key='ip', rate='50/h', skip_if=complex_skip_logic)
+def conditional_api(request):
+    """API with complex conditional rate limiting."""
+    pass
+```
+
+### Error Handling in Skip Functions
+
+Skip functions should handle errors gracefully:
+
+```python
+def safe_skip_function(request):
+    """Skip function with error handling."""
+    try:
+        # Your skip logic here
+        return request.user.is_superuser
+    except Exception:
+        # If skip function fails, continue with rate limiting
+        return False
+```

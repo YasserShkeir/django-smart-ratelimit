@@ -26,7 +26,14 @@ A flexible and efficient rate limiting library for Django applications with supp
 ### 1. Installation
 
 ```bash
+# Basic installation
 pip install django-smart-ratelimit
+
+# With optional dependencies for specific backends/features
+pip install django-smart-ratelimit[redis]      # Redis backend (recommended)
+pip install django-smart-ratelimit[mongodb]    # MongoDB backend
+pip install django-smart-ratelimit[jwt]        # JWT-based rate limiting
+pip install django-smart-ratelimit[all]        # All optional dependencies
 ```
 
 ### 2. Add to Django Settings
@@ -62,6 +69,11 @@ def api_endpoint(request):
 @rate_limit(key='user', rate='100/h', block=True)
 def user_api(request):
     return JsonResponse({'data': 'user-specific data'})
+
+# With algorithm and skip_if parameters
+@rate_limit(key='ip', rate='50/h', algorithm='sliding_window', skip_if=lambda req: req.user.is_staff)
+def advanced_api(request):
+    return JsonResponse({'advanced': 'data'})
 ```
 
 #### Option B: Middleware Style (Application-Level)
@@ -98,24 +110,17 @@ That's it! You now have rate limiting protection. 🎉
 
 ## 📖 Documentation
 
-### Core Concepts
+### Core Documentation
 
 - **[Backend Configuration](docs/backends.md)** - Redis, Database, Memory, and Multi-Backend setup
 - **[Architecture & Design](docs/design.md)** - Core architecture, algorithms, and design decisions
 - **[Management Commands](docs/management_commands.md)** - Health checks and cleanup commands
 
-### Advanced Configuration
+### Examples & Advanced Usage
 
-- **[Multi-Backend Examples](docs/backends.md#multi-backend-high-availability)** - High availability with automatic fallback
-- **[Complex Key Functions](CONTRIBUTING.md#complex-key-function-examples)** - Enterprise API keys, JWT tokens, custom patterns
-- **[Performance Tuning](CONTRIBUTING.md#performance-tuning)** - Optimization tips and best practices
-- **[Monitoring Setup](CONTRIBUTING.md#monitoring-and-alerting)** - Production monitoring and alerting
-
-### Development & Contributing
-
-- **[Contributing Guide](CONTRIBUTING.md)** - Development setup, testing, and code guidelines
-- **[Features Roadmap](FEATURES_ROADMAP.md)** - Planned features and implementation status
-- **[Release Guide](RELEASE_GUIDE.md)** - Release process and version management
+- **[Basic Examples](examples/)** - Working examples for different use cases
+- **[Complex Key Functions](examples/custom_key_functions.py)** - Custom key patterns and JWT tokens
+- **[Multi-Backend Setup](examples/backend_configuration.py)** - High availability configurations
 
 ## 🏗️ Basic Examples
 
@@ -129,13 +134,13 @@ from django_smart_ratelimit import rate_limit
 def public_api(request):
     return JsonResponse({'message': 'Hello World'})
 
-# User-based limiting (requires authentication)
+# User-based limiting (automatically falls back to IP for anonymous users)
 @rate_limit(key='user', rate='100/h')
 def user_dashboard(request):
     return JsonResponse({'user_data': '...'})
 
-# Custom key with fallback
-@rate_limit(key='user_or_ip', rate='50/h')
+# Custom key function for more control
+@rate_limit(key=lambda req: f"user:{req.user.id}" if req.user.is_authenticated else f"ip:{req.META.get('REMOTE_ADDR')}", rate='50/h')
 def flexible_api(request):
     return JsonResponse({'data': '...'})
 
@@ -143,6 +148,21 @@ def flexible_api(request):
 @rate_limit(key='ip', rate='5/m', block=True)
 def strict_api(request):
     return JsonResponse({'sensitive': 'data'})
+
+# Skip rate limiting for staff users
+@rate_limit(key='ip', rate='10/m', skip_if=lambda req: req.user.is_staff)
+def staff_friendly_api(request):
+    return JsonResponse({'data': 'staff can access unlimited'})
+
+# Use sliding window algorithm
+@rate_limit(key='user', rate='100/h', algorithm='sliding_window')
+def smooth_api(request):
+    return JsonResponse({'algorithm': 'sliding_window'})
+
+# Use fixed window algorithm
+@rate_limit(key='ip', rate='20/m', algorithm='fixed_window')
+def burst_api(request):
+    return JsonResponse({'algorithm': 'fixed_window'})
 ```
 
 ### Middleware Configuration
@@ -269,6 +289,21 @@ python manage.py cleanup_ratelimit --older-than 24
 | Atomic Operations | ✅                          | ⚠️ Race conditions | ⚠️ Race conditions    |
 | Production Ready  | ✅                          | ⚠️                 | ⚠️                    |
 
+## 📚 Comprehensive Examples
+
+The `examples/` directory contains detailed examples for every use case:
+
+- **[basic_rate_limiting.py](examples/basic_rate_limiting.py)** - IP, user, and session-based limiting
+- **[advanced_rate_limiting.py](examples/advanced_rate_limiting.py)** - Complex scenarios with custom logic
+- **[custom_key_functions.py](examples/custom_key_functions.py)** - Geographic, device, and business logic keys
+- **[jwt_rate_limiting.py](examples/jwt_rate_limiting.py)** - JWT token and role-based limiting
+- **[tenant_rate_limiting.py](examples/tenant_rate_limiting.py)** - Multi-tenant applications
+- **[backend_configuration.py](examples/backend_configuration.py)** - All backend configurations
+- **[monitoring_examples.py](examples/monitoring_examples.py)** - Health checks and metrics
+- **[django_integration.py](examples/django_integration.py)** - Complete Django project setup
+
+See the **[Examples README](examples/README.md)** for detailed usage instructions.
+
 ## 🤝 Contributing
 
 We welcome contributions! See our [Contributing Guide](CONTRIBUTING.md) for details on:
@@ -298,4 +333,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**[Documentation](docs/)** • **[Examples](examples.py)** • **[Contributing](CONTRIBUTING.md)** • **[Issues](https://github.com/YasserShkeir/django-smart-ratelimit/issues)**
+**[Documentation](docs/)** • **[Examples](examples/)** • **[Contributing](CONTRIBUTING.md)** • **[Issues](https://github.com/YasserShkeir/django-smart-ratelimit/issues)**

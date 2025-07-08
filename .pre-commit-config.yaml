@@ -23,7 +23,7 @@ repos:
     hooks:
       - id: flake8
         additional_dependencies: [flake8-docstrings]
-        args: ["--max-line-length=88", "--extend-ignore=E203,W503", "--per-file-ignores=tests/*:D,examples.py:D"]
+        args: ["--max-line-length=88", "--extend-ignore=E203,W503", "--per-file-ignores=tests/*:D,examples/*:D,F401,E501,E402,E722"]
 
   - repo: https://github.com/pycqa/isort
     rev: 5.12.0
@@ -36,4 +36,4 @@ repos:
     hooks:
       - id: mypy
         additional_dependencies: [django-stubs, types-redis]
-        exclude: ^(tests/|docs/|examples\.py)
+        exclude: ^(tests/|docs/|examples/)

@@ -322,6 +322,53 @@ RATELIMIT_ALGORITHM = 'sliding_window'
 - **Memory usage**: Stores individual request timestamps
 - **Flexible**: More precise rate limiting
 
+## Algorithm Support
+
+All backends support both sliding window and fixed window algorithms. You can configure the algorithm globally or per-decorator.
+
+### Global Algorithm Configuration
+
+```python
+# settings.py - Set default algorithm for Redis backend
+RATELIMIT_REDIS = {
+    'host': 'localhost',
+    'port': 6379,
+    'db': 0,
+    'algorithm': 'sliding_window',  # Default algorithm
+}
+
+# For MongoDB backend
+RATELIMIT_MONGODB = {
+    'host': 'localhost',
+    'port': 27017,
+    'database': 'ratelimit',
+    'algorithm': 'fixed_window',  # Default algorithm
+}
+```
+
+### Per-Decorator Algorithm Selection
+
+```python
+from django_smart_ratelimit import rate_limit
+
+# Use sliding window for smooth rate limiting
+@rate_limit(key='ip', rate='100/h', algorithm='sliding_window')
+def smooth_api(request):
+    return JsonResponse({'algorithm': 'sliding_window'})
+
+# Use fixed window for burst-tolerant rate limiting
+@rate_limit(key='ip', rate='100/h', algorithm='fixed_window')
+def burst_api(request):
+    return JsonResponse({'algorithm': 'fixed_window'})
+```
+
+### Algorithm Characteristics
+
+| Algorithm       | Behavior                    | Use Case                          |
+| --------------- | --------------------------- | --------------------------------- |
+| Sliding Window  | Smooth, even distribution   | Consistent load, API protection   |
+| Fixed Window    | Allows bursts at boundaries | Batch operations, periodic tasks  |
+
 ## Backend Selection Guide
 
 ### Production Applications

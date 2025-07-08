@@ -69,6 +69,35 @@ class BackendSelectionTests(TestCase):
             backend = get_backend()
             self.assertIsInstance(backend, RedisBackend)
 
+    def test_get_backend_mongodb(self):
+        """Test getting MongoDB backend explicitly."""
+        with patch("django_smart_ratelimit.backends.mongodb.pymongo") as mock_pymongo:
+            mock_client = Mock()
+            mock_pymongo.MongoClient.return_value = mock_client
+            mock_client.admin.command.return_value = True
+
+            # Mock the pymongo constants
+            mock_pymongo.ASCENDING = 1
+            mock_pymongo.DESCENDING = -1
+
+            backend = get_backend("mongodb")
+            self.assertEqual(backend.__class__.__name__, "MongoDBBackend")
+
+    @override_settings(RATELIMIT_BACKEND="mongodb")
+    def test_get_backend_mongodb_from_settings(self):
+        """Test getting MongoDB backend from Django settings."""
+        with patch("django_smart_ratelimit.backends.mongodb.pymongo") as mock_pymongo:
+            mock_client = Mock()
+            mock_pymongo.MongoClient.return_value = mock_client
+            mock_client.admin.command.return_value = True
+
+            # Mock the pymongo constants
+            mock_pymongo.ASCENDING = 1
+            mock_pymongo.DESCENDING = -1
+
+            backend = get_backend()
+            self.assertEqual(backend.__class__.__name__, "MongoDBBackend")
+
 
 class BaseBackendTests(TestCase):
     """Tests for the base backend class."""

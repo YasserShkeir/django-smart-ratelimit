@@ -98,6 +98,32 @@ class Command(BaseCommand):
                 "healthy": healthy,
                 "error": error,
             }
+
+            # Add MongoDB specific information
+            if backend.__class__.__name__ == "MongoDBBackend":
+                try:
+                    from django_smart_ratelimit.backends.mongodb import MongoDBBackend
+
+                    if isinstance(backend, MongoDBBackend):
+                        mongo_info = {
+                            "algorithm": backend.config.get(
+                                "algorithm", "sliding_window"
+                            ),
+                            "database": backend.config.get("database", "ratelimit"),
+                            "host": backend.config.get("host", "localhost"),
+                            "port": backend.config.get("port", 27017),
+                        }
+                        output.update(mongo_info)
+
+                        if verbose:
+                            try:
+                                stats = backend.get_stats()
+                                output["stats"] = stats
+                            except Exception as e:
+                                output["stats_error"] = str(e)
+                except ImportError:
+                    output["mongodb_error"] = "pymongo not installed"
+
             self.stdout.write(json.dumps(output, indent=2))
         else:
             self.stdout.write(f"Backend: {backend.__class__.__name__}")
@@ -109,6 +135,35 @@ class Command(BaseCommand):
 
             if verbose:
                 self.stdout.write(f"  Type: {backend.__class__.__name__}")
+
+                # Add MongoDB specific verbose information
+                if backend.__class__.__name__ == "MongoDBBackend":
+                    try:
+                        from django_smart_ratelimit.backends.mongodb import (
+                            MongoDBBackend,
+                        )
+
+                        if isinstance(backend, MongoDBBackend):
+                            algo = backend.config.get("algorithm", "sliding_window")
+                            self.stdout.write(f"  Algorithm: {algo}")
+                            db = backend.config.get("database", "ratelimit")
+                            self.stdout.write(f"  Database: {db}")
+                            host = backend.config.get("host", "localhost")
+                            self.stdout.write(f"  Host: {host}")
+                            self.stdout.write(
+                                f"  Port: {backend.config.get('port', 27017)}"
+                            )
+
+                            try:
+                                stats = backend.get_stats()
+                                total_docs = stats.get("total_documents", "N/A")
+                                self.stdout.write(f"  Total Documents: {total_docs}")
+                                collection = stats.get("collection", "N/A")
+                                self.stdout.write(f"  Collection: {collection}")
+                            except Exception as e:
+                                self.stdout.write(f"  Stats Error: {e}")
+                    except ImportError:
+                        self.stdout.write("  Warning: pymongo not installed")
 
     def check_multi_backend(
         self, backend: Any, verbose: bool, json_output: bool

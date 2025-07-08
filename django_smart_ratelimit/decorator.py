@@ -32,6 +32,8 @@ def rate_limit(
     rate: str,
     block: bool = True,
     backend: Optional[str] = None,
+    skip_if: Optional[Callable] = None,
+    algorithm: Optional[str] = None,
 ) -> Callable:
     """Apply rate limiting to a view or function.
 
@@ -40,6 +42,8 @@ def rate_limit(
         rate: Rate limit in format "10/m" (10 requests per minute)
         block: If True, block requests that exceed the limit
         backend: Backend to use for rate limiting storage
+        skip_if: Callable that returns True if rate limiting should be skipped
+        algorithm: Algorithm to use ('sliding_window' or 'fixed_window')
 
     Returns:
         Decorated function with rate limiting applied
@@ -64,8 +68,21 @@ def rate_limit(
                 # If no request found, skip rate limiting
                 return func(*args, **kwargs)
 
+            # Check skip_if condition
+            if skip_if and callable(skip_if):
+                try:
+                    if skip_if(request):
+                        return func(*args, **kwargs)
+                except Exception:
+                    # If skip_if fails, continue with rate limiting
+                    pass
+
             # Get the backend
             backend_instance = get_backend(backend)
+
+            # Set algorithm if specified and backend supports it
+            if algorithm and hasattr(backend_instance, "config"):
+                backend_instance.config["algorithm"] = algorithm
 
             # Generate the rate limit key
             limit_key = _generate_key(key, request, *args, **kwargs)

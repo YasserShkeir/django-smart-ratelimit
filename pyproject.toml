@@ -43,6 +43,21 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+mongodb = [
+    "pymongo>=4.0",
+]
+jwt = [
+    "PyJWT>=2.0",
+]
+redis = [
+    "redis>=4.0",
+    "hiredis>=2.0",
+]
+all = [
+    "pymongo>=4.0",
+    "PyJWT>=2.0",
+    "hiredis>=2.0",
+]
 dev = [
     "pytest>=7.0",
     "pytest-django>=4.5",
@@ -59,6 +74,7 @@ dev = [
     "bandit>=1.7",
     "build>=0.8",
     "twine>=4.0",
+    "PyJWT>=2.0",
 ]
 
 [project.urls]
