@@ -387,6 +387,13 @@ LOGGING = {
 }
 ```
 
+## Getting Help
+
+- **Questions about Examples**: [GitHub Discussions - Q&A](https://github.com/YasserShkeir/django-smart-ratelimit/discussions/categories/q-a)
+- **Request New Examples**: [Discussions - Ideas](https://github.com/YasserShkeir/django-smart-ratelimit/discussions/categories/ideas)
+- **Report Issues**: [GitHub Issues](https://github.com/YasserShkeir/django-smart-ratelimit/issues)
+- **Share Your Use Cases**: [General Discussions](https://github.com/YasserShkeir/django-smart-ratelimit/discussions/categories/general)
+
 ## Contributing
 
 To add new examples:

@@ -364,10 +364,10 @@ def burst_api(request):
 
 ### Algorithm Characteristics
 
-| Algorithm       | Behavior                    | Use Case                          |
-| --------------- | --------------------------- | --------------------------------- |
-| Sliding Window  | Smooth, even distribution   | Consistent load, API protection   |
-| Fixed Window    | Allows bursts at boundaries | Batch operations, periodic tasks  |
+| Algorithm      | Behavior                    | Use Case                         |
+| -------------- | --------------------------- | -------------------------------- |
+| Sliding Window | Smooth, even distribution   | Consistent load, API protection  |
+| Fixed Window   | Allows bursts at boundaries | Batch operations, periodic tasks |
 
 ## Backend Selection Guide
 
@@ -530,3 +530,10 @@ RATELIMIT_BACKEND = 'myapp.backends.CustomBackend'
 ```
 
 See the [Custom Backends Guide](custom_backends.md) for detailed instructions.
+
+## Getting Help
+
+- **Backend Configuration Questions**: [GitHub Discussions - Q&A](https://github.com/YasserShkeir/django-smart-ratelimit/discussions/categories/q-a)
+- **Performance Issues**: [GitHub Issues](https://github.com/YasserShkeir/django-smart-ratelimit/issues)
+- **Feature Requests**: [Discussions - Ideas](https://github.com/YasserShkeir/django-smart-ratelimit/discussions/categories/ideas)
+- **Examples**: Check the [examples/backend_configuration.py](../examples/backend_configuration.py)

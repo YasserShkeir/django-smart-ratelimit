@@ -31,11 +31,13 @@ Django Smart Ratelimit is a flexible and efficient rate limiting library for Dja
 ### Component Responsibilities
 
 1. **Decorator Layer** (`decorator.py`)
+
    - Applies rate limiting to individual views or functions
    - Handles key generation and rate parsing
    - Manages response headers and blocking behavior
 
 2. **Middleware Layer** (`middleware.py`)
+
    - Applies rate limiting to all requests or specific paths
    - Configurable skip patterns and rate limits per path
    - Supports custom key functions
@@ -56,11 +58,13 @@ Requests: [10]  [10]  [10]  [10]
 ```
 
 **Characteristics:**
+
 - Simple and memory efficient
 - Potential for burst traffic at window boundaries
 - Uses Redis INCR with expiration
 
 **Implementation:**
+
 ```lua
 local current = redis.call('GET', key)
 if current == false then current = 0 end
@@ -80,12 +84,14 @@ Requests:       [  distributed  ]
 ```
 
 **Characteristics:**
+
 - More accurate rate limiting
 - Higher memory usage
 - No burst traffic issues
 - Uses Redis sorted sets with timestamps
 
 **Implementation:**
+
 ```lua
 -- Remove expired entries
 redis.call('ZREMRANGEBYSCORE', key, 0, now - window)
@@ -197,6 +203,7 @@ RATELIMIT_BACKEND_CONFIG = {
 ## Key Generation
 
 ### String Templates
+
 ```python
 # Simple string keys
 @rate_limit(key='api:endpoint', rate='10/m')
@@ -206,6 +213,7 @@ RATELIMIT_BACKEND_CONFIG = {
 ```
 
 ### Callable Keys
+
 ```python
 def custom_key(request):
     if request.user.is_authenticated:
@@ -228,10 +236,12 @@ X-RateLimit-Reset: 1640995200
 ## Error Handling
 
 ### Rate Limit Exceeded
+
 - **Blocked**: Returns HTTP 429 (Too Many Requests)
 - **Non-blocked**: Continues with headers indicating limit exceeded
 
 ### Backend Errors
+
 - Redis connection failures
 - Script execution errors
 - Configuration errors
@@ -239,14 +249,17 @@ X-RateLimit-Reset: 1640995200
 ## Performance Considerations
 
 ### Memory Usage
+
 - **Fixed Window**: O(1) per key
 - **Sliding Window**: O(n) per key (n = requests in window)
 
 ### Redis Operations
+
 - **Fixed Window**: 2-3 Redis commands per request
 - **Sliding Window**: 4-5 Redis commands per request
 
 ### Atomic Operations
+
 All rate limiting operations are atomic using Lua scripts to prevent race conditions.
 
 ## Conditional Rate Limiting
@@ -310,3 +323,10 @@ def safe_skip_function(request):
         # If skip function fails, continue with rate limiting
         return False
 ```
+
+## Getting Help
+
+- **Questions & General Help**: [GitHub Discussions](https://github.com/YasserShkeir/django-smart-ratelimit/discussions)
+- **Bug Reports**: [GitHub Issues](https://github.com/YasserShkeir/django-smart-ratelimit/issues)
+- **Feature Requests**: [Discussions - Ideas](https://github.com/YasserShkeir/django-smart-ratelimit/discussions/categories/ideas)
+- **Examples**: Check the [examples/](../examples/) directory

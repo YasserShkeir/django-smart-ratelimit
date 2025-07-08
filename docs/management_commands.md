@@ -285,3 +285,10 @@ WantedBy=timers.target
 4. **Alerting**: Set up alerts for backend health failures
 5. **Testing**: Always test management commands in staging before production
 6. **Documentation**: Document your specific cleanup and monitoring procedures
+
+## Getting Help
+
+- **Command Usage Questions**: [GitHub Discussions - Q&A](https://github.com/YasserShkeir/django-smart-ratelimit/discussions/categories/q-a)
+- **Issues with Commands**: [GitHub Issues](https://github.com/YasserShkeir/django-smart-ratelimit/issues)
+- **Automation Ideas**: [Discussions - Ideas](https://github.com/YasserShkeir/django-smart-ratelimit/discussions/categories/ideas)
+- **Examples**: Check the [examples/monitoring_examples.py](../examples/monitoring_examples.py)

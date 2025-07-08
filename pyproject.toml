@@ -82,6 +82,7 @@ Homepage = "https://github.com/YasserShkeir/django-smart-ratelimit"
 Documentation = "https://django-smart-ratelimit.readthedocs.io"
 Repository = "https://github.com/YasserShkeir/django-smart-ratelimit"
 Issues = "https://github.com/YasserShkeir/django-smart-ratelimit/issues"
+Discussions = "https://github.com/YasserShkeir/django-smart-ratelimit/discussions"
 Changelog = "https://github.com/YasserShkeir/django-smart-ratelimit/blob/main/CHANGELOG.md"
 
 [tool.hatch.version]

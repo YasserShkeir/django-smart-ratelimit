@@ -2,6 +2,12 @@
 
 Thank you for your interest in contributing to Django Smart Ratelimit! This document provides guidelines and instructions for contributing to the project.
 
+## 💬 Before You Start
+
+- **Questions or Ideas?** Start a discussion in [GitHub Discussions](https://github.com/YasserShkeir/django-smart-ratelimit/discussions)
+- **Bug Reports?** Open an issue in [GitHub Issues](https://github.com/YasserShkeir/django-smart-ratelimit/issues)
+- **Feature Requests?** Share your ideas in [Discussions](https://github.com/YasserShkeir/django-smart-ratelimit/discussions/categories/ideas)
+
 ## Code of Conduct
 
 By participating in this project, you agree to maintain a respectful and inclusive environment for all contributors.
@@ -17,23 +23,27 @@ By participating in this project, you agree to maintain a respectful and inclusi
 ### Setup Instructions
 
 1. **Fork and clone the repository**
+
    ```bash
    git clone https://github.com/YasserShkeir/django-smart-ratelimit.git
    cd django-smart-ratelimit
    ```
 
 2. **Create a virtual environment**
+
    ```bash
    python -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
 
 3. **Install dependencies**
+
    ```bash
    pip install -e .[dev]
    ```
 
 4. **Install pre-commit hooks**
+
    ```bash
    pre-commit install
    ```
@@ -48,16 +58,19 @@ By participating in this project, you agree to maintain a respectful and inclusi
 ### Making Changes
 
 1. **Create a new branch**
+
    ```bash
    git checkout -b feature/your-feature-name
    ```
 
 2. **Make your changes**
+
    - Write code following the project's style guidelines
    - Add tests for new functionality
    - Update documentation as needed
 
 3. **Run tests and linting**
+
    ```bash
    # Run all tests
    pytest
@@ -72,6 +85,7 @@ By participating in this project, you agree to maintain a respectful and inclusi
    ```
 
 4. **Commit your changes**
+
    ```bash
    git add .
    git commit -m "Add feature: description of your changes"
@@ -98,6 +112,7 @@ By participating in this project, you agree to maintain a respectful and inclusi
 - **Test naming**: Use descriptive test names that explain the scenario
 
 Example test structure:
+
 ```python
 def test_rate_limit_decorator_within_limit(self):
     """Test decorator when requests are within the limit."""
@@ -118,6 +133,7 @@ def test_rate_limit_decorator_within_limit(self):
 ### Bug Reports
 
 When reporting bugs, please include:
+
 - Clear description of the issue
 - Steps to reproduce
 - Expected vs actual behavior
@@ -127,6 +143,7 @@ When reporting bugs, please include:
 ### Feature Requests
 
 For new features:
+
 - **Check the [Features Roadmap](FEATURES_ROADMAP.md) first** - your feature might already be planned
 - Explain the use case and motivation
 - Provide implementation suggestions if possible
@@ -136,6 +153,7 @@ For new features:
 ### Code Contributions
 
 We welcome:
+
 - Bug fixes
 - **New features from the [Features Roadmap](FEATURES_ROADMAP.md)**
 - Performance improvements
@@ -155,6 +173,7 @@ If you want to work on a feature from our roadmap:
 ## Pull Request Process
 
 1. **Check requirements**
+
    - [ ] Tests pass
    - [ ] Code coverage maintained
    - [ ] Documentation updated
@@ -162,6 +181,7 @@ If you want to work on a feature from our roadmap:
    - [ ] Changelog updated (for significant changes)
 
 2. **PR description**
+
    - Explain the changes and motivation
    - Link to related issues
    - Describe testing performed
@@ -177,6 +197,7 @@ If you want to work on a feature from our roadmap:
 ### Adding New Backends
 
 1. **Create backend class**
+
    ```python
    class NewBackend(BaseBackend):
        def incr(self, key: str, period: int) -> int:
@@ -185,6 +206,7 @@ If you want to work on a feature from our roadmap:
    ```
 
 2. **Add to backend factory**
+
    ```python
    def get_backend(backend_name):
        if backend_name == 'new_backend':
@@ -200,6 +222,7 @@ If you want to work on a feature from our roadmap:
 **Important**: Before implementing any new features, please check the [Features Roadmap](FEATURES_ROADMAP.md) which contains detailed implementation guidelines, testing requirements, and tracking for all planned features.
 
 1. **Design considerations**
+
    - Backwards compatibility
    - Performance impact
    - Configuration options
@@ -217,11 +240,13 @@ If you want to work on a feature from our roadmap:
 ## Release Process
 
 1. **Version bumping**
+
    - Follow semantic versioning
    - Update `__init__.py` version
    - Update changelog
 
 2. **Testing**
+
    - Run full test suite
    - Test with multiple Python/Django versions
    - Manual testing of examples
@@ -240,6 +265,7 @@ If you want to work on a feature from our roadmap:
 ## Recognition
 
 Contributors are recognized in:
+
 - GitHub contributors page
 - Release notes
 - Project documentation

@@ -7,6 +7,7 @@
 [![Django versions](https://img.shields.io/badge/Django-3.2%20%7C%204.0%20%7C%204.1%20%7C%204.2%20%7C%205.0%20%7C%205.1-blue.svg)](https://pypi.org/project/django-smart-ratelimit/)
 [![Downloads](https://img.shields.io/pypi/dm/django-smart-ratelimit.svg)](https://pypi.org/project/django-smart-ratelimit/)
 [![License](https://img.shields.io/pypi/l/django-smart-ratelimit.svg)](https://github.com/YasserShkeir/django-smart-ratelimit/blob/main/LICENSE)
+[![GitHub Discussions](https://img.shields.io/github/discussions/YasserShkeir/django-smart-ratelimit)](https://github.com/YasserShkeir/django-smart-ratelimit/discussions)
 
 A flexible and efficient rate limiting library for Django applications with support for multiple backends and automatic fallback.
 
@@ -304,7 +305,24 @@ The `examples/` directory contains detailed examples for every use case:
 
 See the **[Examples README](examples/README.md)** for detailed usage instructions.
 
-## 🤝 Contributing
+## 🤝 Community & Support
+
+We have an active community ready to help you get the most out of django-smart-ratelimit!
+
+### 💬 GitHub Discussions
+
+Join our community discussions for questions, ideas, and sharing experiences:
+
+- **[� Q&A & Help](https://github.com/YasserShkeir/django-smart-ratelimit/discussions/categories/q-a)** - Get help with implementation and troubleshooting
+- **[� Ideas & Feature Requests](https://github.com/YasserShkeir/django-smart-ratelimit/discussions/categories/ideas)** - Share ideas for new features
+- **[📢 Announcements](https://github.com/YasserShkeir/django-smart-ratelimit/discussions/categories/announcements)** - Stay updated with project news
+- **[💬 General Discussions](https://github.com/YasserShkeir/django-smart-ratelimit/discussions/categories/general)** - Community chat and use case sharing
+
+### 🐛 Issues & Bug Reports
+
+For bug reports and specific issues, please use [GitHub Issues](https://github.com/YasserShkeir/django-smart-ratelimit/issues).
+
+### 🤝 Contributing
 
 We welcome contributions! See our [Contributing Guide](CONTRIBUTING.md) for details on:
 
@@ -333,4 +351,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-**[Documentation](docs/)** • **[Examples](examples/)** • **[Contributing](CONTRIBUTING.md)** • **[Issues](https://github.com/YasserShkeir/django-smart-ratelimit/issues)**
+**[📚 Documentation](docs/)** • **[💡 Examples](examples/)** • **[🤝 Contributing](CONTRIBUTING.md)** • **[💬 Discussions](https://github.com/YasserShkeir/django-smart-ratelimit/discussions)** • **[🐛 Issues](https://github.com/YasserShkeir/django-smart-ratelimit/issues)**
