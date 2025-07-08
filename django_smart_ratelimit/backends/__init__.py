@@ -51,6 +51,10 @@ def get_backend(backend_name: Optional[str] = None) -> BaseBackend:
         from .database import DatabaseBackend
 
         backend = DatabaseBackend()
+    elif backend_name == "mongodb":
+        from .mongodb import MongoDBBackend
+
+        backend = MongoDBBackend()
     elif backend_name == "multi":
         from .multi import MultiBackend
 
