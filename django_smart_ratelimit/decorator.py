@@ -6,6 +6,7 @@ to Django views or any callable to enforce rate limiting.
 """
 
 import functools
+import logging
 import time
 from typing import Any, Callable, Optional, Union
 
@@ -73,9 +74,14 @@ def rate_limit(
                 try:
                     if skip_if(request):
                         return func(*args, **kwargs)
-                except Exception:
-                    # If skip_if fails, continue with rate limiting
-                    pass
+                except Exception as e:
+                    # If skip_if fails, log the error and continue with rate limiting
+                    logger = logging.getLogger(__name__)
+                    logger.warning(
+                        "skip_if function failed with error: %s. "
+                        "Continuing with rate limiting.",
+                        str(e),
+                    )
 
             # Get the backend
             backend_instance = get_backend(backend)
