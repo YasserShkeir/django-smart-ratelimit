@@ -52,8 +52,13 @@ def get_backend(backend_name: Optional[str] = None) -> BaseBackend:
 
         backend = DatabaseBackend()
     elif backend_name == "mongodb":
-        from .mongodb import MongoDBBackend
+        from .mongodb import MongoDBBackend, pymongo
 
+        if pymongo is None:
+            raise ImproperlyConfigured(
+                "MongoDB backend requires the pymongo package. "
+                "Install it with: pip install pymongo"
+            )
         backend = MongoDBBackend()
     elif backend_name == "multi":
         from .multi import MultiBackend

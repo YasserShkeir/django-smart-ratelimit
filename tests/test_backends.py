@@ -5,6 +5,7 @@ This module contains tests for all backend implementations.
 """
 
 import time
+import unittest
 from unittest.mock import Mock, patch
 
 from django.core.exceptions import ImproperlyConfigured
@@ -13,6 +14,14 @@ from django.test import TestCase, override_settings
 from django_smart_ratelimit.backends import get_backend
 from django_smart_ratelimit.backends.base import BaseBackend
 from django_smart_ratelimit.backends.memory import MemoryBackend
+
+# Check for optional dependencies
+try:
+    import pymongo  # noqa: F401
+
+    HAS_PYMONGO = True
+except ImportError:
+    HAS_PYMONGO = False
 from django_smart_ratelimit.backends.redis_backend import RedisBackend
 
 
@@ -69,6 +78,7 @@ class BackendSelectionTests(TestCase):
             backend = get_backend()
             self.assertIsInstance(backend, RedisBackend)
 
+    @unittest.skipIf(not HAS_PYMONGO, "pymongo not installed")
     def test_get_backend_mongodb(self):
         """Test getting MongoDB backend explicitly."""
         with patch("django_smart_ratelimit.backends.mongodb.pymongo") as mock_pymongo:
@@ -84,6 +94,7 @@ class BackendSelectionTests(TestCase):
             self.assertEqual(backend.__class__.__name__, "MongoDBBackend")
 
     @override_settings(RATELIMIT_BACKEND="mongodb")
+    @unittest.skipIf(not HAS_PYMONGO, "pymongo not installed")
     def test_get_backend_mongodb_from_settings(self):
         """Test getting MongoDB backend from Django settings."""
         with patch("django_smart_ratelimit.backends.mongodb.pymongo") as mock_pymongo:
@@ -97,6 +108,14 @@ class BackendSelectionTests(TestCase):
 
             backend = get_backend()
             self.assertEqual(backend.__class__.__name__, "MongoDBBackend")
+
+    @unittest.skipIf(HAS_PYMONGO, "pymongo is installed")
+    def test_get_backend_mongodb_without_pymongo(self):
+        """Test that MongoDB backend fails gracefully without pymongo."""
+        with self.assertRaises(ImproperlyConfigured) as cm:
+            get_backend("mongodb")
+
+        self.assertIn("pymongo package", str(cm.exception))
 
 
 class BaseBackendTests(TestCase):
