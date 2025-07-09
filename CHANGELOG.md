@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2025-01-09
+
 ### Added
 - 🔥 **Django REST Framework (DRF) Integration**: Comprehensive integration with DRF
   - ViewSet rate limiting with method-specific configurations
