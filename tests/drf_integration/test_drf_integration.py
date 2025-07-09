@@ -22,6 +22,14 @@ try:
     DRF_AVAILABLE = True
 except ImportError:
     DRF_AVAILABLE = False
+    # Fallback classes when DRF is not available
+    APITestCase = TestCase
+    APIClient = None
+    APIView = None
+    Response = None
+    status = None
+    serializers = None
+    viewsets = None
 
 from django_smart_ratelimit.decorator import rate_limit
 
