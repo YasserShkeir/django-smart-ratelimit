@@ -21,6 +21,7 @@ A flexible and efficient rate limiting library for Django applications with supp
 - 🛡️ **Production Ready**: Comprehensive testing, error handling, and monitoring
 - 🔄 **Auto-Fallback**: Seamless failover between backends when one goes down
 - 📈 **Health Monitoring**: Built-in health checks and status reporting
+- 🌐 **DRF Integration**: Full Django REST Framework support with ViewSet, Serializer, and Permission integration
 
 ## 🚀 Quick Setup
 
@@ -122,8 +123,35 @@ That's it! You now have rate limiting protection. 🎉
 - **[Basic Examples](examples/)** - Working examples for different use cases
 - **[Complex Key Functions](examples/custom_key_functions.py)** - Custom key patterns and JWT tokens
 - **[Multi-Backend Setup](examples/backend_configuration.py)** - High availability configurations
+- **[DRF Integration](examples/drf_integration/)** - Django REST Framework integration examples
+- **[DRF Documentation](docs/integrations/drf.md)** - Complete DRF integration guide
 
 ## 🏗️ Basic Examples
+
+### Django REST Framework Integration
+
+```python
+from rest_framework import viewsets
+from rest_framework.response import Response
+from django_smart_ratelimit import rate_limit
+
+class APIViewSet(viewsets.ViewSet):
+    @rate_limit(key='ip', rate='100/h')
+    def list(self, request):
+        return Response({'data': 'list'})
+
+    @rate_limit(key='user', rate='10/h')
+    def create(self, request):
+        return Response({'data': 'created'})
+
+# Custom permission with rate limiting
+from rest_framework.permissions import BasePermission
+
+class RateLimitedPermission(BasePermission):
+    def has_permission(self, request, view):
+        # Apply rate limiting logic here
+        return True
+```
 
 ### Decorator Examples
 

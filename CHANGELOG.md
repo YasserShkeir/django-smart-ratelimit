@@ -8,7 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Initial planning for next features
+- 🔥 **Django REST Framework (DRF) Integration**: Comprehensive integration with DRF
+  - ViewSet rate limiting with method-specific configurations
+  - Serializer-level rate limiting and validation
+  - Custom permission classes with rate limiting
+  - Advanced examples for ViewSets, Serializers, and Permissions
+  - Complete test coverage for all DRF integration patterns
+  - Detailed documentation and usage examples in `docs/integrations/drf.md`
+  - Production-ready examples in `examples/drf_integration/`
+- 📚 Comprehensive DRF documentation and examples
+- 🧪 Full test suite for DRF integration (35+ tests)
+- 🎯 Advanced DRF patterns: conditional rate limiting, role-based limits, adaptive limits
+- 🛠️ DRF-specific utilities and helpers
+
+### Changed
+- 🔧 Fixed all decorator usage to use current API (`@rate_limit` instead of `@ratelimit`)
+- 📝 Updated all examples to remove deprecated `method=` parameter
+- 🧹 Cleaned up codebase and removed unused files
+- 📖 Enhanced documentation with DRF integration guide
+
+### Fixed
+- 🚫 Removed all deprecated `method=` parameters from decorators
+- 🔄 Fixed all import statements to use `rate_limit` instead of `ratelimit`
+- 🧪 Fixed test issues with DRF integration examples
 
 ## [0.4.2] - 2025-07-08
 

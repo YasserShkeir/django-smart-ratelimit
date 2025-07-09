@@ -85,22 +85,22 @@ This document tracks the planned improvements and new features for Django Smart 
   - Handle backend failures gracefully ✅
 
 ### 4. MongoDB Backend
-- [ ] **Status**: Not Started
-- [ ] **Completed Date**:
+- [x] **Status**: Completed
+- [x] **Completed Date**: July 8, 2025
 - **Description**: NoSQL backend using MongoDB for rate limiting
 - **Files to Create/Modify**:
-  - `django_smart_ratelimit/backends/mongodb.py`
-  - `tests/test_mongodb_backend.py`
+  - `django_smart_ratelimit/backends/mongodb.py` ✅
+  - `tests/test_mongodb_backend.py` ✅
 - **Tests Required**:
-  - MongoDB operations tests
-  - TTL index tests
-  - Performance tests
-  - Connection handling tests
+  - MongoDB operations tests ✅
+  - TTL index tests ✅
+  - Performance tests ✅
+  - Connection handling tests ✅
 - **Implementation Notes**:
-  - Use pymongo for MongoDB operations
-  - Implement TTL collections for automatic cleanup
-  - Add MongoDB connection pooling
-  - Support for MongoDB Atlas and self-hosted instances
+  - Use pymongo for MongoDB operations ✅
+  - Implement TTL collections for automatic cleanup ✅
+  - Add MongoDB connection pooling ✅
+  - Support for MongoDB Atlas and self-hosted instances ✅
 
 ### 5. DynamoDB Backend
 - [ ] **Status**: Not Started
@@ -698,7 +698,53 @@ This document tracks the planned improvements and new features for Django Smart 
   - Add different use case examples
   - Implement example testing
 
-### 32. Migration Guides
+### 32. Django REST Framework (DRF) Documentation
+- [x] **Status**: Completed
+- [x] **Completed Date**: July 9, 2025
+- **Description**: Comprehensive DRF integration guide and examples
+- **Files to Create/Modify**:
+  - `docs/integrations/drf.md` ✅
+  - `examples/drf_integration/` ✅
+  - `examples/drf_integration/viewsets.py` ✅
+  - `examples/drf_integration/serializers.py` ✅
+  - `examples/drf_integration/permissions.py` ✅
+  - `examples/drf_integration/tests.py` ✅
+  - `tests/drf_integration/` ✅
+- **Tests Required**:
+  - DRF APIView tests ✅
+  - ViewSet integration tests ✅
+  - Serializer integration tests ✅
+  - Permission integration tests ✅
+  - Complete test suite with 35+ tests ✅
+- **Implementation Notes**:
+  - Cover APIView, ViewSet, ModelViewSet usage ✅
+  - Add examples for different DRF patterns ✅
+  - Include authentication integration ✅
+  - Add pagination and filtering examples ✅
+  - Production-ready examples with comprehensive testing ✅
+  - Advanced patterns: conditional, role-based, adaptive rate limiting ✅
+
+### 33. Class-Based Views (CBV) Documentation
+- [ ] **Status**: Not Started
+- [ ] **Completed Date**:
+- **Description**: Complete CBV integration guide and examples
+- **Files to Create/Modify**:
+  - `docs/integrations/cbv.md`
+  - `examples/cbv_integration/`
+  - `examples/cbv_integration/views.py`
+  - `examples/cbv_integration/mixins.py`
+- **Tests Required**:
+  - Generic CBV tests
+  - Custom CBV tests
+  - Mixin integration tests
+  - Method decoration tests
+- **Implementation Notes**:
+  - Cover all Django generic CBVs
+  - Add custom CBV examples
+  - Include mixin patterns
+  - Show method-specific rate limiting
+
+### 34. Migration Guides
 - [ ] **Status**: Not Started
 - [ ] **Completed Date**:
 - **Description**: Migration guides from other rate limiting libraries

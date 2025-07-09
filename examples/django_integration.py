@@ -34,7 +34,7 @@ class PublicAPIView(APIView):
     def get(self, request):
         return Response({'message': 'Public data'})
 
-    @rate_limit(key='ip', rate='10/h', methods=['POST'])
+    @rate_limit(key='ip', rate='10/h')
     def post(self, request):
         # Process POST data
         return Response({'status': 'created'}, status=status.HTTP_201_CREATED)
@@ -187,12 +187,12 @@ from django_smart_ratelimit import rate_limit
 class RateLimitedAdmin(admin.ModelAdmin):
     '''Admin interface with rate limiting for sensitive operations.'''
 
-    @rate_limit(key='user', rate='10/h', methods=['POST'])
+    @rate_limit(key='user', rate='10/h')
     def changelist_view(self, request, extra_context=None):
         # Rate limit bulk operations
         return super().changelist_view(request, extra_context)
 
-    @rate_limit(key='user', rate='5/h', methods=['POST'])
+    @rate_limit(key='user', rate='5/h')
     def delete_view(self, request, object_id, extra_context=None):
         # Rate limit deletions
         return super().delete_view(request, object_id, extra_context)

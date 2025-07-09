@@ -55,7 +55,7 @@ from django.http import HttpRequest, HttpResponse
 
 # Now we can import and use the MongoDB backend
 from django_smart_ratelimit.backends import get_backend
-from django_smart_ratelimit.decorator import ratelimit
+from django_smart_ratelimit.decorator import rate_limit
 
 
 def example_basic_usage():
@@ -111,7 +111,7 @@ def example_decorator_usage():
     """Example of using MongoDB backend with decorators."""
     print("\n=== MongoDB Backend with Decorators ===")
 
-    @ratelimit(key="ip", rate="5/1m", backend="mongodb")
+    @rate_limit(key="ip", rate="5/1m", backend="mongodb")
     def api_endpoint(request):
         return HttpResponse("API response")
 
@@ -242,7 +242,7 @@ def example_advanced_decorator_usage():
     print("\n=== MongoDB Backend with Advanced Decorators ===")
 
     # Example: MongoDB backend with algorithm and skip_if parameters
-    @ratelimit(
+    @rate_limit(
         key="ip",
         rate="50/h",
         backend="mongodb",
@@ -269,7 +269,7 @@ def example_advanced_decorator_usage():
         """
         )
 
-    @ratelimit(
+    @rate_limit(
         key="user",
         rate="100/h",
         backend="mongodb",

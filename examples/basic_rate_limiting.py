@@ -52,25 +52,7 @@ def api_user_limited(request):
     )
 
 
-# Example 3: Different limits for different HTTP methods
-@rate_limit(key="ip", rate="50/h", methods=["GET"])
-@rate_limit(key="ip", rate="10/h", methods=["POST", "PUT", "DELETE"])
-def api_method_specific(request):
-    """
-    Different rate limits for different HTTP methods.
-
-    GET requests: 50 per hour per IP
-    POST/PUT/DELETE requests: 10 per hour per IP
-    """
-    if request.method == "GET":
-        data = {"message": "Data retrieved", "method": "GET"}
-    else:
-        data = {"message": "Data modified", "method": request.method}
-
-    return JsonResponse(data)
-
-
-# Example 4: Combining multiple rate limits
+# Example 3: Combining multiple rate limits
 @rate_limit(key="ip", rate="100/h")  # General IP limit
 @rate_limit(key="user", rate="1000/h")  # Higher limit for authenticated users
 def api_combined_limits(request):
@@ -96,7 +78,7 @@ def api_combined_limits(request):
     )
 
 
-# Example 5: Skip rate limiting for specific conditions
+# Example 4: Skip rate limiting for specific conditions
 @rate_limit(key="ip", rate="10/m", skip_if=lambda request: request.user.is_staff)
 def api_skip_for_staff(request):
     """
@@ -117,7 +99,7 @@ def api_skip_for_staff(request):
     )
 
 
-# Example 6: Using different algorithms
+# Example 5: Using different algorithms
 @rate_limit(key="ip", rate="20/m", algorithm="sliding_window")
 def api_sliding_window(request):
     """
@@ -152,7 +134,7 @@ def api_fixed_window(request):
     )
 
 
-# Example 7: Custom error response
+# Example 6: Custom error response
 def custom_rate_limit_response(request):
     """Custom response when rate limit is exceeded."""
     return JsonResponse(
@@ -185,11 +167,10 @@ if __name__ == "__main__":
     print("This file contains examples of basic rate limiting patterns:")
     print("1. IP-based rate limiting")
     print("2. User-based rate limiting")
-    print("3. Method-specific rate limits")
-    print("4. Combined multiple rate limits")
-    print("5. Conditional rate limiting (skip for staff)")
-    print("6. Algorithm selection (sliding_window vs fixed_window)")
-    print("7. Custom error responses")
+    print("4. Combining multiple rate limits")
+    print("5. Skipping rate limits for specific conditions")
+    print("6. Using different algorithms (sliding window, fixed window)")
+    print("7. Custom error responses for rate limit exceeded")
     print("")
     print("To use these examples, include them in your Django views.py file")
     print("and add the corresponding URL patterns to your urls.py file.")

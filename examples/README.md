@@ -47,6 +47,14 @@ MIDDLEWARE = [
 - **`jwt_rate_limiting.py`** - JWT token-based rate limiting
 - **`tenant_rate_limiting.py`** - Multi-tenant rate limiting strategies
 
+### Django REST Framework Integration
+
+- **`drf_integration/`** - Complete DRF integration examples
+  - **`viewsets.py`** - ViewSet integration patterns
+  - **`serializers.py`** - Serializer-level rate limiting
+  - **`permissions.py`** - Permission-based rate limiting
+  - **`README.md`** - Comprehensive DRF integration guide
+
 ### Backend Configuration
 
 - **`backend_configuration.py`** - Configuration for all backend types
