@@ -17,23 +17,40 @@ repos:
     hooks:
       - id: black
         language_version: python3.9
+        exclude: ^\.venv/
 
   - repo: https://github.com/pycqa/flake8
     rev: 6.1.0
     hooks:
       - id: flake8
-        additional_dependencies: [flake8-docstrings]
-        args: ["--max-line-length=88", "--extend-ignore=E203,W503", "--per-file-ignores=tests/*:D,examples/*:D,F401,E501,E402,E722"]
+        additional_dependencies: [flake8-docstrings, flake8-unused-arguments]
+        args: ["--max-line-length=88", "--extend-ignore=E203,W503,U101"]
+        exclude: ^\.venv/
 
   - repo: https://github.com/pycqa/isort
     rev: 5.12.0
     hooks:
       - id: isort
         args: ["--profile", "black", "--line-length", "88"]
+        exclude: ^\.venv/
 
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.5.1
     hooks:
       - id: mypy
         additional_dependencies: [django-stubs, types-redis]
-        exclude: ^(tests/|docs/|examples/)
+        exclude: ^\.venv/
+
+  - repo: https://github.com/PyCQA/autoflake
+    rev: v2.2.1
+    hooks:
+      - id: autoflake
+        args:
+          [
+            "--in-place",
+            "--remove-all-unused-imports",
+            "--remove-unused-variables",
+            "--remove-duplicate-keys",
+            "--ignore-init-module-imports",
+          ]
+        exclude: ^\.venv/
