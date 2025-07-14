@@ -63,7 +63,20 @@ def get_backend(backend_name: Optional[str] = None) -> BaseBackend:
     elif backend_name == "multi":
         from .multi import MultiBackend
 
-        backend = MultiBackend()
+        # Pass Django settings to multi-backend
+        # Support both RATELIMIT_BACKENDS and RATELIMIT_MULTI_BACKENDS
+        backends = getattr(settings, "RATELIMIT_MULTI_BACKENDS", None) or getattr(
+            settings, "RATELIMIT_BACKENDS", []
+        )
+        backend = MultiBackend(
+            backends=backends,
+            fallback_strategy=getattr(
+                settings, "RATELIMIT_MULTI_BACKEND_STRATEGY", "first_healthy"
+            ),
+            health_check_interval=getattr(
+                settings, "RATELIMIT_HEALTH_CHECK_INTERVAL", 30
+            ),
+        )
     else:
         # Try to create backend using factory for full path
         try:

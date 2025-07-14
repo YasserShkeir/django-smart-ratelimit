@@ -50,7 +50,7 @@ class Command(BaseCommand):
             ),
         )
 
-    def handle(self, *args: str, **options: dict) -> None:
+    def handle(self, *_args: str, **options: dict) -> None:
         """Handle the command."""
         verbose: bool = bool(options.get("verbose", False))
         json_output: bool = bool(options.get("json", False))

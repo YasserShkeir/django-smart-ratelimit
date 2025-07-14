@@ -76,7 +76,7 @@ class Command(BaseCommand):
             help="Enable verbose output with detailed progress information",
         )
 
-    def handle(self, *args: Any, **options: Any) -> None:
+    def handle(self, *_args: Any, **options: Any) -> None:
         """Handle the command execution."""
         dry_run = options["dry_run"]
         batch_size = options["batch_size"]
