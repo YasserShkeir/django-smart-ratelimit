@@ -370,7 +370,7 @@ class RateLimitOptimizer:
             request.path,
             request.META.get("REMOTE_ADDR", ""),
             str(
-                request.user.id
+                getattr(request.user, "id", None)
                 if hasattr(request, "user") and request.user.is_authenticated
                 else "anonymous"
             ),
@@ -385,7 +385,9 @@ class RateLimitOptimizer:
                 if len(value) > 50:
                     import hashlib
 
-                    value = hashlib.md5(value.encode()).hexdigest()[:16]
+                    value = hashlib.md5(
+                        value.encode(), usedforsecurity=False
+                    ).hexdigest()[:16]
                 fingerprint_parts.append(f"{header}:{value}")
 
         return "|".join(fingerprint_parts)

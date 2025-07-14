@@ -278,12 +278,16 @@ class RateLimitConditions:
     @staticmethod
     def is_staff(request: HttpRequest) -> bool:
         """Check if the user is staff."""
-        return is_authenticated_user(request) and request.user.is_staff
+        return is_authenticated_user(request) and getattr(
+            request.user, "is_staff", False
+        )
 
     @staticmethod
     def is_superuser(request: HttpRequest) -> bool:
         """Check if the user is a superuser."""
-        return is_authenticated_user(request) and request.user.is_superuser
+        return is_authenticated_user(request) and getattr(
+            request.user, "is_superuser", False
+        )
 
     @staticmethod
     def has_api_key(request: HttpRequest) -> bool:

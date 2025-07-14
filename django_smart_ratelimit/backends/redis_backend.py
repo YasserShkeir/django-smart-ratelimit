@@ -133,7 +133,7 @@ class RedisBackend(BaseBackend):
             return {0, current_tokens, bucket_size, refill_rate,
                    (tokens_requested - current_tokens) / refill_rate}
         end
-    """
+    """  # nosec B105
 
     # Lua script for token bucket info (without consuming tokens)
     TOKEN_BUCKET_INFO_SCRIPT = """
@@ -155,7 +155,7 @@ class RedisBackend(BaseBackend):
         -- Return current state
         return {current_tokens, bucket_size, refill_rate,
                math.max(0, (bucket_size - current_tokens) / refill_rate), last_refill}
-    """
+    """  # nosec B105
 
     def __init__(self):
         """Initialize the Redis backend with connection and scripts."""

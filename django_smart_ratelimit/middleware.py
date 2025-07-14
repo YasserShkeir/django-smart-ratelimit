@@ -140,6 +140,6 @@ def user_key_function(request: HttpRequest) -> str:
         Rate limit key based on user ID or IP for anonymous users
     """
     if request.user.is_authenticated:
-        return f"middleware:user:{request.user.id}"
+        return f"middleware:user:{getattr(request.user, 'id', None)}"
     else:
         return default_key_function(request)

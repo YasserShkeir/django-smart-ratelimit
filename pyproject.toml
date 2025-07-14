@@ -164,7 +164,7 @@ extend-exclude = '''
 '''
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.10"
 check_untyped_defs = true
 ignore_missing_imports = true
 warn_unused_ignores = true

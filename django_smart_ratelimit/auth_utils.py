@@ -34,11 +34,12 @@ def get_user_info(request: HttpRequest) -> Optional[Dict[str, Any]]:
         Dictionary with user information or None if not authenticated
     """
     if is_authenticated_user(request):
+        user = request.user
         return {
-            "id": request.user.id,
-            "username": request.user.username,
-            "is_staff": request.user.is_staff,
-            "is_superuser": request.user.is_superuser,
+            "id": getattr(user, "id", None),
+            "username": getattr(user, "username", None),
+            "is_staff": getattr(user, "is_staff", False),
+            "is_superuser": getattr(user, "is_superuser", False),
         }
     return None
 
@@ -82,7 +83,7 @@ def has_permission(request: HttpRequest, permission: str) -> bool:
     if not is_authenticated_user(request):
         return False
 
-    return request.user.has_perm(permission)
+    return getattr(request.user, "has_perm", lambda x: False)(permission)
 
 
 def is_staff_user(request: HttpRequest) -> bool:
@@ -95,7 +96,7 @@ def is_staff_user(request: HttpRequest) -> bool:
     Returns:
         True if user is staff, False otherwise
     """
-    return is_authenticated_user(request) and request.user.is_staff
+    return is_authenticated_user(request) and getattr(request.user, "is_staff", False)
 
 
 def is_superuser(request: HttpRequest) -> bool:
@@ -108,7 +109,9 @@ def is_superuser(request: HttpRequest) -> bool:
     Returns:
         True if user is superuser, False otherwise
     """
-    return is_authenticated_user(request) and request.user.is_superuser
+    return is_authenticated_user(request) and getattr(
+        request.user, "is_superuser", False
+    )
 
 
 def get_user_role(request: HttpRequest) -> str:
@@ -124,9 +127,9 @@ def get_user_role(request: HttpRequest) -> str:
     if not is_authenticated_user(request):
         return "anonymous"
 
-    if request.user.is_superuser:
+    if getattr(request.user, "is_superuser", False):
         return "superuser"
-    elif request.user.is_staff:
+    elif getattr(request.user, "is_staff", False):
         return "staff"
     else:
         return "user"
@@ -149,10 +152,10 @@ def should_bypass_rate_limit(
     if not is_authenticated_user(request):
         return False
 
-    if bypass_superuser and request.user.is_superuser:
+    if bypass_superuser and getattr(request.user, "is_superuser", False):
         return True
 
-    if bypass_staff and request.user.is_staff:
+    if bypass_staff and getattr(request.user, "is_staff", False):
         return True
 
     return False
@@ -169,7 +172,12 @@ def extract_user_identifier(request: HttpRequest) -> str:
         Unique identifier string
     """
     if is_authenticated_user(request):
-        return f"user:{request.user.id}"
+        user_id = getattr(request.user, "id", None)
+        return (
+            f"user:{user_id}"
+            if user_id
+            else f"ip:{request.META.get('REMOTE_ADDR', 'unknown')}"
+        )
 
     # Fallback to IP address
     return f"ip:{request.META.get('REMOTE_ADDR', 'unknown')}"

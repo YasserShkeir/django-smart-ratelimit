@@ -1,0 +1,13 @@
+[bandit]
+# Bandit configuration for django-smart-ratelimit
+
+# Skip specific tests that are false positives
+skips = B105
+
+# Lua scripts in Redis backend are not passwords
+exclude_dirs = []
+
+# Test-specific configurations
+[bandit.B105]
+# Skip hardcoded password warnings for Lua scripts
+exclude = ["django_smart_ratelimit/backends/redis_backend.py"]

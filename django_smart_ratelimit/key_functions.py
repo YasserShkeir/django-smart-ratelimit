@@ -27,7 +27,7 @@ def user_or_ip_key(request: HttpRequest) -> str:
         Rate limiting key string
     """
     if hasattr(request, "user") and request.user.is_authenticated:
-        return f"user:{request.user.id}"
+        return f"user:{getattr(request.user, 'id', None)}"
     return get_ip_key(request)
 
 
@@ -44,8 +44,8 @@ def user_role_key(request: HttpRequest) -> str:
         Rate limiting key string with role information
     """
     if hasattr(request, "user") and request.user.is_authenticated:
-        role = "staff" if request.user.is_staff else "user"
-        return f"{request.user.id}:{role}"
+        role = "staff" if getattr(request.user, "is_staff", False) else "user"
+        return f"{getattr(request.user, 'id', None)}:{role}"
     return get_ip_key(request)
 
 
@@ -120,7 +120,7 @@ def composite_key(request: HttpRequest, strategies: Optional[List[str]] = None) 
             and hasattr(request, "user")
             and request.user.is_authenticated
         ):
-            return f"user:{request.user.id}"
+            return f"user:{getattr(request.user, 'id', None)}"
         elif strategy == "ip":
             return get_ip_key(request)
         elif strategy == "session":
@@ -156,7 +156,7 @@ def device_fingerprint_key(request: HttpRequest) -> str:
 
     # Create hash of combined data
     combined = "|".join(fingerprint_data)
-    fingerprint = hashlib.md5(combined.encode()).hexdigest()[:16]
+    fingerprint = hashlib.md5(combined.encode(), usedforsecurity=False).hexdigest()[:16]
 
     return f"device:{fingerprint}"
 

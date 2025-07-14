@@ -54,7 +54,8 @@ def get_user_key(request: HttpRequest) -> str:
         User ID string formatted as 'user:{id}' or falls back to IP
     """
     if hasattr(request, "user") and request.user.is_authenticated:
-        return f"user:{request.user.id}"
+        user_id = getattr(request.user, "id", None)
+        return f"user:{user_id}" if user_id else get_ip_key(request)
     else:
         # Fall back to IP for anonymous users
         return get_ip_key(request)
@@ -258,7 +259,8 @@ def generate_key(
         elif key.startswith("user:") and hasattr(request, "user"):
             # Handle user-based templates like "user:{user.id}"
             if request.user.is_authenticated:
-                return f"user:{request.user.id}"
+                user_id = getattr(request.user, "id", None)
+                return f"user:{user_id}" if user_id else get_ip_key(request)
             else:
                 return get_ip_key(request)  # Fallback to IP
         elif key.startswith("ip:"):
@@ -444,7 +446,7 @@ def get_device_fingerprint_key(request: HttpRequest) -> str:
 
     # Create hash of combined data
     combined = "|".join(fingerprint_data)
-    fingerprint = hashlib.md5(combined.encode()).hexdigest()[:16]
+    fingerprint = hashlib.md5(combined.encode(), usedforsecurity=False).hexdigest()[:16]
 
     return f"device:{fingerprint}"
 

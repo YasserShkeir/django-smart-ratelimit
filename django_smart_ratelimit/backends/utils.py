@@ -220,7 +220,9 @@ def normalize_key(key: str, prefix: str = "", max_length: int = 250) -> str:
     # Handle long keys by hashing
     if len(full_key) > max_length:
         # Keep readable prefix and hash the rest
-        hash_suffix = hashlib.md5(full_key.encode()).hexdigest()[:16]
+        hash_suffix = hashlib.md5(full_key.encode(), usedforsecurity=False).hexdigest()[
+            :16
+        ]
         if prefix:
             readable_part = f"{prefix}:..."
         else:
@@ -364,7 +366,7 @@ def create_lua_script_hash(script: str) -> str:
     Returns:
         SHA1 hash of the script
     """
-    return hashlib.sha1(script.encode()).hexdigest()
+    return hashlib.sha1(script.encode(), usedforsecurity=False).hexdigest()
 
 
 def validate_lua_script_args(
