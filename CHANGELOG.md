@@ -7,9 +7,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2025-01-15
+
+### Added
+
+- 🚀 **Complete Type Safety**: Comprehensive mypy type annotations across all files
+  - Fixed all Django user attribute access (user.id, user.is_staff, user.is_superuser)
+  - Added proper type hints for all function parameters and return values
+  - Eliminated all mypy errors with strict type checking enabled
+  - Enhanced IDE support with better autocompletion and error detection
+- 🛡️ **Security Hardening**: Bandit security analysis integration
+  - Added .bandit configuration file for security scanning
+  - Fixed all high-severity security issues
+  - Added security-safe hash operations (usedforsecurity=False)
+  - Enhanced Redis Lua script security annotations
+- 🔧 **Development Workflow Improvements**: Updated CI/CD and development tools
+  - Updated GitHub Actions workflows for Python 3.13 and Django 5.1
+  - Enhanced pre-commit hooks with comprehensive type checking
+  - Improved Makefile with virtual environment management
+  - Added run_with_venv.sh script for consistent environment handling
+- 📚 **Code Quality**: Removed mypy ignore overrides for core modules
+  - configuration.py and middleware.py now pass strict type checking
+  - All example files pass type validation
+  - Comprehensive test suite coverage (340+ tests passing)
+
+### Changed
+
+- 🎯 **Type System**: Enhanced Django user compatibility
+  - Used getattr() pattern for safe attribute access on AbstractBaseUser/AnonymousUser
+  - Maintained backward compatibility while adding type safety
+  - Improved error handling for different Django user models
+- 🔄 **CI/CD Pipeline**: Modernized development infrastructure
+  - Updated to latest Python and Django versions in CI
+  - Enhanced security scanning with Bandit integration
+  - Improved pre-commit configuration for better developer experience
+- 📖 **Documentation**: Enhanced type safety documentation
+  - Updated examples with proper type annotations
+  - Improved development setup instructions
+  - Better IDE integration guidance
+
+### Fixed
+
+- 🐛 **Type Errors**: Resolved all mypy type annotation errors
+  - Fixed AbstractBaseUser attribute access in key_functions.py
+  - Fixed user attribute access in performance.py, configuration.py, middleware.py
+  - Fixed auth_utils.py and utils.py type compatibility issues
+- 🔒 **Security Issues**: Addressed all high-severity security warnings
+  - Added security-safe cryptographic operations
+  - Enhanced Redis Lua script security annotations
+  - Improved input validation and sanitization
+- 🧪 **Testing**: Enhanced test reliability and coverage
+  - All 340+ tests passing with type safety enabled
+  - Improved test isolation and consistency
+  - Better error reporting and debugging capabilities
+
+### Technical Notes
+
+- This release focuses on production readiness and developer experience
+- Type safety improvements enhance IDE support and reduce runtime errors
+- Security hardening makes the library more suitable for production deployments
+- Recommended upgrade for all users seeking better type safety and security
+
 ## [0.5.0] - 2025-01-09
 
 ### Added
+
 - 🔥 **Django REST Framework (DRF) Integration**: Comprehensive integration with DRF
   - ViewSet rate limiting with method-specific configurations
   - Serializer-level rate limiting and validation
@@ -24,12 +86,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 🛠️ DRF-specific utilities and helpers
 
 ### Changed
+
 - 🔧 Fixed all decorator usage to use current API (`@rate_limit` instead of `@ratelimit`)
 - 📝 Updated all examples to remove deprecated `method=` parameter
 - 🧹 Cleaned up codebase and removed unused files
 - 📖 Enhanced documentation with DRF integration guide
 
 ### Fixed
+
 - 🚫 Removed all deprecated `method=` parameters from decorators
 - 🔄 Fixed all import statements to use `rate_limit` instead of `ratelimit`
 - 🧪 Fixed test issues with DRF integration examples
