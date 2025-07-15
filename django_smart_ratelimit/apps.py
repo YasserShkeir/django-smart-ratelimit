@@ -13,4 +13,3 @@ class DjangoSmartRatelimitConfig(AppConfig):
     def ready(self) -> None:
         """Initialize the app when Django starts."""
         # Import signal handlers if needed
-        pass

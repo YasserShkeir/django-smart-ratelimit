@@ -22,9 +22,16 @@ except ImportError:
 
 
 from django.conf import settings
-from django.core.exceptions import ImproperlyConfigured
 
 from .backends import get_backend
+from .utils import (
+    add_rate_limit_headers,
+    get_ip_key,
+    get_rate_for_path,
+    load_function_from_string,
+    parse_rate,
+    should_skip_path,
+)
 
 
 class RateLimitMiddleware:
@@ -67,17 +74,17 @@ class RateLimitMiddleware:
     def __call__(self, request: HttpRequest) -> HttpResponse:
         """Process the request and apply rate limiting."""
         # Check if path should be skipped
-        if self._should_skip_path(request.path):
+        if should_skip_path(request.path, self.skip_paths):
             return self.get_response(request)
 
         # Get rate limit for this path
-        rate = self._get_rate_for_path(request.path)
+        rate = get_rate_for_path(request.path, self.rate_limits, self.default_rate)
 
         # Generate key
         key = self.key_function(request)
 
         # Parse rate
-        limit, period = self._parse_rate(rate)
+        limit, period = parse_rate(rate)
 
         # Check rate limit
         current_count = self.backend.incr(key, period)
@@ -87,73 +94,25 @@ class RateLimitMiddleware:
                 response = HttpResponseTooManyRequests(
                     "Rate limit exceeded. Please try again later."
                 )
-                response.headers["X-RateLimit-Limit"] = str(limit)
-                response.headers["X-RateLimit-Remaining"] = "0"
-                response.headers["X-RateLimit-Reset"] = str(int(time.time() + period))
+                add_rate_limit_headers(response, limit, 0, int(time.time() + period))
                 return response
 
         # Process the request
         response = self.get_response(request)
 
         # Add rate limit headers
-        if hasattr(response, "headers"):
-            response.headers["X-RateLimit-Limit"] = str(limit)
-            response.headers["X-RateLimit-Remaining"] = str(
-                max(0, limit - current_count)
-            )
-            response.headers["X-RateLimit-Reset"] = str(int(time.time() + period))
+        add_rate_limit_headers(
+            response, limit, max(0, limit - current_count), int(time.time() + period)
+        )
 
         return response
-
-    def _should_skip_path(self, path: str) -> bool:
-        """Check if the path should be skipped from rate limiting."""
-        for skip_path in self.skip_paths:
-            if path.startswith(skip_path):
-                return True
-        return False
-
-    def _get_rate_for_path(self, path: str) -> str:
-        """Get the rate limit for a specific path."""
-        for path_pattern, rate in self.rate_limits.items():
-            if path.startswith(path_pattern):
-                return rate
-        return self.default_rate
 
     def _load_key_function(self, key_function_path: Optional[str]) -> Callable:
         """Load the key function from settings or use default."""
         if not key_function_path:
             return default_key_function
 
-        try:
-            module_path, function_name = key_function_path.rsplit(".", 1)
-            module = __import__(module_path, fromlist=[function_name])
-            return getattr(module, function_name)
-        except (ImportError, AttributeError) as e:
-            raise ImproperlyConfigured(
-                f"Cannot load key function {key_function_path}: {e}"
-            ) from e
-
-    def _parse_rate(self, rate: str) -> tuple[int, int]:
-        """Parse rate limit string like "10/m" into (limit, period_seconds)."""
-        try:
-            limit_str, period_str = rate.split("/")
-            limit = int(limit_str)
-
-            period_map = {
-                "s": 1,
-                "m": 60,
-                "h": 3600,
-                "d": 86400,
-            }
-
-            if period_str not in period_map:
-                raise ValueError(f"Unknown period: {period_str}")
-
-            period = period_map[period_str]
-            return limit, period
-
-        except (ValueError, IndexError) as e:
-            raise ImproperlyConfigured(f"Invalid rate format: {rate}") from e
+        return load_function_from_string(key_function_path)
 
 
 def default_key_function(request: HttpRequest) -> str:
@@ -165,14 +124,9 @@ def default_key_function(request: HttpRequest) -> str:
     Returns:
         Rate limit key based on client IP
     """
-    # Get client IP, handling proxies
-    x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
-    if x_forwarded_for:
-        ip = x_forwarded_for.split(",")[0].strip()
-    else:
-        ip = request.META.get("REMOTE_ADDR")
-
-    return f"middleware:{ip}"
+    ip_key = get_ip_key(request)
+    # Replace 'ip:' prefix with 'middleware:' to distinguish from decorator usage
+    return ip_key.replace("ip:", "middleware:")
 
 
 def user_key_function(request: HttpRequest) -> str:
@@ -186,6 +140,6 @@ def user_key_function(request: HttpRequest) -> str:
         Rate limit key based on user ID or IP for anonymous users
     """
     if request.user.is_authenticated:
-        return f"middleware:user:{request.user.id}"
+        return f"middleware:user:{getattr(request.user, 'id', None)}"
     else:
         return default_key_function(request)

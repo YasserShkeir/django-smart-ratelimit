@@ -6,11 +6,20 @@ to Django views or any callable to enforce rate limiting.
 """
 
 import functools
-import logging
 import time
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Dict, Optional, Union
 
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpResponse
+
+from .algorithms import TokenBucketAlgorithm
+from .backends import get_backend
+from .utils import (
+    add_rate_limit_headers,
+    add_token_bucket_headers,
+    generate_key,
+    parse_rate,
+    validate_rate_config,
+)
 
 # Compatibility for Django < 4.2
 try:
@@ -23,11 +32,6 @@ except ImportError:
         status_code = 429
 
 
-from django.core.exceptions import ImproperlyConfigured
-
-from .backends import get_backend
-
-
 def rate_limit(
     key: Union[str, Callable],
     rate: str,
@@ -35,6 +39,7 @@ def rate_limit(
     backend: Optional[str] = None,
     skip_if: Optional[Callable] = None,
     algorithm: Optional[str] = None,
+    algorithm_config: Optional[Dict[str, Any]] = None,
 ) -> Callable:
     """Apply rate limiting to a view or function.
 
@@ -44,38 +49,56 @@ def rate_limit(
         block: If True, block requests that exceed the limit
         backend: Backend to use for rate limiting storage
         skip_if: Callable that returns True if rate limiting should be skipped
-        algorithm: Algorithm to use ('sliding_window' or 'fixed_window')
+        algorithm: Algorithm to use ('sliding_window', 'fixed_window', 'token_bucket')
+        algorithm_config: Configuration dict for the algorithm
 
     Returns:
         Decorated function with rate limiting applied
 
-    Example:
+    Examples:
+        # Basic rate limiting
         @rate_limit(key='user:{user.id}', rate='10/m')
-        def my_view(request):
+        def my_view(_request):
             return HttpResponse("Hello World")
+
+        # Token bucket with burst capability
+        @rate_limit(
+            key='api_key:{_request.api_key}',
+            rate='10/m',
+            algorithm='token_bucket',
+            algorithm_config={'bucket_size': 20}
+        )
+        def api_view(_request):
+            return JsonResponse({'status': 'ok'})
     """
 
     def decorator(func: Callable) -> Callable:
+        # Validate configuration early
+        if algorithm is not None or algorithm_config is not None:
+            validate_rate_config(rate, algorithm, algorithm_config)
+
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            # Get the request object
-            request = None
+            # Get the _request object
+            _request = None
             if args and hasattr(args[0], "META"):
-                request = args[0]
-            elif "request" in kwargs:
-                request = kwargs["request"]
+                _request = args[0]
+            elif "_request" in kwargs:
+                _request = kwargs["_request"]
 
-            if not request:
-                # If no request found, skip rate limiting
+            if not _request:
+                # If no _request found, skip rate limiting
                 return func(*args, **kwargs)
 
             # Check skip_if condition
             if skip_if and callable(skip_if):
                 try:
-                    if skip_if(request):
+                    if skip_if(_request):
                         return func(*args, **kwargs)
                 except Exception as e:
-                    # If skip_if fails, log the error and continue with rate limiting
+                    # Log the error but don't break the request
+                    import logging
+
                     logger = logging.getLogger(__name__)
                     logger.warning(
                         "skip_if function failed with error: %s. "
@@ -91,12 +114,50 @@ def rate_limit(
                 backend_instance.config["algorithm"] = algorithm
 
             # Generate the rate limit key
-            limit_key = _generate_key(key, request, *args, **kwargs)
+            limit_key = generate_key(key, _request, *args, **kwargs)
 
             # Parse rate limit
-            limit, period = _parse_rate(rate)
+            limit, period = parse_rate(rate)
 
-            # Check rate limit
+            # Handle algorithm-specific logic
+            if algorithm == "token_bucket":
+                # Use token bucket algorithm
+                try:
+                    algorithm_instance = TokenBucketAlgorithm(algorithm_config)
+                    is_allowed, metadata = algorithm_instance.is_allowed(
+                        backend_instance, limit_key, limit, period
+                    )
+
+                    if not is_allowed:
+                        if block:
+                            return HttpResponseTooManyRequests(
+                                "Rate limit exceeded. Please try again later."
+                            )
+                        else:
+                            # Add rate limit headers but don't block
+                            response = func(*args, **kwargs)
+                            add_token_bucket_headers(response, metadata, limit, period)
+                            return response
+
+                    # Execute the original function
+                    response = func(*args, **kwargs)
+
+                    # Add rate limit headers
+                    add_token_bucket_headers(response, metadata, limit, period)
+
+                    return response
+
+                except Exception as e:
+                    # If token bucket fails, fall back to standard rate limiting
+                    logger = logging.getLogger(__name__)
+                    logger.error(
+                        "Token bucket algorithm failed with error: %s. "
+                        "Falling back to standard rate limiting.",
+                        str(e),
+                    )
+                    # Continue with standard algorithm below
+
+            # Standard rate limiting (sliding_window or fixed_window)
             current_count = backend_instance.incr(limit_key, period)
 
             if current_count > limit:
@@ -107,88 +168,24 @@ def rate_limit(
                 else:
                     # Add rate limit headers but don't block
                     response = func(*args, **kwargs)
-                    if hasattr(response, "headers"):
-                        response.headers["X-RateLimit-Limit"] = str(limit)
-                        response.headers["X-RateLimit-Remaining"] = "0"
-                        response.headers["X-RateLimit-Reset"] = str(
-                            int(time.time() + period)
-                        )
+                    add_rate_limit_headers(
+                        response, limit, 0, int(time.time() + period)
+                    )
                     return response
 
             # Execute the original function
             response = func(*args, **kwargs)
 
             # Add rate limit headers
-            if hasattr(response, "headers"):
-                response.headers["X-RateLimit-Limit"] = str(limit)
-                response.headers["X-RateLimit-Remaining"] = str(
-                    max(0, limit - current_count)
-                )
-                response.headers["X-RateLimit-Reset"] = str(int(time.time() + period))
+            add_rate_limit_headers(
+                response,
+                limit,
+                max(0, limit - current_count),
+                int(time.time() + period),
+            )
 
             return response
 
         return wrapper
 
     return decorator
-
-
-def _generate_key(
-    key: Union[str, Callable], request: HttpRequest, *args: Any, **kwargs: Any
-) -> str:
-    """Generate the rate limit key from the provided key template or callable."""
-    if callable(key):
-        return key(request, *args, **kwargs)
-
-    # Simple template substitution
-    if isinstance(key, str):
-        if key == "ip":
-            # Get IP address from request
-            ip = request.META.get("REMOTE_ADDR", "unknown")
-            return f"ip:{ip}"
-        elif key == "user":
-            # Get user ID from request
-            if hasattr(request, "user") and request.user.is_authenticated:
-                return f"user:{request.user.id}"
-            else:
-                # Fall back to IP if user is not authenticated
-                ip = request.META.get("REMOTE_ADDR", "unknown")
-                return f"ip:{ip}"
-        else:
-            # For other keys, return as-is
-            return key
-
-    raise ImproperlyConfigured(f"Invalid key type: {type(key)}")
-
-
-def _parse_rate(rate: str) -> tuple[int, int]:
-    """
-    Parse rate limit string like "10/m" into (limit, period_seconds).
-
-    Supported formats:
-    - "10/s" - 10 requests per second
-    - "100/m" - 100 requests per minute
-    - "1000/h" - 1000 requests per hour
-    - "10000/d" - 10000 requests per day
-    """
-    try:
-        limit_str, period_str = rate.split("/")
-        limit = int(limit_str)
-
-        period_map = {
-            "s": 1,
-            "m": 60,
-            "h": 3600,
-            "d": 86400,
-        }
-
-        if period_str not in period_map:
-            raise ValueError(f"Unknown period: {period_str}")
-
-        period = period_map[period_str]
-        return limit, period
-
-    except (ValueError, IndexError) as e:
-        raise ImproperlyConfigured(
-            f"Invalid rate format: {rate}. Use format like '10/m'"
-        ) from e

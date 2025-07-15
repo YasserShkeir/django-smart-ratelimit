@@ -6,6 +6,12 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .base import BaseBackend
 from .factory import BackendFactory
+from .utils import (
+    estimate_backend_memory_usage,
+    log_backend_operation,
+    retry_backend_operation,
+    validate_backend_config,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +34,7 @@ class BackendHealthChecker:
 
     def is_healthy(self, backend_name: str, backend: BaseBackend) -> bool:
         """
-        Check if backend is healthy.
+        Check if backend is healthy using utilities.
 
         Args:
             backend_name: Name of the backend
@@ -44,16 +50,31 @@ class BackendHealthChecker:
         if now - last_check < self.check_interval:
             return self._health_status.get(backend_name, True)
 
-        # Perform health check
-        try:
-            # Simple health check: try to get a non-existent key
+        # Perform health check using utility retry mechanism
+        @retry_backend_operation(max_retries=2, delay=0.5)
+        def _check_backend_health() -> bool:
+            # Try to perform a lightweight operation
             test_key = f"_health_check_{int(now)}"
             backend.get_count(test_key)
+            return True
+
+        try:
+            _check_backend_health()
             self._health_status[backend_name] = True
-            logger.debug(f"Backend {backend_name} is healthy")
+
+            log_backend_operation(
+                "multi_backend_health_check",
+                f"Backend {backend_name} is healthy",
+                level="debug",
+            )
         except Exception as e:
             self._health_status[backend_name] = False
-            logger.warning(f"Backend {backend_name} health check failed: {e}")
+
+            log_backend_operation(
+                "multi_backend_health_check_error",
+                f"Backend {backend_name} health check failed: {e}",
+                level="warning",
+            )
 
         self._last_check[backend_name] = now
         return self._health_status[backend_name]
@@ -69,7 +90,7 @@ class MultiBackend(BaseBackend):
 
     def __init__(self, **kwargs: Any) -> None:
         """
-        Initialize multi-backend.
+        Initialize multi-backend with configuration validation.
 
         Args:
             **kwargs: Configuration options including:
@@ -80,6 +101,9 @@ class MultiBackend(BaseBackend):
                 - health_check_timeout: Timeout for health checks
         """
         from django.conf import settings
+
+        # Validate configuration using utility
+        validate_backend_config(kwargs, backend_type="multi")
 
         self.backends: List[Tuple[str, BaseBackend]] = []
         self.fallback_strategy = kwargs.get(
@@ -100,49 +124,65 @@ class MultiBackend(BaseBackend):
                 getattr(settings, "RATELIMIT_HEALTH_CHECK_TIMEOUT", 5),
             ),
         )
-        self._current_backend_index = 0
 
-        # Get backends from kwargs or settings
-        backends = kwargs.get("backends")
-        if not backends:
-            backends = getattr(settings, "RATELIMIT_BACKENDS", [])
+        # Initialize backends from configuration
+        backend_configs = kwargs.get(
+            "backends",
+            getattr(settings, "RATELIMIT_MULTI_BACKENDS", []),
+        )
 
-        self._setup_backends(backends)
+        if not backend_configs:
+            raise ValueError(
+                "Multi-backend requires at least one backend configuration"
+            )
 
-    def _setup_backends(self, backend_configs: List[Dict[str, Any]]) -> None:
-        """
-        Set up backend instances from configurations.
-
-        Args:
-            backend_configs: List of backend configuration dictionaries
-        """
-        for config in backend_configs:
-            backend_path = config.get("backend")
-            backend_name = config.get("name") or backend_path
-            backend_config = config.get("config", {})
-
-            if not backend_path:
-                logger.warning("Backend configuration missing 'backend' key")
-                continue
-
-            # Ensure backend_name is a string
-            if not backend_name:
-                logger.warning(
-                    "Backend configuration missing both 'name' and 'backend' keys"
-                )
-                continue
-
+        for backend_config in backend_configs:
             try:
-                backend = BackendFactory.create_backend(backend_path, **backend_config)
-                self.backends.append((backend_name, backend))
-                logger.info(f"Initialized backend: {backend_name}")
+                # Support both 'type' and 'backend' for backward compatibility
+                backend_type = backend_config.get("type") or backend_config.get(
+                    "backend"
+                )
+                backend_name = backend_config.get("name", backend_type or "unnamed")
+                backend_options = backend_config.get(
+                    "options", {}
+                ) or backend_config.get("config", {})
+
+                if not backend_type:
+                    raise ValueError(
+                        f"Backend {backend_name} missing 'type' configuration"
+                    )
+
+                backend_instance = BackendFactory.create_backend(
+                    backend_type, **backend_options
+                )
+                self.backends.append((backend_name, backend_instance))
+
+                log_backend_operation(
+                    "multi_backend_init",
+                    f"Initialized backend {backend_name} ({backend_type})",
+                    level="info",
+                )
+
             except Exception as e:
-                logger.error(f"Failed to initialize backend {backend_name}: {e}")
+                log_backend_operation(
+                    "multi_backend_init_error",
+                    f"Failed to initialize backend {backend_config}: {e}",
+                    level="error",
+                )
+                # Continue with other backends rather than failing completely
+                continue
 
         if not self.backends:
-            raise ValueError(
-                "No backends configured or all backends failed to initialize"
-            )
+            raise ValueError("No backends were successfully initialized")
+
+        log_backend_operation(
+            "multi_backend_init_complete",
+            f"Multi-backend initialized with {len(self.backends)} backends, "
+            f"strategy: {self.fallback_strategy}",
+            level="info",
+        )
+
+        self._current_backend_index = 0
 
     def _get_healthy_backend(self) -> Optional[Tuple[str, BaseBackend]]:
         """
@@ -170,7 +210,7 @@ class MultiBackend(BaseBackend):
         self, method_name: str, *args: Any, **kwargs: Any
     ) -> Any:
         """
-        Execute method with fallback to healthy backends.
+        Execute method with fallback to healthy backends using utilities.
 
         Args:
             method_name: Name of the method to execute
@@ -183,6 +223,7 @@ class MultiBackend(BaseBackend):
         Raises:
             Exception: If all backends fail
         """
+        start_time = time.time()
         last_exception = None
         attempted_backends = []
 
@@ -193,9 +234,22 @@ class MultiBackend(BaseBackend):
             try:
                 method = getattr(backend, method_name)
                 result = method(*args, **kwargs)
-                logger.debug(f"Successfully executed {method_name} on backend {name}")
+
+                log_backend_operation(
+                    "multi_backend_execute_success",
+                    f"Successfully executed {method_name} on backend {name}",
+                    duration=time.time() - start_time,
+                    level="debug",
+                )
+
                 return result
             except Exception as e:
+                log_backend_operation(
+                    "multi_backend_execute_error",
+                    f"Backend {name} failed for {method_name}: {e}",
+                    level="warning",
+                )
+                # Also log to the multi-backend's logger for test compatibility
                 logger.warning(f"Backend {name} failed for {method_name}: {e}")
                 attempted_backends.append(name)
                 last_exception = e
@@ -207,7 +261,14 @@ class MultiBackend(BaseBackend):
         error_msg = (
             f"All backends failed for {method_name}. Attempted: {attempted_backends}"
         )
-        logger.error(error_msg)
+
+        log_backend_operation(
+            "multi_backend_execute_all_failed",
+            error_msg,
+            duration=time.time() - start_time,
+            level="error",
+        )
+
         if last_exception:
             raise last_exception
         else:
@@ -273,7 +334,7 @@ class MultiBackend(BaseBackend):
         """
         return self._execute_with_fallback("increment", key, window_seconds, limit)
 
-    def get_count_with_window(self, key: str, window_seconds: int) -> int:
+    def get_count_with_window(self, key: str, _window_seconds: int) -> int:
         """
         Get current count with window (legacy method).
 
@@ -332,3 +393,72 @@ class MultiBackend(BaseBackend):
             "backends": self.get_backend_status(),
         }
         return stats
+
+    def health_check(self) -> Dict[str, Any]:
+        """
+        Check the health of all backends using backend utilities.
+
+        Returns:
+            Dictionary with health status information for all backends
+        """
+        start_time = time.time()
+        backend_statuses = {}
+        healthy_count = 0
+        total_count = len(self.backends)
+
+        for name, backend in self.backends:
+            try:
+                # Check if backend has its own health_check method
+                if hasattr(backend, "health_check"):
+                    backend_health = backend.health_check()
+                else:
+                    # Use our health checker
+                    is_healthy = self.health_checker.is_healthy(name, backend)
+                    backend_health = {
+                        "status": "healthy" if is_healthy else "unhealthy",
+                        "backend_class": backend.__class__.__name__,
+                        "last_check": self.health_checker._last_check.get(name, 0),
+                    }
+
+                backend_statuses[name] = backend_health
+
+                if backend_health.get("status") == "healthy":
+                    healthy_count += 1
+
+            except Exception as e:
+                backend_statuses[name] = {
+                    "status": "unhealthy",
+                    "error": str(e),
+                    "backend_class": backend.__class__.__name__,
+                }
+
+        # Overall health status
+        overall_status = "healthy" if healthy_count > 0 else "unhealthy"
+
+        # Estimate memory usage using utility
+        memory_data = {
+            "backend_count": total_count,
+            "healthy_count": healthy_count,
+            "backend_statuses": backend_statuses,
+        }
+
+        memory_usage = estimate_backend_memory_usage(memory_data, backend_type="multi")
+
+        health_data = {
+            "status": overall_status,
+            "response_time": time.time() - start_time,
+            "backend_type": "multi",
+            "total_backends": total_count,
+            "healthy_backends": healthy_count,
+            "fallback_strategy": self.fallback_strategy,
+            "backends": backend_statuses,
+            "estimated_memory_usage": memory_usage,
+        }
+
+        log_backend_operation(
+            "multi_backend_health_check",
+            f"Health check complete: {healthy_count}/{total_count} backends healthy",
+            duration=health_data["response_time"],
+        )
+
+        return health_data

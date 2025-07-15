@@ -8,7 +8,8 @@ from django.http import HttpResponse
 from django.urls import path
 
 
-def test_view(request):
+def test_view(_request):
+    """Test view for URL testing."""
     return HttpResponse("OK")
 
 

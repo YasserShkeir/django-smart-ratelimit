@@ -14,14 +14,14 @@ A flexible and efficient rate limiting library for Django applications with supp
 ## ✨ Features
 
 - 🚀 **High Performance**: Atomic operations using Redis Lua scripts and optimized algorithms
-- 🔧 **Flexible Configuration**: Both decorator and middleware support with custom key functions
-- 🪟 **Multiple Algorithms**: Fixed window and sliding window rate limiting
+- 🪟 **Multiple Algorithms**: Token bucket (burst support), sliding window, and fixed window rate limiting
 - 🔌 **Multiple Backends**: Redis, Database, Memory, and Multi-Backend with automatic fallback
-- 📊 **Rich Headers**: Standard rate limiting headers (X-RateLimit-\*)
 - 🛡️ **Production Ready**: Comprehensive testing, error handling, and monitoring
+- 🔧 **Flexible Configuration**: Both decorator and middleware support with custom key functions
 - 🔄 **Auto-Fallback**: Seamless failover between backends when one goes down
-- 📈 **Health Monitoring**: Built-in health checks and status reporting
+- � **Rich Headers**: Standard rate limiting headers (X-RateLimit-\*)
 - 🌐 **DRF Integration**: Full Django REST Framework support with ViewSet, Serializer, and Permission integration
+- 📈 **Health Monitoring**: Built-in health checks and status reporting
 
 ## 🚀 Quick Setup
 
@@ -192,7 +192,63 @@ def smooth_api(request):
 @rate_limit(key='ip', rate='20/m', algorithm='fixed_window')
 def burst_api(request):
     return JsonResponse({'algorithm': 'fixed_window'})
+
+# Use token bucket algorithm (NEW!)
+@rate_limit(
+    key='api_key',
+    rate='100/m',  # Base rate: 100 requests per minute
+    algorithm='token_bucket',
+    algorithm_config={
+        'bucket_size': 200,  # Allow bursts up to 200 requests
+        'refill_rate': 2.0,  # Refill at 2 tokens per second
+    }
+)
+def api_with_bursts(request):
+    return JsonResponse({'algorithm': 'token_bucket', 'burst_allowed': True})
 ```
+
+## 🪣 Token Bucket Algorithm
+
+The token bucket algorithm is perfect for APIs that need to handle burst traffic while maintaining long-term rate limits. Unlike fixed/sliding windows, it allows temporary spikes in usage.
+
+### How It Works
+
+- **Bucket**: Holds tokens (permits for requests)
+- **Refill**: Tokens are added at a steady rate
+- **Consumption**: Each request consumes tokens
+- **Burst**: When bucket is full, allows immediate bursts
+
+### Configuration Options
+
+```python
+@rate_limit(
+    key='user_id',
+    rate='60/m',  # Base rate (also default refill rate)
+    algorithm='token_bucket',
+    algorithm_config={
+        'bucket_size': 120,      # Max tokens (allows 2x burst)
+        'refill_rate': 1.5,      # Tokens per second (90/minute)
+        'initial_tokens': 120,   # Start with full bucket
+    }
+)
+```
+
+### Use Cases
+
+- **API Endpoints**: Handle client retry bursts
+- **File Uploads**: Allow large files occasionally
+- **Premium Tiers**: Higher burst limits for paid users
+- **Batch Processing**: Occasional bulk operations
+
+### Algorithm Comparison
+
+| Algorithm        | Bursts | Smoothness | Use Case                 |
+| ---------------- | ------ | ---------- | ------------------------ |
+| `fixed_window`   | ❌     | Low        | Simple rate limiting     |
+| `sliding_window` | ❌     | High       | Smooth traffic shaping   |
+| `token_bucket`   | ✅     | Medium     | APIs with burst patterns |
+
+````
 
 ### Middleware Configuration
 
@@ -223,7 +279,7 @@ RATELIMIT_MIDDLEWARE = {
     # Block requests when limit exceeded
     'BLOCK': True,
 }
-```
+````
 
 ## 🔧 Backend Options
 

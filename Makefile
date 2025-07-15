@@ -1,5 +1,12 @@
 .PHONY: help install test lint format clean build upload docs
 
+# Python environment
+PYTHON := ./run_with_venv.sh python
+PIP := ./run_with_venv.sh pip
+PYTEST := ./run_with_venv.sh pytest
+MYPY := ./run_with_venv.sh mypy
+PRECOMMIT := ./run_with_venv.sh pre-commit
+
 help:
 	@echo "Available commands:"
 	@echo "  install    Install package and development dependencies"
@@ -13,23 +20,20 @@ help:
 	@echo "  dev        Setup development environment"
 
 install:
-	pip install -e .[dev]
+	$(PIP) install -e ".[dev]"
 
 test:
-	pytest --cov=django_smart_ratelimit --cov-report=html --cov-report=term-missing
+	$(PYTEST) --cov=django_smart_ratelimit --cov-report=html --cov-report=term-missing
 
 test-quick:
-	pytest --cov=django_smart_ratelimit --cov-report=term-missing
+	$(PYTEST) --cov=django_smart_ratelimit --cov-report=term-missing
 
 lint:
-	flake8 django_smart_ratelimit tests
-	mypy django_smart_ratelimit
-	black --check django_smart_ratelimit tests
-	isort --check-only django_smart_ratelimit tests
+	$(PRECOMMIT) run --all-files
 
 format:
-	black django_smart_ratelimit tests
-	isort django_smart_ratelimit tests
+	$(PYTHON) -m black django_smart_ratelimit tests examples
+	$(PYTHON) -m isort django_smart_ratelimit tests examples
 
 clean:
 	rm -rf build/
