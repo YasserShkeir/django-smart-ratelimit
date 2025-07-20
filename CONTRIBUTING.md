@@ -12,6 +12,31 @@ Thank you for your interest in contributing to Django Smart Ratelimit! This docu
 
 By participating in this project, you agree to maintain a respectful and inclusive environment for all contributors.
 
+## AI Usage in Development
+
+This project utilizes AI assistance to enhance development productivity while maintaining strict quality standards:
+
+### AI-Assisted Development
+
+- **Encouraged**: AI tools may be used for generating tests, documentation, and examples
+- **Quality First**: All AI-generated content must undergo human review and validation
+- **Standards Apply**: Same code quality, testing, and security standards apply regardless of origin
+- **Transparency**: Consider noting significant AI assistance in pull request descriptions
+
+### Guidelines for Contributors
+
+- AI suggestions should be treated as drafts requiring human validation
+- All code must pass our comprehensive test suite and quality checks
+- Critical business logic and security-sensitive code requires extra human scrutiny
+- See our [AI Usage Policy](AI_USAGE.md) for detailed information
+
+### Quality Assurance
+
+- 340+ tests must pass for all contributions
+- Type checking with mypy is required
+- Security scanning with Bandit validates all code
+- Pre-commit hooks enforce consistent standards
+
 ## Development Setup
 
 ### Prerequisites

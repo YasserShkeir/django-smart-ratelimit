@@ -294,6 +294,7 @@ def api_with_bursts(request):
 - **[GitHub Discussions](https://github.com/YasserShkeir/django-smart-ratelimit/discussions)** - Community support and questions
 - **[Issues](https://github.com/YasserShkeir/django-smart-ratelimit/issues)** - Bug reports and feature requests
 - **[Contributing](CONTRIBUTING.md)** - Contributing guidelines
+- **[AI Usage Policy](AI_USAGE.md)** - Transparency about AI assistance in development
 
 ## License
 
@@ -301,4 +302,4 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ---
 
-**[📚 Documentation](docs/)** • **[💡 Examples](examples/)** • **[🤝 Contributing](CONTRIBUTING.md)** • **[💬 Discussions](https://github.com/YasserShkeir/django-smart-ratelimit/discussions)**
+**[📚 Documentation](docs/)** • **[💡 Examples](examples/)** • **[🤝 Contributing](CONTRIBUTING.md)** • **[💬 Discussions](https://github.com/YasserShkeir/django-smart-ratelimit/discussions)** • **[🤖 AI Usage](AI_USAGE.md)**

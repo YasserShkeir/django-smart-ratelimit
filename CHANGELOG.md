@@ -7,7 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.7.2] - 2025-01-15
+## [0.7.3] - 2025-07-20
+
+### Added
+
+- 🤖 **AI Usage Policy**: Comprehensive transparency documentation
+  - Added AI_USAGE.md with detailed policy on AI assistance in development
+  - Updated README.md and CONTRIBUTING.md with AI usage references
+  - Clear guidelines for contributors using AI tools
+  - Transparency about AI-assisted documentation, tests, and examples
+
+## [0.7.2] - 2025-07-15
 
 ### Added
 
@@ -68,7 +78,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Security hardening makes the library more suitable for production deployments
 - Recommended upgrade for all users seeking better type safety and security
 
-## [0.5.0] - 2025-01-09
+## [0.5.0] - 2025-07-09
 
 ### Added
 
