@@ -203,11 +203,11 @@ python manage.py cleanup_ratelimit --dry-run
 
 The library includes comprehensive examples for various use cases:
 
-- **[Basic Rate Limiting](examples/basic_rate_limiting.py)** - IP and user-based limiting
-- **[Custom Key Functions](examples/custom_key_functions.py)** - Geographic and device-based keys
-- **[JWT Rate Limiting](examples/jwt_rate_limiting.py)** - Token-based limiting
-- **[DRF Integration](examples/drf_integration/)** - Django REST Framework examples
-- **[Multi-tenant Applications](examples/tenant_rate_limiting.py)** - Tenant-aware rate limiting
+- **[Basic Rate Limiting](https://github.com/YasserShkeir/django-smart-ratelimit/blob/main/examples/basic_rate_limiting.py)** - IP and user-based limiting
+- **[Custom Key Functions](https://github.com/YasserShkeir/django-smart-ratelimit/blob/main/examples/custom_key_functions.py)** - Geographic and device-based keys
+- **[JWT Rate Limiting](https://github.com/YasserShkeir/django-smart-ratelimit/blob/main/examples/jwt_rate_limiting.py)** - Token-based limiting
+- **[DRF Integration](https://github.com/YasserShkeir/django-smart-ratelimit/blob/main/examples/drf_integration/)** - Django REST Framework examples
+- **[Multi-tenant Applications](https://github.com/YasserShkeir/django-smart-ratelimit/blob/main/examples/tenant_rate_limiting.py)** - Tenant-aware rate limiting
 
 ## Configuration Options
 
@@ -293,13 +293,25 @@ def api_with_bursts(request):
 
 - **[GitHub Discussions](https://github.com/YasserShkeir/django-smart-ratelimit/discussions)** - Community support and questions
 - **[Issues](https://github.com/YasserShkeir/django-smart-ratelimit/issues)** - Bug reports and feature requests
-- **[Contributing](CONTRIBUTING.md)** - Contributing guidelines
-- **[AI Usage Policy](AI_USAGE.md)** - Transparency about AI assistance in development
+- **[Contributing](https://github.com/YasserShkeir/django-smart-ratelimit/blob/main/CONTRIBUTING.md)** - Contributing guidelines
+- **[AI Usage Policy](https://github.com/YasserShkeir/django-smart-ratelimit/blob/main/AI_USAGE.md)** - Transparency about AI assistance in development
+
+## 💖 Support the Project
+
+If you find this project helpful and want to support its development, you can make a donation to help maintain and improve this open-source library:
+
+### Cryptocurrency Donations
+
+- **USDT (Ethereum Network)**: `0xBD90e5df7389295AE6fbaB5FEf6817f22A8123eF`
+- **Solana (SOL)**: `WzQHS7hzBcznkYoR7TkMH1DRo3WLYQdWCNBuy6ZfY3h`
+- **Ripple (XRP)**: `rE8CM2sv4gBEDhek2Ajm2vMmqMXdPV34jC`
+
+Your support helps maintain and improve this project for the Django community! 🙏
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License - see the [LICENSE](https://github.com/YasserShkeir/django-smart-ratelimit/blob/main/LICENSE) file for details.
 
 ---
 
-**[📚 Documentation](docs/)** • **[💡 Examples](examples/)** • **[🤝 Contributing](CONTRIBUTING.md)** • **[💬 Discussions](https://github.com/YasserShkeir/django-smart-ratelimit/discussions)** • **[🤖 AI Usage](AI_USAGE.md)**
+**[📚 Documentation](https://github.com/YasserShkeir/django-smart-ratelimit/blob/main/docs/)** • **[💡 Examples](https://github.com/YasserShkeir/django-smart-ratelimit/blob/main/examples/)** • **[🤝 Contributing](https://github.com/YasserShkeir/django-smart-ratelimit/blob/main/CONTRIBUTING.md)** • **[💬 Discussions](https://github.com/YasserShkeir/django-smart-ratelimit/discussions)** • **[🤖 AI Usage](https://github.com/YasserShkeir/django-smart-ratelimit/blob/main/AI_USAGE.md)**
