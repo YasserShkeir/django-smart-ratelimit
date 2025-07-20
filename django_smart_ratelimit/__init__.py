@@ -5,7 +5,7 @@ with support for multiple backends, algorithms (including token bucket),
 and comprehensive rate limiting strategies.
 """
 
-__version__ = "0.7.4"
+__version__ = "0.7.5"
 __author__ = "Yasser Shkeir"
 
 # Algorithms
