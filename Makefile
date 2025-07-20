@@ -114,6 +114,7 @@ check-versions:
 
 # Release workflow - manual version specification
 # Usage: make release VERSION=0.*.*
+# Note: Update CHANGELOG.md manually before running this command
 release:
 	@if [ -z "$(VERSION)" ]; then \
 		echo "Error: VERSION not specified. Usage: make release VERSION=0.7.4"; \
@@ -124,7 +125,6 @@ release:
 	@sed -i '' 's/__version__ = ".*"/__version__ = "$(VERSION)"/' examples/integrations/drf_integration/__init__.py
 	@sed -i '' "s/__version__ = '.*'/__version__ = '$(VERSION)'/" docs/index.md
 	@sed -i '' 's/current_version = ".*"/current_version = "$(VERSION)"/' pyproject.toml
-	@sed -i '' 's/## \[Unreleased\]/## [Unreleased]\n\n## [$(VERSION)] - $(shell date +%Y-%m-%d)/' CHANGELOG.md
 	git add .
 	git commit -m "bump: version $(VERSION)"
 	git tag -a v$(VERSION) -m "Release v$(VERSION)"

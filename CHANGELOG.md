@@ -7,11 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.7.5] - 2025-07-20
-
 ## [0.7.4] - 2025-07-20
 
-## [0.7.4] - 2025-07-20
+### Added
+
+- 💖 **Support Section**: Added cryptocurrency donation addresses for project support
+  - USDT (Ethereum Network): Support for project maintenance and development
+  - Solana (SOL): Additional donation option for contributors
+  - Ripple (XRP): Alternative cryptocurrency support method
+
+### Changed
+
+- 🔗 **Documentation Links**: Updated all relative links to full GitHub URLs for better PyPI compatibility
+  - Fixed example file links to use full GitHub URLs
+  - Updated contributing and AI usage policy links
+  - Enhanced footer navigation with absolute links
+- 🔧 **Release Automation**: Improved Makefile release system with comprehensive version management
+  - Enhanced version checking across all project files
+  - Better release workflow with manual version specification
+  - Automated synchronization of version numbers across documentation
+
+### Fixed
+
+- 📚 **README Links**: All documentation links now work properly on PyPI and other platforms
+- 🔄 **Version Consistency**: Ensured all files maintain synchronized version numbers during releases
 
 ## [0.7.3] - 2025-07-20
 
