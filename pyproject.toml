@@ -75,6 +75,7 @@ dev = [
     "build>=0.8",
     "twine>=4.0",
     "PyJWT>=2.0",
+    "bump2version>=1.0",
 ]
 
 [project.urls]
@@ -210,3 +211,27 @@ line_length = 88
 known_django = "django"
 known_first_party = "django_smart_ratelimit"
 sections = ["FUTURE", "STDLIB", "THIRDPARTY", "DJANGO", "FIRSTPARTY", "LOCALFOLDER"]
+
+[tool.bumpversion]
+current_version = "0.7.4"
+parse = "(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)"
+serialize = ["{major}.{minor}.{patch}"]
+search = "{current_version}"
+replace = "{new_version}"
+commit = true
+tag = true
+tag_name = "v{new_version}"
+tag_message = "Release v{new_version}"
+message = "bump: version {current_version} → {new_version}"
+
+[[tool.bumpversion.files]]
+filename = "django_smart_ratelimit/__init__.py"
+search = "__version__ = \"{current_version}\""
+replace = "__version__ = \"{new_version}\""
+
+[[tool.bumpversion.files]]
+filename = "CHANGELOG.md"
+search = "## [Unreleased]"
+replace = """## [Unreleased]
+
+## [{new_version}] - {now:%Y-%m-%d}"""
