@@ -47,6 +47,13 @@ class MemoryBackend(BaseBackend):
 
     def __init__(self, **config: Any) -> None:
         """Initialize the memory backend with enhanced utilities."""
+        # Extract circuit breaker configuration before processing
+        enable_circuit_breaker = config.pop("enable_circuit_breaker", True)
+        circuit_breaker_config = config.pop("circuit_breaker_config", None)
+
+        # Initialize parent class with circuit breaker
+        super().__init__(enable_circuit_breaker, circuit_breaker_config)
+
         # Read Django settings first
         max_keys_setting = getattr(settings, "RATELIMIT_MEMORY_MAX_KEYS", 10000)
         cleanup_interval_setting = getattr(

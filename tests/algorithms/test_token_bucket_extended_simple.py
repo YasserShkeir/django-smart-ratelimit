@@ -4,8 +4,7 @@ import threading
 
 from django.test import TestCase
 
-from django_smart_ratelimit.algorithms.token_bucket import TokenBucketAlgorithm
-from django_smart_ratelimit.backends.memory import MemoryBackend
+from django_smart_ratelimit import MemoryBackend, TokenBucketAlgorithm
 
 
 class TokenBucketAlgorithmSimpleExtendedTests(TestCase):

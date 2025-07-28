@@ -8,7 +8,7 @@ from django.contrib.auth.models import AnonymousUser, User
 from django.http import HttpRequest
 from django.test import TestCase
 
-from django_smart_ratelimit.auth_utils import (
+from django_smart_ratelimit import (
     get_client_info,
     get_user_info,
     has_permission,

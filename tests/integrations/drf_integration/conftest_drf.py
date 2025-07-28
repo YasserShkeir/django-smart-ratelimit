@@ -89,7 +89,7 @@ def sample_viewset():
     from rest_framework import viewsets
     from rest_framework.response import Response
 
-    from django_smart_ratelimit.decorator import rate_limit
+    from django_smart_ratelimit import rate_limit
 
     class SampleViewSet(viewsets.ViewSet):
         """SampleViewSet implementation."""
@@ -114,7 +114,7 @@ def sample_apiview():
     from rest_framework.response import Response
     from rest_framework.views import APIView
 
-    from django_smart_ratelimit.decorator import rate_limit
+    from django_smart_ratelimit import rate_limit
 
     class SampleAPIView(APIView):
         """SampleAPIView implementation."""
@@ -225,7 +225,7 @@ def rate_limited_view():
     from rest_framework.response import Response
     from rest_framework.views import APIView
 
-    from django_smart_ratelimit.decorator import rate_limit
+    from django_smart_ratelimit import rate_limit
 
     class RateLimitedView(APIView):
         """RateLimitedView implementation."""
@@ -240,7 +240,7 @@ def rate_limited_view():
 @pytest.fixture
 def memory_backend():
     """Create a memory backend for testing."""
-    from django_smart_ratelimit.backends.memory import MemoryBackend
+    from django_smart_ratelimit import MemoryBackend
 
     return MemoryBackend(max_entries=100)
 

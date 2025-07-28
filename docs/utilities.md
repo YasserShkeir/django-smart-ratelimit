@@ -1,38 +1,58 @@
 # Utility Functions Documentation
 
-The `django_smart_ratelimit.utils` module provides a comprehensive set of utility functions for building flexible and reusable rate limiting solutions. These functions help reduce code duplication and provide consistent behavior across your application.
+The `django_smart_ratelimit` package provides comprehensive utility functions for building flexible and reusable rate limiting solutions. These utilities help reduce code duplication and provide consistent behavior across your application.
 
 > **Note**: For basic usage examples, see the [README](../README.md). This document covers advanced utility functions and patterns.
 
-## Key Generation Functions
+## Key Generation Functions (`django_smart_ratelimit.key_functions`)
 
-### Basic Key Functions
+### Common Patterns
 
-The package provides several predefined key generation functions that handle common use cases:
+#### `user_or_ip_key(request: HttpRequest) -> str`
+
+The most common rate limiting pattern. Returns user ID if authenticated, otherwise falls back to IP address.
+
+```python
+from django_smart_ratelimit import rate_limit, user_or_ip_key
+
+@rate_limit(key=user_or_ip_key, rate='100/h')
+def my_view(request):
+    return JsonResponse({'message': 'success'})
+```
+
+#### `user_role_key(request: HttpRequest) -> str`
+
+Includes user role (staff/user) in the key for role-based rate limiting.
+
+```python
+from django_smart_ratelimit import rate_limit, user_role_key
+
+@rate_limit(key=user_role_key, rate='1000/h')  # Staff users get higher limits
+def api_view(request):
+    return JsonResponse({'data': 'content'})
+```
+
+### Legacy Key Functions (Deprecated)
+
+> **⚠️ Deprecated**: These functions are maintained for backward compatibility. Use the newer functions above.
 
 #### `get_ip_key(request: HttpRequest) -> str`
 
 Extract IP address from request, considering proxy headers.
 
 ```python
-from django_smart_ratelimit import get_ip_key
+from django_smart_ratelimit.utils import get_ip_key
 
 def my_view(request):
     ip_key = get_ip_key(request)  # Returns: "ip:192.168.1.1"
 ```
-
-**Features:**
-
-- Handles proxy headers (Cloudflare, X-Forwarded-For, X-Real-IP)
-- Extracts first IP from comma-separated lists
-- Fallback to "ip:unknown" if no IP found
 
 #### `get_user_key(request: HttpRequest) -> str`
 
 Extract user-based key, falling back to IP for anonymous users.
 
 ```python
-from django_smart_ratelimit import get_user_key
+from django_smart_ratelimit.utils import get_user_key
 
 def my_view(request):
     user_key = get_user_key(request)  # Returns: "user:123" or "ip:192.168.1.1"
@@ -42,10 +62,10 @@ def my_view(request):
 
 #### `get_jwt_key(request: HttpRequest, jwt_field: str = 'sub') -> str`
 
-Extract JWT-based key from Authorization header.
+Extract key from JWT token claims.
 
 ```python
-from django_smart_ratelimit import get_jwt_key
+from django_smart_ratelimit.utils import get_jwt_key
 
 def jwt_key_func(request):
     return get_jwt_key(request, jwt_field='sub')  # Returns: "jwt:sub:user123"
@@ -61,7 +81,7 @@ def api_view(request):
 Extract API key from custom headers.
 
 ```python
-from django_smart_ratelimit import get_api_key_key
+from django_smart_ratelimit.utils import get_api_key_key
 
 def api_key_func(request):
     return get_api_key_key(request, header_name='X-API-Key')

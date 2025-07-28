@@ -47,8 +47,16 @@ class MongoDBBackend(BaseBackend):
     and fixed window algorithms.
     """
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        enable_circuit_breaker: bool = True,
+        circuit_breaker_config: Optional[Dict[str, Any]] = None,
+        **kwargs: Any,
+    ) -> None:
         """Initialize the MongoDB backend with connection and configuration."""
+        # Initialize parent class with circuit breaker
+        super().__init__(enable_circuit_breaker, circuit_breaker_config)
+
         if pymongo is None:
             raise ImproperlyConfigured(
                 "MongoDB backend requires the pymongo package. "

@@ -88,11 +88,18 @@ class MultiBackend(BaseBackend):
     when the primary backend fails.
     """
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        enable_circuit_breaker: bool = True,
+        circuit_breaker_config: Optional[Dict[str, Any]] = None,
+        **kwargs: Any,
+    ) -> None:
         """
         Initialize multi-backend with configuration validation.
 
         Args:
+            enable_circuit_breaker: Whether to enable circuit breaker protection
+            circuit_breaker_config: Custom circuit breaker configuration
             **kwargs: Configuration options including:
                 - backends: List of backend configurations
                 - fallback_strategy: How to handle fallbacks
@@ -100,6 +107,9 @@ class MultiBackend(BaseBackend):
                 - health_check_interval: How often to check backend health
                 - health_check_timeout: Timeout for health checks
         """
+        # Initialize parent class with circuit breaker
+        super().__init__(enable_circuit_breaker, circuit_breaker_config)
+
         from django.conf import settings
 
         # Validate configuration using utility

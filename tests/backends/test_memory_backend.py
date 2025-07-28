@@ -11,7 +11,7 @@ import unittest
 
 from django.test import TestCase, override_settings
 
-from django_smart_ratelimit.backends.memory import MemoryBackend
+from django_smart_ratelimit import MemoryBackend
 from tests.utils import (
     BaseBackendTestCase,
     ErrorHandlingTestMixin,
@@ -275,7 +275,7 @@ class MemoryBackendIntegrationTest(TestCase):
 
     def test_backend_factory_integration(self):
         """Test that the backend factory returns MemoryBackend."""
-        from django_smart_ratelimit.backends import get_backend
+        from django_smart_ratelimit import get_backend
 
         with override_settings(RATELIMIT_BACKEND="memory"):
             backend = get_backend()

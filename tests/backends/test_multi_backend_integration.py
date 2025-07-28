@@ -5,8 +5,7 @@ This test verifies multi-backend works in real scenarios using Django's unittest
 
 from django.test import TestCase, override_settings
 
-from django_smart_ratelimit.backends import get_backend
-from django_smart_ratelimit.backends.multi import MultiBackend
+from django_smart_ratelimit import MultiBackend, get_backend
 
 
 class MultiBackendIntegrationTest(TestCase):

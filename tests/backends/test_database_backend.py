@@ -531,7 +531,7 @@ class DatabaseBackendIntegrationTests(TestCase):
 
     def test_backend_selection(self):
         """Test that database backend can be selected."""
-        from django_smart_ratelimit.backends import get_backend
+        from django_smart_ratelimit import get_backend
 
         with override_settings(RATELIMIT_BACKEND="database"):
             backend = get_backend()

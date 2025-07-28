@@ -90,6 +90,7 @@ RATELIMIT_REDIS = {
 - **Persistence**: Data survives Redis restarts (with proper Redis configuration)
 - **Clustering**: Supports Redis Cluster and Sentinel for high availability
 - **Memory Efficient**: Automatic expiration of rate limiting keys
+- **Circuit Breaker**: Built-in [circuit breaker protection](circuit_breaker.md) for Redis connection failures
 
 ## Database Backend
 
@@ -144,6 +145,7 @@ ADD INDEX idx_key_expires (key, expires_at);
 - **Cleanup**: Automatic cleanup of expired entries
 - **Multi-Server**: Works across multiple application servers
 - **Backup**: Included in regular database backups
+- **Circuit Breaker**: Built-in [circuit breaker protection](circuit_breaker.md) for database connection failures
 
 ## Memory Backend
 
@@ -171,6 +173,7 @@ RATELIMIT_MEMORY_CLEANUP_INTERVAL = 300  # Cleanup interval in seconds
 - **Simple**: No external dependencies
 - **Limited**: Memory only, lost on restart
 - **Single Server**: Cannot share data between servers
+- **Circuit Breaker**: Built-in [circuit breaker protection](circuit_breaker.md) for memory backend operations
 
 ### Memory Limitations
 

@@ -54,8 +54,7 @@ django.setup()
 from django.http import HttpRequest, HttpResponse
 
 # Now we can import and use the MongoDB backend
-from django_smart_ratelimit.backends import get_backend
-from django_smart_ratelimit.decorator import rate_limit
+from django_smart_ratelimit import get_backend, rate_limit
 
 
 def example_basic_usage() -> None:

@@ -75,7 +75,7 @@ RATELIMIT_BACKEND_OPTIONS = {
 
 ```python
 from rest_framework import viewsets
-from django_smart_ratelimit.decorator import rate_limit
+from django_smart_ratelimit import rate_limit
 from .models import Post
 from .serializers import PostSerializer
 
@@ -118,7 +118,7 @@ class RateLimitedPermission(BasePermission):
 
 ```python
 from rest_framework import serializers
-from django_smart_ratelimit.decorator import rate_limit
+from django_smart_ratelimit import rate_limit
 
 class PostSerializer(serializers.ModelSerializer):
     class Meta:

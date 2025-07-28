@@ -11,12 +11,17 @@
 
 - **[Rate Limiting Algorithms](algorithms.md)** - Fixed window, sliding window, and token bucket algorithms
 - **[Backend Configuration](backends.md)** - Redis, Database, Memory, and Multi-Backend setup
+- **[Circuit Breaker Pattern](circuit_breaker.md)** - Automatic failure detection and recovery
 - **[Architecture & Design](design.md)** - Core architecture and design decisions
 
 ### Usage Guides
 
 - **[Decorator Usage](decorator.md)** - Using @rate_limit decorator (advanced patterns)
 - **[Utility Functions](utilities.md)** - Reusable functions for key generation and configuration
+
+### Backend Development
+
+- **[Backend Development Utilities](backend_utilities.md)** - For backend developers and contributors
 
 ### Integrations
 
@@ -26,189 +31,43 @@
 
 - **[Management Commands](management_commands.md)** - Health checks and cleanup commands
 
-### Advanced Topics
+## 🚀 Quick Navigation
 
-- **[Backend Development Utilities](backend_utilities.md)** - For backend developers and contributors
+### By Use Case
 
-## 🛠️ Package Structure Analysis
+#### Simple Rate Limiting
 
-### Current Structure Assessment
+Start with [README](../README.md) for basic setup, then see [Decorator Usage](decorator.md) for patterns.
 
-#### ✅ Well-Organized Components
+#### Production Deployment
 
-```
-django_smart_ratelimit/
-├── algorithms/           # ✅ Good: Separated algorithm implementations
-│   ├── __init__.py
-│   ├── base.py          # ✅ Good: Abstract base class
-│   └── token_bucket.py  # ✅ Good: New algorithm implementation
-├── backends/            # ✅ Good: Multiple backend support
-│   ├── __init__.py
-│   ├── base.py         # ✅ Good: Common interface
-│   ├── redis_backend.py
-│   ├── memory.py
-│   ├── database.py
-│   └── multi.py        # ✅ Good: Multi-backend fallback
-├── management/         # ✅ Good: Django management commands
-│   └── commands/
-└── migrations/         # ✅ Good: Database migrations
-```
+Review [Backend Configuration](backends.md) for Redis setup and [Circuit Breaker](circuit_breaker.md) for resilience.
 
-#### 🔧 Areas for Improvement
+#### Advanced APIs
 
-1. **Missing Documentation Structure**
+See [Rate Limiting Algorithms](algorithms.md) for token bucket configuration and [Multi-Backend](backends.md#multi-backend) for high availability.
 
-   - No API reference documentation
-   - Missing usage guides for different scenarios
-   - No troubleshooting guide
+#### Troubleshooting
 
-2. **Package Initialization**
+Check [Circuit Breaker Troubleshooting](circuit_breaker.md#testing--troubleshooting) and [Management Commands](management_commands.md) for health checks.
 
-   - Could expose more public APIs in `__init__.py`
-   - Version management could be improved
+### By Component
 
-3. **Testing Organization**
+#### Rate Limiting Core
 
-   - Tests are well-organized but could benefit from performance benchmarks
-   - Integration tests could be expanded
+- [Algorithms](algorithms.md) - How rate limiting works
+- [Decorator](decorator.md) - How to apply rate limits
+- [Backends](backends.md) - Where data is stored
 
-4. **Configuration Management**
-   - Settings validation could be improved
-   - Default configuration documentation needed
+#### Reliability & Operations
 
-### Recommended Improvements
+- [Circuit Breaker](circuit_breaker.md) - Failure protection
+- [Management Commands](management_commands.md) - Operational tools
+- [Utilities](utilities.md) - Helper functions
 
-#### 1. Package Structure Enhancements
+## 🔗 External Resources
 
-**A. Improve `__init__.py` Exports**
-
-```python
-# django_smart_ratelimit/__init__.py
-from .decorator import rate_limit
-from .middleware import RateLimitMiddleware
-from .algorithms import TokenBucketAlgorithm
-from .backends import get_backend
-
-__version__ = '0.7.6'
-__all__ = ['rate_limit', 'RateLimitMiddleware', 'TokenBucketAlgorithm', 'get_backend']
-```
-
-**B. Add Configuration Module**
-
-```python
-# django_smart_ratelimit/config.py
-# Centralized configuration management and validation
-```
-
-**C. Add Utils Module**
-
-```python
-# django_smart_ratelimit/utils.py
-# Helper functions for key generation, rate parsing, etc.
-```
-
-#### 2. Documentation Structure Improvements
-
-**A. Complete Documentation Set**
-
-- Installation and configuration guide
-- Comprehensive usage examples
-- API reference documentation
-- Troubleshooting guide
-- Performance tuning guide
-
-**B. Interactive Examples**
-
-- Jupyter notebooks for algorithm comparison
-- Docker-based examples for different backends
-- Load testing examples
-
-#### 3. Testing Enhancements
-
-**A. Benchmark Suite**
-
-```
-tests/
-├── benchmarks/
-│   ├── algorithm_performance.py
-│   ├── backend_comparison.py
-│   └── concurrent_load.py
-```
-
-**B. Integration Tests**
-
-```
-tests/
-├── integration/
-│   ├── django_project/
-│   ├── drf_integration/
-│   └── real_world_scenarios/
-```
-
-#### 4. Quality Assurance
-
-**A. Code Quality Tools**
-
-- Type hints throughout the codebase
-- Comprehensive docstrings
-- Static analysis configuration
-
-**B. CI/CD Improvements**
-
-- Multi-Python version testing
-- Multi-Django version testing
-- Performance regression testing
-
-### Implementation Priority
-
-#### Phase 1: Documentation (High Priority)
-
-1. ✅ Complete algorithms documentation (Done)
-2. 🔄 Create installation guide
-3. 🔄 Create decorator usage guide
-4. 🔄 Create middleware configuration guide
-
-#### Phase 2: Package Structure (Medium Priority)
-
-1. 🔄 Improve `__init__.py` exports
-2. 🔄 Add configuration validation module
-3. 🔄 Add utility functions module
-
-#### Phase 3: Advanced Features (Low Priority)
-
-1. 🔄 Performance benchmarking suite
-2. 🔄 Advanced monitoring integration
-3. 🔄 Interactive documentation
-
-## 📋 Documentation TODO List
-
-### High Priority (Production Ready)
-
-- [ ] Installation and configuration guide
-- [ ] Decorator usage guide with all parameters
-- [ ] Middleware configuration guide
-- [ ] API reference documentation
-- [ ] Troubleshooting common issues
-
-### Medium Priority (Developer Experience)
-
-- [ ] JWT integration guide
-- [ ] Multi-tenant application patterns
-- [ ] Performance optimization guide
-- [ ] Security best practices
-- [ ] Monitoring and alerting setup
-
-### Low Priority (Advanced Topics)
-
-- [ ] Custom algorithm development
-- [ ] Custom backend development
-- [ ] Load testing methodologies
-- [ ] Cloud deployment patterns
-- [ ] Kubernetes integration examples
-
-## 🎯 Next Steps
-
-1. **Complete Core Documentation**: Focus on installation, decorator, and middleware guides
-2. **Improve Package Structure**: Add better `__init__.py` exports and configuration module
-3. **Expand Testing**: Add benchmarks and more integration tests
-4. **Enhance Examples**: Create more real-world scenario examples
+- **[GitHub Repository](https://github.com/YasserShkeir/django-smart-ratelimit)** - Source code and issues
+- **[PyPI Package](https://pypi.org/project/django-smart-ratelimit/)** - Package installation
+- **[Changelog](../CHANGELOG.md)** - Version history
+- **[Contributing Guide](../CONTRIBUTING.md)** - How to contribute

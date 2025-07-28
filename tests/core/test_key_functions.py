@@ -2,12 +2,11 @@
 Tests for key_functions module.
 """
 
-
 from django.contrib.auth.models import AnonymousUser, User
 from django.http import HttpRequest
 from django.test import TestCase
 
-from django_smart_ratelimit.key_functions import (
+from django_smart_ratelimit import (
     geographic_key,
     tenant_aware_key,
     time_aware_key,

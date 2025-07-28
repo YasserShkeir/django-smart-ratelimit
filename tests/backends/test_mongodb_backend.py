@@ -9,7 +9,7 @@ import pytest
 
 from django.test import TestCase, override_settings
 
-from django_smart_ratelimit.backends.mongodb import MongoDBBackend
+from django_smart_ratelimit import MongoDBBackend
 from tests.utils import BaseBackendTestCase
 
 # Skip tests if MongoDB is not available
@@ -242,7 +242,7 @@ class MongoDBBackendIntegrationRealTest(TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
-        from django_smart_ratelimit.backends import get_backend
+        from django_smart_ratelimit import get_backend
 
         self.backend = get_backend()
 
@@ -262,7 +262,7 @@ class MongoDBBackendIntegrationRealTest(TestCase):
 
     def test_backend_factory_creates_mongodb(self):
         """Test that backend factory creates MongoDB backend."""
-        from django_smart_ratelimit.backends.mongodb import MongoDBBackend
+        from django_smart_ratelimit import MongoDBBackend
 
         self.assertIsInstance(self.backend, MongoDBBackend)
 

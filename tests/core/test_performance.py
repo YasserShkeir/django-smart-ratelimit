@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 from django.test import TestCase
 
-from django_smart_ratelimit.performance import RateLimitCache
+from django_smart_ratelimit import RateLimitCache
 
 
 class RateLimitCacheTests(TestCase):

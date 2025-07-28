@@ -169,7 +169,7 @@ PRODUCTION_CONFIG = {
 """
 # custom_middleware.py
 
-from django_smart_ratelimit.middleware import RateLimitMiddleware
+from django_smart_ratelimit import RateLimitMiddleware
 from django.http import JsonResponse
 import logging
 from typing import Any, Optional
