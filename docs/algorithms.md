@@ -1,14 +1,16 @@
 # Rate Limiting Algorithms
 
-Django Smart Ratelimit supports multiple rate limiting algorithms, each designed for different use cases and traffic patterns.
+Django Smart Ratelimit supports multiple rate limiting algorithms, each designed for different use cases and traffic patterns. All algorithms can be enhanced with the Circuit Breaker Pattern for backend protection.
 
 ## Algorithm Overview
 
-| Algorithm        | Bursts | Smoothness | Use Case                 | Memory Usage |
-| ---------------- | ------ | ---------- | ------------------------ | ------------ |
-| `fixed_window`   | ❌     | Low        | Simple rate limiting     | Low          |
-| `sliding_window` | ❌     | High       | Smooth traffic shaping   | Medium       |
-| `token_bucket`   | ✅     | Medium     | APIs with burst patterns | Low          |
+| Algorithm        | Bursts | Smoothness | Use Case                 | Memory Usage | Circuit Breaker |
+| ---------------- | ------ | ---------- | ------------------------ | ------------ | --------------- |
+| `fixed_window`   | ❌     | Low        | Simple rate limiting     | Low          | ✅              |
+| `sliding_window` | ❌     | High       | Smooth traffic shaping   | Medium       | ✅              |
+| `token_bucket`   | ✅     | Medium     | APIs with burst patterns | Low          | ✅              |
+
+> **Protection**: All algorithms support the [Circuit Breaker Pattern](circuit_breaker.md) for automatic backend failure detection and recovery.
 
 ## Fixed Window Algorithm
 
@@ -32,6 +34,8 @@ The simplest algorithm that divides time into fixed windows and counts requests 
 def api_endpoint(request):
     return JsonResponse({'data': 'response'})
 ```
+
+> **Protection**: Fixed window algorithm works seamlessly with [Circuit Breaker Pattern](circuit_breaker.md) for backend failure protection.
 
 ### When to Use
 
@@ -61,6 +65,8 @@ A more sophisticated algorithm that maintains a sliding time window, providing s
 def user_dashboard(request):
     return render(request, 'dashboard.html')
 ```
+
+> **Protection**: Sliding window algorithm integrates with [Circuit Breaker Pattern](circuit_breaker.md) for robust failure handling.
 
 ### When to Use
 
@@ -142,6 +148,8 @@ def api_endpoint(request):
 def premium_api(request):
     return JsonResponse({'premium': True})
 ```
+
+> **Protection**: Token bucket algorithm integrates with [Circuit Breaker Pattern](circuit_breaker.md) for comprehensive backend protection.
 
 #### Multi-Token Requests
 

@@ -47,7 +47,7 @@ def redis_backend():
         mock_redis_client.ping.return_value = True
         mock_redis_client.script_load.return_value = "script_sha"
 
-        from django_smart_ratelimit.backends.redis_backend import RedisBackend
+        from django_smart_ratelimit import RedisBackend
 
         yield RedisBackend()
 

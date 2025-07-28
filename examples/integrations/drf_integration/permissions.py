@@ -6,7 +6,7 @@ permissions, including rate limiting within permission classes, custom
 permissions that consider rate limits, and advanced permission patterns.
 
 Usage:
-    from django_smart_ratelimit.decorator import rate_limit
+    from django_smart_ratelimit import rate_limit
     from rest_framework.permissions import BasePermission
 
     class RateLimitedPermission(BasePermission):

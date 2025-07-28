@@ -6,7 +6,7 @@ serializers, including rate limiting during serialization, validation,
 and custom serializer methods.
 
 Usage:
-    from django_smart_ratelimit.decorator import rate_limit
+    from django_smart_ratelimit import rate_limit
     from rest_framework import serializers
 
     class MySerializer(serializers.ModelSerializer):
@@ -697,7 +697,7 @@ USAGE EXAMPLES:
 1. ViewSet Integration:
 
    from rest_framework import viewsets
-   from django_smart_ratelimit.decorator import rate_limit
+   from django_smart_ratelimit import rate_limit
 
    class PostViewSet(viewsets.ModelViewSet):
        serializer_class = PostSerializer

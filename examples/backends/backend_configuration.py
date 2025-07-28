@@ -298,7 +298,7 @@ PRODUCTION_BACKEND = {
 """
 # custom_backend.py
 
-from django_smart_ratelimit.backends.base import BaseBackend
+from django_smart_ratelimit import BaseBackend
 from typing import Any, Dict, Optional
 import time
 

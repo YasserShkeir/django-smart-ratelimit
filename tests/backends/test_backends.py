@@ -11,9 +11,7 @@ from unittest.mock import Mock, patch
 from django.core.exceptions import ImproperlyConfigured
 from django.test import TestCase, override_settings
 
-from django_smart_ratelimit.backends import get_backend
-from django_smart_ratelimit.backends.base import BaseBackend
-from django_smart_ratelimit.backends.memory import MemoryBackend
+from django_smart_ratelimit import BaseBackend, MemoryBackend, get_backend
 
 # Check for optional dependencies
 try:
@@ -22,7 +20,7 @@ try:
     HAS_PYMONGO = True
 except ImportError:
     HAS_PYMONGO = False
-from django_smart_ratelimit.backends.redis_backend import RedisBackend
+from django_smart_ratelimit import RedisBackend
 
 
 class BackendSelectionTests(TestCase):

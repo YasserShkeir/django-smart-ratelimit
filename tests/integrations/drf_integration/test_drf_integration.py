@@ -31,7 +31,7 @@ except ImportError:
     serializers = None
     viewsets = None
 
-from django_smart_ratelimit.decorator import rate_limit
+from django_smart_ratelimit import rate_limit
 from tests.utils import create_test_staff_user, create_test_user
 
 # Test settings that include DRF

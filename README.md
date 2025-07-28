@@ -24,6 +24,7 @@ Rate limiting helps protect your Django applications from:
 
 - **Multiple algorithms**: Token bucket, sliding window, and fixed window
 - **Backend flexibility**: Redis, Database, Memory, and Multi-Backend support
+- **Circuit breaker protection**: Automatic failure detection and recovery for backends
 - **Atomic operations**: Redis Lua scripts prevent race conditions
 - **Automatic failover**: Graceful degradation between backends
 - **Type safety**: Full mypy compatibility with strict type checking
@@ -288,6 +289,49 @@ def burst_api(request):
 def api_with_bursts(request):
     return JsonResponse({'algorithm': 'token_bucket', 'burst_allowed': True})
 ```
+
+## Circuit Breaker Protection
+
+Automatic failure detection and recovery for backend operations to ensure system reliability:
+
+### Configuration
+
+```python
+# settings.py
+RATELIMIT_CIRCUIT_BREAKER = {
+    'failure_threshold': 5,        # Open circuit after 5 failures
+    'recovery_timeout': 60,        # Wait 60 seconds before testing recovery
+    'reset_timeout': 300,          # Reset after 5 minutes of success
+    'half_open_max_calls': 1,      # Test with 1 call in half-open state
+}
+```
+
+### Backend-Specific Circuit Breakers
+
+```python
+from django_smart_ratelimit.backends import MemoryBackend
+
+# Enable circuit breaker (default: enabled)
+backend = MemoryBackend(enable_circuit_breaker=True)
+
+# Custom configuration
+custom_config = {'failure_threshold': 3, 'recovery_timeout': 30}
+backend = MemoryBackend(
+    enable_circuit_breaker=True,
+    circuit_breaker_config=custom_config
+)
+
+# Check circuit breaker status
+status = backend.get_backend_health_status()
+print(f"Circuit breaker enabled: {status['circuit_breaker_enabled']}")
+print(f"Current state: {status['circuit_breaker']['state']}")
+```
+
+### Circuit Breaker States
+
+- **🟢 CLOSED**: Normal operation, requests pass through
+- **🔴 OPEN**: Too many failures, requests fail fast (no backend calls)
+- **🟡 HALF_OPEN**: Testing recovery with limited requests
 
 ## Community & Support
 

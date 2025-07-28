@@ -11,7 +11,7 @@ from unittest.mock import Mock
 from django.core.cache import cache
 from django.test import RequestFactory, TestCase
 
-from django_smart_ratelimit.decorator import rate_limit
+from django_smart_ratelimit import rate_limit
 from tests.utils import create_test_staff_user, create_test_superuser, create_test_user
 
 

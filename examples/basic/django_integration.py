@@ -103,7 +103,7 @@ def rate_limited_drf_view(_request):
 # consumers.py
 import json
 from channels.generic.websocket import WebsocketConsumer
-from django_smart_ratelimit.backends import get_backend
+from django_smart_ratelimit import get_backend
 
 class RateLimitedWebSocketConsumer(WebsocketConsumer):
     '''WebSocket consumer with rate limiting.'''
@@ -216,7 +216,7 @@ class MyModelAdmin(RateLimitedAdmin):
 # forms.py
 from django import forms
 from django.core.exceptions import ValidationError
-from django_smart_ratelimit.backends import get_backend
+from django_smart_ratelimit import get_backend
 
 class RateLimitedForm(forms.Form):
     '''Base form with rate limiting capabilities.'''
@@ -280,7 +280,7 @@ class PasswordResetForm(RateLimitedForm):
 # middleware.py
 from django.http import HttpResponse
 from django.utils.deprecation import MiddlewareMixin
-from django_smart_ratelimit.backends import get_backend
+from django_smart_ratelimit import get_backend
 
 class APIKeyRateLimitMiddleware(MiddlewareMixin):
     '''Rate limiting middleware based on API keys.'''
@@ -372,7 +372,7 @@ class GeographicRateLimitMiddleware(MiddlewareMixin):
 """
 # tasks.py
 from celery import shared_task
-from django_smart_ratelimit.backends import get_backend
+from django_smart_ratelimit import get_backend
 
 @shared_task
 def rate_limited_task(user_id, task_data):

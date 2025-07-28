@@ -23,8 +23,7 @@ except ImportError:
         status_code = 429
 
 
-from django_smart_ratelimit.decorator import rate_limit
-from django_smart_ratelimit.utils import generate_key, parse_rate
+from django_smart_ratelimit import generate_key, parse_rate, rate_limit
 
 
 class RateLimitDecoratorTests(BaseBackendTestCase):

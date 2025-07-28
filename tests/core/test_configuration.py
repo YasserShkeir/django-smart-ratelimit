@@ -1,9 +1,8 @@
 """Simplified tests for configuration module."""
 
-
 from django.test import TestCase
 
-from django_smart_ratelimit.configuration import RateLimitConfigManager
+from django_smart_ratelimit import RateLimitConfigManager
 
 
 class RateLimitConfigManagerSimpleTests(TestCase):

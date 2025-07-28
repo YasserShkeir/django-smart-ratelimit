@@ -6,7 +6,7 @@ DRF ViewSet patterns, including ModelViewSet, custom ViewSets, and advanced
 rate limiting scenarios.
 
 Usage:
-    from django_smart_ratelimit.decorator import rate_limit
+    from django_smart_ratelimit import rate_limit
     from rest_framework import viewsets
 
     class MyViewSet(viewsets.ModelViewSet):
@@ -27,8 +27,7 @@ from rest_framework.serializers import ModelSerializer
 
 from django.utils.decorators import method_decorator
 
-from django_smart_ratelimit import is_authenticated_user, user_or_ip_key
-from django_smart_ratelimit.decorator import rate_limit
+from django_smart_ratelimit import is_authenticated_user, rate_limit, user_or_ip_key
 
 
 # Mock models for examples (replace with your actual models)

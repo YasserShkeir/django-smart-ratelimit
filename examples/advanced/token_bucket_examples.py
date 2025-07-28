@@ -9,10 +9,9 @@ an average rate limit over time, making it ideal for APIs that need to handle
 occasional spikes in usage.
 """
 
-
 from django.http import HttpRequest, HttpResponse, JsonResponse
 
-from django_smart_ratelimit.decorator import rate_limit
+from django_smart_ratelimit import rate_limit
 
 
 # Example 1: Basic token bucket with burst capability

@@ -525,7 +525,7 @@ from django.conf import settings
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'myproject.settings')
 django.setup()
 
-from django_smart_ratelimit.backends import get_backend
+from django_smart_ratelimit import get_backend
 
 def check_backend_health():
     """Check rate limiting backend health."""

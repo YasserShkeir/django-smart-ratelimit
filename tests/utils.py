@@ -12,8 +12,7 @@ from unittest.mock import Mock, patch
 
 from django.test import TestCase, override_settings
 
-from django_smart_ratelimit.backends.base import BaseBackend
-from django_smart_ratelimit.backends.memory import MemoryBackend
+from django_smart_ratelimit import BaseBackend, MemoryBackend
 
 
 class MockBackend(BaseBackend):

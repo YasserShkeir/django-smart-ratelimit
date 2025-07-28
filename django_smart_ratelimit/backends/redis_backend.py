@@ -157,8 +157,15 @@ class RedisBackend(BaseBackend):
                math.max(0, (bucket_size - current_tokens) / refill_rate), last_refill}
     """  # nosec B105
 
-    def __init__(self):
+    def __init__(
+        self,
+        enable_circuit_breaker: bool = True,
+        circuit_breaker_config: Optional[Dict[str, Any]] = None,
+    ):
         """Initialize the Redis backend with connection and scripts."""
+        # Initialize parent class with circuit breaker
+        super().__init__(enable_circuit_breaker, circuit_breaker_config)
+
         if redis is None:
             raise ImproperlyConfigured(
                 "Redis backend requires the redis package. "

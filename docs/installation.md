@@ -223,7 +223,7 @@ python manage.py ratelimit_health --json
 
 ```python
 # health_checks.py
-from django_smart_ratelimit.backends import get_backend
+from django_smart_ratelimit import get_backend
 
 def ratelimit_health_check():
     backend = get_backend()
@@ -246,7 +246,7 @@ redis-cli ping
 
 # Check Django logs
 python manage.py shell
->>> from django_smart_ratelimit.backends import get_backend
+>>> from django_smart_ratelimit import get_backend
 >>> backend = get_backend()
 >>> backend.health_check()
 ```

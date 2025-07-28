@@ -5,8 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from django_smart_ratelimit.backends.factory import BackendFactory
-from django_smart_ratelimit.backends.multi import BackendHealthChecker, MultiBackend
+from django_smart_ratelimit import BackendFactory, BackendHealthChecker, MultiBackend
 from tests.utils import MockBackend
 
 

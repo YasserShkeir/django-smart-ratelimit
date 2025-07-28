@@ -14,8 +14,7 @@ from django.core.cache import cache
 from django.http import HttpRequest, JsonResponse
 from django.utils import timezone
 
-from django_smart_ratelimit import rate_limit
-from django_smart_ratelimit.backends import get_backend
+from django_smart_ratelimit import get_backend, rate_limit
 
 # Configure logging
 logger = logging.getLogger(__name__)

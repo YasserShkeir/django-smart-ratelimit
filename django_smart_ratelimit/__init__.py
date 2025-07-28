@@ -8,6 +8,9 @@ and comprehensive rate limiting strategies.
 __version__ = "0.7.6"
 __author__ = "Yasser Shkeir"
 
+# Optional backend imports (may not be available)
+from typing import TYPE_CHECKING, Optional
+
 # Algorithms
 from .algorithms import TokenBucketAlgorithm
 from .algorithms.base import RateLimitAlgorithm
@@ -29,6 +32,44 @@ from .auth_utils import (
 # Backends
 from .backends import get_backend
 from .backends.base import BaseBackend
+from .backends.factory import BackendFactory
+from .backends.memory import MemoryBackend
+from .backends.multi import BackendHealthChecker, MultiBackend
+
+if TYPE_CHECKING:
+    from .backends.mongodb import MongoDBBackend as MongoDBBackendType
+    from .backends.redis_backend import RedisBackend as RedisBackendType
+else:
+    RedisBackendType = None
+    MongoDBBackendType = None
+
+RedisBackend: Optional[type] = None
+MongoDBBackend: Optional[type] = None
+
+try:
+    from .backends.redis_backend import RedisBackend
+except ImportError:
+    pass
+
+try:
+    from .backends.mongodb import MongoDBBackend
+except ImportError:
+    pass
+
+# Note: DatabaseBackend and model imports are kept in submodules to avoid Django app loading issues
+# Import them from django_smart_ratelimit.backends.database and django_smart_ratelimit.models respectively
+
+# Circuit Breaker
+from .circuit_breaker import (
+    CircuitBreakerConfig,
+    CircuitBreakerError,
+    CircuitBreakerState,
+    circuit_breaker,
+    circuit_breaker_registry,
+)
+
+# Configuration
+from .configuration import RateLimitConfigManager
 
 # Core functionality
 from .decorator import rate_limit
@@ -45,6 +86,9 @@ from .key_functions import (
     user_role_key,
 )
 from .middleware import RateLimitMiddleware
+
+# Performance utilities
+from .performance import RateLimitCache
 
 # Utilities
 from .utils import (
@@ -67,13 +111,36 @@ from .utils import (
     validate_rate_config,
 )
 
+# Models (conditional import to avoid Django app loading issues)
+# These will be set by _import_django_components() when needed
+
+
 __all__ = [
+    # Core functionality
     "rate_limit",
     "RateLimitMiddleware",
+    # Algorithms
     "TokenBucketAlgorithm",
     "RateLimitAlgorithm",
+    # Backends
     "get_backend",
     "BaseBackend",
+    "BackendFactory",
+    "BackendHealthChecker",
+    "MemoryBackend",
+    "MultiBackend",
+    "RedisBackend",
+    "MongoDBBackend",
+    # Circuit Breaker
+    "CircuitBreakerConfig",
+    "CircuitBreakerError",
+    "CircuitBreakerState",
+    "circuit_breaker",
+    "circuit_breaker_registry",
+    # Configuration
+    "RateLimitConfigManager",
+    # Performance
+    "RateLimitCache",
     # Utility functions
     "get_ip_key",
     "get_user_key",

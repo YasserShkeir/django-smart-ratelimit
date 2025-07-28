@@ -11,13 +11,12 @@ from unittest.mock import Mock, patch
 
 from django.test import TestCase
 
-from django_smart_ratelimit.algorithms.token_bucket import TokenBucketAlgorithm
-from django_smart_ratelimit.backends.memory import MemoryBackend
+from django_smart_ratelimit import MemoryBackend, TokenBucketAlgorithm
 from tests.utils import AlgorithmTestMixin, BaseBackendTestCase
 
 # Try to import Redis backend for testing
 try:
-    from django_smart_ratelimit.backends.redis_backend import RedisBackend
+    from django_smart_ratelimit import RedisBackend
 
     REDIS_AVAILABLE = True
 except ImportError:

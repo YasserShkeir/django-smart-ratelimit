@@ -31,9 +31,15 @@ class DatabaseBackend(BaseBackend):
     in the database, making it suitable for deployments without Redis.
     """
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        enable_circuit_breaker: bool = True,
+        circuit_breaker_config: Optional[Dict[str, Any]] = None,
+        **kwargs: Any,
+    ) -> None:
         """Initialize the database backend with optional configuration."""
-        # Don't call super().__init__ since it tries to access Redis config
+        # Initialize parent class with circuit breaker
+        super().__init__(enable_circuit_breaker, circuit_breaker_config)
 
         # Validate configuration
         validate_backend_config(kwargs, backend_type="database")
