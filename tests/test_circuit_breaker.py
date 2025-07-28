@@ -8,9 +8,10 @@ and performance characteristics.
 
 import time
 from threading import Thread
-from unittest.mock import patch
 
 import pytest
+
+from django.test import override_settings
 
 from django_smart_ratelimit.circuit_breaker import (
     CircuitBreaker,
@@ -827,28 +828,23 @@ class TestCircuitBreakerIntegration:
 class TestConfigurationFromSettings:
     """Test configuration loading from Django settings."""
 
-    @patch("django_smart_ratelimit.circuit_breaker.settings")
-    def test_default_config_from_settings(self, mock_settings):
+    def test_default_config_from_settings(self):
         """Test loading default configuration."""
-        # Mock settings without RATELIMIT_CIRCUIT_BREAKER
-        mock_settings.configure_mock(**{"RATELIMIT_CIRCUIT_BREAKER": None})
-        delattr(mock_settings, "RATELIMIT_CIRCUIT_BREAKER")
-
+        # Test when RATELIMIT_CIRCUIT_BREAKER is not defined
         config = get_circuit_breaker_config_from_settings()
 
         assert config["failure_threshold"] == 5
         assert config["recovery_timeout"] == 60
 
-    @patch("django_smart_ratelimit.circuit_breaker.settings")
-    def test_custom_config_from_settings(self, mock_settings):
-        """Test loading custom configuration from settings."""
-        custom_config = {
+    @override_settings(
+        RATELIMIT_CIRCUIT_BREAKER={
             "failure_threshold": 10,
             "recovery_timeout": 120,
             "exponential_backoff_multiplier": 3.0,
         }
-        mock_settings.RATELIMIT_CIRCUIT_BREAKER = custom_config
-
+    )
+    def test_custom_config_from_settings(self):
+        """Test loading custom configuration from settings."""
         config = get_circuit_breaker_config_from_settings()
 
         assert config["failure_threshold"] == 10
