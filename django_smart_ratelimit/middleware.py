@@ -89,6 +89,11 @@ class RateLimitMiddleware:
         # Check rate limit
         current_count = self.backend.incr(key, period)
 
+        # Mark that middleware has processed this request to prevent double-counting
+        request._ratelimit_middleware_processed = True  # type: ignore[attr-defined]
+        request._ratelimit_middleware_limit = limit  # type: ignore[attr-defined]
+        request._ratelimit_middleware_remaining = max(0, limit - current_count)  # type: ignore[attr-defined]
+
         if current_count > limit:
             if self.block:
                 response = HttpResponseTooManyRequests(
@@ -100,10 +105,34 @@ class RateLimitMiddleware:
         # Process the request
         response = self.get_response(request)
 
-        # Add rate limit headers
-        add_rate_limit_headers(
-            response, limit, max(0, limit - current_count), int(time.time() + period)
-        )
+        # Only add rate limit headers if they haven't been set by a decorator
+        # or if this middleware has a more restrictive limit
+        if (
+            not hasattr(response, "headers")
+            or "X-RateLimit-Limit" not in response.headers
+        ):
+            # Add rate limit headers
+            add_rate_limit_headers(
+                response,
+                limit,
+                max(0, limit - current_count),
+                int(time.time() + period),
+            )
+        else:
+            # Headers already exist (likely from decorator), check if middleware is more restrictive
+            existing_limit = int(
+                response.headers.get("X-RateLimit-Limit", float("inf"))
+            )
+            existing_remaining = int(
+                response.headers.get("X-RateLimit-Remaining", float("inf"))
+            )
+
+            # If middleware is more restrictive, update headers
+            middleware_remaining = max(0, limit - current_count)
+            if limit < existing_limit or middleware_remaining < existing_remaining:
+                add_rate_limit_headers(
+                    response, limit, middleware_remaining, int(time.time() + period)
+                )
 
         return response
 

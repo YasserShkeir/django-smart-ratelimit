@@ -94,6 +94,8 @@ from .performance import RateLimitCache
 from .utils import (
     add_rate_limit_headers,
     add_token_bucket_headers,
+    debug_ratelimit_status,
+    format_debug_info,
     format_rate_headers,
     generate_key,
     get_api_key_key,
@@ -152,6 +154,8 @@ __all__ = [
     "is_exempt_request",
     "add_rate_limit_headers",
     "add_token_bucket_headers",
+    "debug_ratelimit_status",
+    "format_debug_info",
     "get_jwt_key",
     "get_api_key_key",
     "get_tenant_key",

@@ -505,3 +505,138 @@ def get_rate_for_path(path: str, rate_limits: Dict[str, str], default_rate: str)
         if path.startswith(path_pattern):
             return rate
     return default_rate
+
+
+def debug_ratelimit_status(request: HttpRequest) -> Dict[str, Any]:
+    """
+    Get debug information about rate limiting status for a request.
+
+    This function helps diagnose rate limiting issues by providing
+    information about middleware processing, current limits, and
+    backend state.
+
+    Args:
+        request: Django HTTP request object
+
+    Returns:
+        Dictionary containing debug information
+    """
+    from .backends import get_backend
+
+    debug_info = {
+        "middleware_processed": getattr(
+            request, "_ratelimit_middleware_processed", False
+        ),
+        "middleware_limit": getattr(request, "_ratelimit_middleware_limit", None),
+        "middleware_remaining": getattr(
+            request, "_ratelimit_middleware_remaining", None
+        ),
+        "request_path": request.path,
+        "request_method": request.method,
+        "user_authenticated": (
+            request.user.is_authenticated if hasattr(request, "user") else False
+        ),
+        "user_id": (
+            getattr(request.user, "id", None)
+            if hasattr(request, "user") and request.user.is_authenticated
+            else None
+        ),
+        "remote_addr": request.META.get("REMOTE_ADDR"),
+        "user_agent": request.META.get("HTTP_USER_AGENT", "")[
+            :100
+        ],  # Truncate for readability
+    }
+
+    # Try to get backend count for common key patterns
+    try:
+        backend = get_backend()
+
+        # Generate common key patterns to check
+        keys_to_check = []
+
+        # IP-based keys
+        ip_key = get_ip_key(request)
+        keys_to_check.append(("ip", ip_key))
+
+        # User-based keys
+        if debug_info["user_authenticated"]:
+            user_key = f"user:{debug_info['user_id']}"
+            keys_to_check.append(("user", user_key))
+
+        # Middleware keys
+        if ip_key:
+            middleware_ip_key = ip_key.replace("ip:", "middleware:")
+            keys_to_check.append(("middleware_ip", middleware_ip_key))
+
+        if debug_info["user_authenticated"]:
+            middleware_user_key = f"middleware:user:{debug_info['user_id']}"
+            keys_to_check.append(("middleware_user", middleware_user_key))
+
+        # Check counts for each key pattern
+        backend_counts = {}
+        for key_type, key in keys_to_check:
+            try:
+                if hasattr(backend, "get_count"):
+                    count = backend.get_count(key)
+                    backend_counts[key_type] = {"key": key, "count": count}
+            except Exception as e:
+                backend_counts[key_type] = {"key": key, "error": str(e)}
+
+        debug_info["backend_counts"] = backend_counts
+        debug_info["backend_type"] = type(backend).__name__
+
+    except Exception as e:
+        debug_info["backend_error"] = str(e)
+
+    return debug_info
+
+
+def format_debug_info(debug_info: Dict[str, Any]) -> str:
+    """
+    Format debug information into a readable string.
+
+    Added for GitHub issue #6:
+    https://github.com/YasserShkeir/django-smart-ratelimit/issues/6
+
+    Args:
+        debug_info: Dictionary from debug_ratelimit_status()
+
+    Returns:
+        Formatted debug information string
+    """
+    lines = []
+    lines.append("=== Rate Limiting Debug Information ===")
+    lines.append(f"Path: {debug_info['request_path']}")
+    lines.append(f"Method: {debug_info['request_method']}")
+    lines.append(
+        f"User: {'Authenticated' if debug_info['user_authenticated'] else 'Anonymous'}"
+    )
+
+    if debug_info["user_authenticated"]:
+        lines.append(f"User ID: {debug_info['user_id']}")
+
+    lines.append(f"Remote IP: {debug_info['remote_addr']}")
+    lines.append("")
+
+    lines.append("Middleware Status:")
+    lines.append(f"  Processed: {debug_info['middleware_processed']}")
+    if debug_info["middleware_processed"]:
+        lines.append(f"  Limit: {debug_info['middleware_limit']}")
+        lines.append(f"  Remaining: {debug_info['middleware_remaining']}")
+    lines.append("")
+
+    if "backend_counts" in debug_info:
+        lines.append(f"Backend: {debug_info.get('backend_type', 'Unknown')}")
+        lines.append("Current Counts:")
+        for key_type, info in debug_info["backend_counts"].items():
+            if "error" in info:
+                lines.append(f"  {key_type}: Error - {info['error']}")
+            else:
+                lines.append(f"  {key_type}: {info['count']} (key: {info['key']})")
+
+    if "backend_error" in debug_info:
+        lines.append(f"Backend Error: {debug_info['backend_error']}")
+
+    lines.append("=" * 40)
+
+    return "\n".join(lines)
