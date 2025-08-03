@@ -90,6 +90,12 @@ def rate_limit(
                 # If no _request found, skip rate limiting
                 return func(*args, **kwargs)
 
+            # Check if middleware has already processed this request
+            # to avoid double-counting
+            middleware_processed = getattr(
+                _request, "_ratelimit_middleware_processed", False
+            )
+
             # Check skip_if condition
             if skip_if and callable(skip_if):
                 try:
@@ -115,6 +121,46 @@ def rate_limit(
 
             # Generate the rate limit key
             limit_key = generate_key(key, _request, *args, **kwargs)
+
+            # Parse rate limit
+            limit, period = parse_rate(rate)
+
+            # If middleware already processed this request, check if we need
+            # to apply more restrictive limits
+            if middleware_processed:
+                # Get current count without incrementing again
+                try:
+                    current_count = backend_instance.get_count(limit_key)
+                except AttributeError:
+                    # Fallback for backends that don't support get_count
+                    current_count = 0
+
+                # Check if the decorator's limit is exceeded
+                if current_count > limit:
+                    if block:
+                        response = HttpResponseTooManyRequests(
+                            "Rate limit exceeded. Please try again later."
+                        )
+                        add_rate_limit_headers(
+                            response, limit, 0, int(time.time() + period)
+                        )
+                        return response
+
+                # Execute the original function
+                response = func(*args, **kwargs)
+
+                # Calculate remaining based on the decorator's limit (more restrictive)
+                decorator_remaining = max(0, limit - current_count)
+
+                # Update headers with the decorator's limit (which is more restrictive)
+                add_rate_limit_headers(
+                    response,
+                    limit,  # Use decorator limit, not effective_limit
+                    decorator_remaining,
+                    int(time.time() + period),
+                )
+
+                return response
 
             # Parse rate limit
             limit, period = parse_rate(rate)
