@@ -172,7 +172,7 @@ class RateLimitDecoratorTests(BaseBackendTestCase):
 
         viewset = TestViewSet()
         request = self.factory.get("/", REMOTE_ADDR="192.168.1.1")
-        
+
         response = viewset.retrieve(request)
 
         # Verify that the backend was called (request was found)
