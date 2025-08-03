@@ -159,6 +159,30 @@ class RateLimitDecoratorTests(BaseBackendTestCase):
         mock_backend.incr.assert_not_called()
 
     @patch("django_smart_ratelimit.decorator.get_backend")
+    def test_rate_limit_decorator_drf_viewset_method(self, mock_get_backend):
+        """Test decorator with DRF ViewSet-style method signature."""
+        mock_backend = Mock()
+        mock_backend.incr.return_value = 1
+        mock_get_backend.return_value = mock_backend
+
+        class TestViewSet:
+            @rate_limit(key="ip", rate="10/m")
+            def retrieve(self, request, *args, **kwargs):
+                return HttpResponse("ViewSet Success")
+
+        viewset = TestViewSet()
+        request = self.factory.get("/", REMOTE_ADDR="192.168.1.1")
+        
+        response = viewset.retrieve(request)
+
+        # Verify that the backend was called (request was found)
+        mock_backend.incr.assert_called_once()
+        args, _ = mock_backend.incr.call_args
+        self.assertIn("ip:192.168.1.1", args[0])  # Check that IP key was generated
+        self.assertEqual(args[1], 60)  # 1 minute = 60 seconds
+        self.assertEqual(response.status_code, 200)
+
+    @patch("django_smart_ratelimit.decorator.get_backend")
     def test_rate_limit_decorator_with_custom_backend(self, mock_get_backend):
         """Test decorator with custom backend specification."""
         mock_backend = Mock()
