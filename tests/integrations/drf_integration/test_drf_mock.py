@@ -89,18 +89,18 @@ class DRFIntegrationMockTests(TestCase):
     def test_custom_key_functions(self):
         """Test custom key functions for rate limiting."""
 
-        def user_or_ip_key(_group, _request):
+        def user_or_ip_key(request, *args, **kwargs):
             """Custom key: user ID if authenticated, otherwise IP."""
-            if _request.user.is_authenticated:
-                return f"user:{_request.user.id}"
-            return f"ip:{_request.META.get('REMOTE_ADDR', 'unknown')}"
+            if request.user.is_authenticated:
+                return f"user:{request.user.id}"
+            return f"ip:{request.META.get('REMOTE_ADDR', 'unknown')}"
 
-        def user_role_key(_group, _request):
+        def user_role_key(request, *args, **kwargs):
             """Custom key: user ID with role."""
-            if _request.user.is_authenticated:
-                role = "staff" if _request.user.is_staff else "user"
-                return f"{_request.user.id}:{role}"
-            return f"ip:{_request.META.get('REMOTE_ADDR', 'unknown')}"
+            if request.user.is_authenticated:
+                role = "staff" if request.user.is_staff else "user"
+                return f"{request.user.id}:{role}"
+            return f"ip:{request.META.get('REMOTE_ADDR', 'unknown')}"
 
         # Mock _view with custom key functions
         class MockView:

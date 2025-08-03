@@ -79,20 +79,24 @@ def rate_limit(
 
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            # Get the _request object
+            # Get the request object
+            # Support both function-based views and class-based views/ViewSets
             _request = None
-            # Check multiple argument positions to support different method signatures
-            for arg in args:
-                if hasattr(arg, "META"):
-                    _request = arg
-                    break
-            
-            # Also check kwargs for _request
-            if not _request and "_request" in kwargs:
+
+            # For function-based views: request is first argument
+            if args and hasattr(args[0], "META"):
+                _request = args[0]
+            # For class-based views/ViewSets: request is second argument after self
+            elif len(args) > 1 and hasattr(args[1], "META"):
+                _request = args[1]
+            # Check kwargs for request (less common but possible)
+            elif "request" in kwargs:
+                _request = kwargs["request"]
+            elif "_request" in kwargs:
                 _request = kwargs["_request"]
 
             if not _request:
-                # If no _request found, skip rate limiting
+                # If no request found, skip rate limiting
                 return func(*args, **kwargs)
 
             # Check if middleware has already processed this request

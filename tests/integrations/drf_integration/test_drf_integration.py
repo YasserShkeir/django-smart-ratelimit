@@ -108,44 +108,52 @@ class DRFRateLimitingTestCase(APITestCase):
 
     def test_apiview_rate_limiting(self):
         """Test rate limiting with APIView."""
+        from unittest.mock import Mock, patch
 
         class TestAPIView(APIView):
             """TestAPIView implementation."""
 
             permission_classes = []  # Allow unauthenticated access
 
-            @rate_limit(key="ip", rate="5/m")
-            def get(self, _request):
+            @rate_limit(key="ip", rate="2/m", block=True)
+            def get(self, request):
                 return Response({"message": "success"})
 
-            @rate_limit(key="user", rate="3/m")
-            def post(self, _request):
+            @rate_limit(key="user", rate="2/m", block=True)
+            def post(self, request):
                 return Response({"message": "created"}, status=status.HTTP_201_CREATED)
 
-        _view = TestAPIView.as_view()
+        # Mock the backend to control rate limiting behavior
+        with patch("django_smart_ratelimit.decorator.get_backend") as mock_get_backend:
+            mock_backend = Mock()
+            mock_backend.incr.side_effect = [
+                1,
+                2,
+                3,
+            ]  # 1st=1, 2nd=2, 3rd=3 (exceeds limit of 2)
+            mock_get_backend.return_value = mock_backend
 
-        # Test GET requests with IP-based rate limiting
-        _request = self.factory.get("/api/test/")
-        _request.user = self.user
+            view = TestAPIView.as_view()
 
-        # First few requests should succeed
-        for i in range(5):
-            response = _view(_request)
-            self.assertEqual(response.status_code, 200)
+            # Test GET requests with IP-based rate limiting
+            request = self.factory.get("/api/test/")
+            request.user = self.user
 
-        # Test rate limiting by making many requests
-        # Since we're using memory backend, we can test actual rate limiting
-        responses = []
-        for i in range(10):  # More than the 5/m limit
-            response = _view(_request)
-            responses.append(response.status_code)
+            # First request should succeed (count=1, limit=2)
+            response1 = view(request)
+            self.assertEqual(response1.status_code, 200)
 
-        # Should have some successful responses (200) and some rate limited (429)
-        self.assertIn(200, responses)
-        # Note: Actual rate limiting behavior depends on backend implementation
+            # Second request should succeed (count=2, limit=2)
+            response2 = view(request)
+            self.assertEqual(response2.status_code, 200)
+
+            # Third request should be blocked (count=3 > limit=2)
+            response3 = view(request)
+            self.assertEqual(response3.status_code, 429)  # Too Many Requests
 
     def test_viewset_rate_limiting(self):
         """Test rate limiting with ViewSet."""
+        from unittest.mock import Mock, patch
 
         # Simple serializer for testing
         class TestSerializer(serializers.Serializer):
@@ -157,33 +165,67 @@ class DRFRateLimitingTestCase(APITestCase):
         class TestViewSet(viewsets.ViewSet):
             """TestViewSet implementation."""
 
-            @rate_limit(key="ip", rate="10/m")
-            def list(self, _request, *_args, **_kwargs):
+            @rate_limit(key="ip", rate="2/m", block=True)
+            def list(self, request, *args, **kwargs):
                 return Response([{"id": 1, "name": "Test"}])
 
-            @rate_limit(key="user", rate="5/m")
-            def create(self, _request, *_args, **_kwargs):
+            @rate_limit(key="user", rate="2/m", block=True)
+            def create(self, request, *args, **kwargs):
                 return Response(
                     {"id": 999, "name": "Created"}, status=status.HTTP_201_CREATED
                 )
 
-        viewset = TestViewSet()
-        viewset.action = "list"
-        viewset._request = self.factory.get("/api/test/")
-        viewset._request.user = self.user
-        viewset.format_kwarg = None
+            @rate_limit(key="ip", rate="1/m", block=True)  # Very restrictive
+            def retrieve(self, request, *args, **kwargs):
+                return Response({"id": 1, "name": "Retrieved Item"})
 
-        # Test list action
-        response = viewset.list(viewset._request)
-        self.assertEqual(response.status_code, 200)
+        # Mock the backend to return specific values for testing
+        with patch("django_smart_ratelimit.decorator.get_backend") as mock_get_backend:
+            mock_backend = Mock()
+            mock_backend.incr.side_effect = [
+                1,
+                2,
+                3,
+            ]  # Increment calls: 1st=1, 2nd=2, 3rd=3 (exceed limit of 2)
+            mock_get_backend.return_value = mock_backend
 
-        # Test create action
-        viewset.action = "create"
-        viewset._request = self.factory.post("/api/test/", {"name": "New Item"})
-        viewset._request.user = self.user
+            # Test list action
+            viewset = TestViewSet()
 
-        response = viewset.create(viewset._request)
-        self.assertEqual(response.status_code, 201)
+            request = self.factory.get("/api/test/")
+            request.user = self.user
+
+            # First request should succeed (count=1, limit=2)
+            response1 = viewset.list(request)
+            self.assertEqual(response1.status_code, 200)
+
+            # Second request should succeed (count=2, limit=2)
+            response2 = viewset.list(request)
+            self.assertEqual(response2.status_code, 200)
+
+            # Third request should be blocked (count=3 > limit=2)
+            response3 = viewset.list(request)
+            self.assertEqual(response3.status_code, 429)
+
+        # Test retrieve action with fresh mock
+        with patch("django_smart_ratelimit.decorator.get_backend") as mock_get_backend:
+            mock_backend = Mock()
+            mock_backend.incr.side_effect = [
+                1,
+                2,
+            ]  # First=1 (allowed), second=2 (exceeds limit of 1)
+            mock_get_backend.return_value = mock_backend
+
+            request_retrieve = self.factory.get("/api/test/1/")
+            request_retrieve.user = self.user
+
+            # First request should succeed
+            response1 = viewset.retrieve(request_retrieve, pk=1)
+            self.assertEqual(response1.status_code, 200)
+
+            # Second request should be blocked (exceeds 1/m limit)
+            response2 = viewset.retrieve(request_retrieve, pk=1)
+            self.assertEqual(response2.status_code, 429)
 
     def test_permission_based_rate_limiting(self):
         """Test rate limiting integrated with DRF permissions."""
@@ -239,10 +281,10 @@ class DRFRateLimitingTestCase(APITestCase):
 
             def validate_title(self, value):
                 # Simulate rate limited validation
-                _request = self.context.get("_request")
-                if _request:
+                request = self.context.get("request")
+                if request:
                     user_id = (
-                        _request.user.id if _request.user.is_authenticated else "anon"
+                        request.user.id if request.user.is_authenticated else "anon"
                     )
                     validation_key = f"validation:{user_id}"
                     current_count = cache.get(validation_key, 0)
@@ -259,58 +301,83 @@ class DRFRateLimitingTestCase(APITestCase):
                 return value
 
         # Test serializer validation
-        _request = self.factory.post("/api/test/")
-        _request.user = self.user
+        request = self.factory.post("/api/test/")
+        request.user = self.user
 
         # First few validations should succeed
         for i in range(5):
             serializer = TestSerializer(
                 data={"title": "Test Title", "content": "Content"},
-                context={"_request": _request},
+                context={"request": request},
             )
             self.assertTrue(serializer.is_valid())
 
         # 6th validation should fail due to rate limiting
         serializer = TestSerializer(
             data={"title": "Test Title", "content": "Content"},
-            context={"_request": _request},
+            context={"request": request},
         )
         self.assertFalse(serializer.is_valid())
         self.assertIn("title", serializer.errors)
 
     def test_custom_key_functions(self):
         """Test rate limiting with custom key functions."""
+        from unittest.mock import Mock, patch
 
-        def user_or_ip_key(_group, _request):
+        def user_or_ip_key(request, *args, **kwargs):
             """Custom key function that uses user ID or IP."""
-            if _request.user.is_authenticated:
-                return f"user:{_request.user.id}"
-            return f"ip:{_request.META.get('REMOTE_ADDR', 'unknown')}"
+            if request.user.is_authenticated:
+                return f"user:{request.user.id}"
+            return f"ip:{request.META.get('REMOTE_ADDR', 'unknown')}"
 
         class TestView(APIView):
             """TestView implementation."""
 
-            @rate_limit(key=user_or_ip_key, rate="5/m")
-            def get(self, _request):
+            @rate_limit(key=user_or_ip_key, rate="2/m", block=True)
+            def get(self, request):
                 return Response({"message": "success"})
 
-        _view = TestView.as_view()
+        # Mock the backend to control rate limiting behavior
+        with patch("django_smart_ratelimit.decorator.get_backend") as mock_get_backend:
+            mock_backend = Mock()
+            mock_backend.incr.side_effect = [
+                1,
+                2,
+                3,
+            ]  # 1st=1, 2nd=2, 3rd=3 (exceeds limit of 2)
+            mock_get_backend.return_value = mock_backend
 
-        # Test with authenticated user
-        _request = self.factory.get("/api/test/")
-        _request.user = self.user
+            view = TestView.as_view()
 
-        response = _view(_request)
-        self.assertEqual(response.status_code, 200)
+            # Test with authenticated user
+            request = self.factory.get("/api/test/")
+            request.user = self.user
 
-        # Test with anonymous user
-        _request = self.factory.get("/api/test/")
-        _request.user = Mock()
-        _request.user.is_authenticated = False
-        _request.META["REMOTE_ADDR"] = "127.0.0.1"
+            # First two requests should succeed
+            response1 = view(request)
+            self.assertEqual(response1.status_code, 200)
 
-        response = _view(_request)
-        self.assertEqual(response.status_code, 200)
+            response2 = view(request)
+            self.assertEqual(response2.status_code, 200)
+
+            # Third request should be blocked
+            response3 = view(request)
+            self.assertEqual(response3.status_code, 429)
+
+        # Test with anonymous user (different key, so should start fresh)
+        with patch("django_smart_ratelimit.decorator.get_backend") as mock_get_backend:
+            mock_backend = Mock()
+            mock_backend.incr.return_value = 1  # Fresh start
+            mock_get_backend.return_value = mock_backend
+
+            anon_request = self.factory.get("/api/test/")
+            anon_request.user = Mock()
+            anon_request.user.is_authenticated = False
+            anon_request.META["REMOTE_ADDR"] = "127.0.0.1"
+
+            # Should succeed since it's a different key
+            response = view(anon_request)
+            self.assertEqual(response.status_code, 200)
 
     def test_method_specific_rate_limiting(self):
         """Test different rate limits for different HTTP methods."""
