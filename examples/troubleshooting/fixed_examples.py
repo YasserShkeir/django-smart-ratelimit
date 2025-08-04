@@ -11,21 +11,47 @@ https://github.com/YasserShkeir/django-smart-ratelimit/issues/6
 - Rate limiting occurring too early
 """
 
+from django.conf import settings
 from django.http import JsonResponse
 from django.views.decorators.http import require_http_methods
 
 from django_smart_ratelimit import debug_ratelimit_status, format_debug_info, rate_limit
+from django_smart_ratelimit.utils import should_skip_common_browser_requests
 
 
-# Example 1: Properly handling browser secondary requests
+# Example 1: Properly handling browser secondary requests (SECURE VERSION)
+@rate_limit(
+    key="ip",
+    rate="10/m",
+    skip_if=should_skip_common_browser_requests,  # Use secure utility function
+)
+@require_http_methods(["GET", "POST"])
+def browser_friendly_api(request):
+    """
+    API endpoint that properly handles browser secondary requests.
+
+    Uses secure utility function that respects configured STATIC_URL
+    and MEDIA_URL settings to prevent rate limit bypass.
+    """
+    return JsonResponse(
+        {
+            "message": "This endpoint won't count favicon or preflight requests",
+            "method": request.method,
+            "path": request.path,
+        }
+    )
+
+
+# Example 1b: Manual skip condition (if you need custom logic)
 @rate_limit(
     key="ip",
     rate="10/m",
     skip_if=lambda req: (
         # Skip common browser secondary requests
         req.path in ["/favicon.ico", "/robots.txt", "/apple-touch-icon.png"]
-        or req.path.startswith("/static/")
-        or req.path.startswith("/media/")
+        # SECURITY: Use actual configured static/media URLs instead of hardcoded paths
+        or req.path.startswith(getattr(settings, "STATIC_URL", "/static/"))
+        or req.path.startswith(getattr(settings, "MEDIA_URL", "/media/"))
         or req.method in ["OPTIONS", "HEAD"]
         or
         # Skip internal requests
@@ -33,11 +59,16 @@ from django_smart_ratelimit import debug_ratelimit_status, format_debug_info, ra
     ),
 )
 @require_http_methods(["GET", "POST"])
-def browser_friendly_api(request):
-    """API endpoint that properly handles browser secondary requests."""
+def browser_friendly_api_manual(request):
+    """
+    API endpoint demonstrating manual skip condition with security considerations.
+
+    Note: Prefer using should_skip_common_browser_requests() utility function
+    unless you need custom skip logic.
+    """
     return JsonResponse(
         {
-            "message": "This endpoint won't count favicon or preflight requests",
+            "message": "This endpoint uses manual skip condition",
             "method": request.method,
             "path": request.path,
         }
@@ -174,8 +205,9 @@ RATELIMIT_MIDDLEWARE = {
     'SKIP_PATHS': [
         '/favicon.ico',
         '/robots.txt',
-        '/static/',
-        '/media/',
+        # Use actual configured URLs instead of hardcoded paths for security
+        STATIC_URL,  # Will use settings.STATIC_URL (e.g., '/static/' or '/assets/')
+        MEDIA_URL,   # Will use settings.MEDIA_URL (e.g., '/media/' or '/uploads/')
         '/admin/',
     ]
 }
@@ -187,11 +219,15 @@ RATELIMIT_MIDDLEWARE = {
         '/api/',  # Skip API paths handled by decorators
         '/favicon.ico',
         '/robots.txt',
-        '/static/',
-        '/media/',
+        STATIC_URL,  # Use configured static URL
+        MEDIA_URL,   # Use configured media URL
         '/admin/',
     ]
 }
 
 # Then use @rate_limit decorator on individual API endpoints
+
+# Security Note: Always use settings.STATIC_URL and settings.MEDIA_URL
+# instead of hardcoded '/static/' and '/media/' paths to prevent
+# bypassing rate limits when these settings are customized.
 """
