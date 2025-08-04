@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.4] - 2025-08-04
+
+### Fixed
+
+- 🐛 **Critical Bug Fixes**: Resolved three major issues affecting rate limiting functionality
+  - **Issue #12**: Fixed decorator+middleware double counting bug that caused rate limits to be decremented twice
+  - **Issue #11**: Added missing Retry-After headers for API compatibility (RFC 6585 compliant)
+  - **Issue #10**: Fixed security vulnerability in static/media path handling by using Django settings instead of hardcoded paths
+
+### Enhanced
+
+- 🔧 **Improved Error Handling**: Added proper type checking and fallback mechanisms for Mock objects in tests
+- 📝 **Better Type Annotations**: Enhanced code quality with comprehensive type annotations
+- 🧪 **Test Compatibility**: Improved test reliability and Mock object handling
+
 ## [0.7.4] - 2025-07-20
 
 ### Added

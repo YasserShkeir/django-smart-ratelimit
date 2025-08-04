@@ -105,8 +105,6 @@ check-versions:
 	@grep "__version__" django_smart_ratelimit/__init__.py
 	@echo "examples/integrations/drf_integration/__init__.py:"
 	@grep "__version__" examples/integrations/drf_integration/__init__.py
-	@echo "docs/index.md:"
-	@grep "__version__" docs/index.md
 	@echo "pyproject.toml:"
 	@grep "current_version" pyproject.toml
 	@echo "CHANGELOG.md (latest):"
