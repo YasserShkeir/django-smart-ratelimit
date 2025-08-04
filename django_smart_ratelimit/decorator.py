@@ -49,10 +49,55 @@ def _get_request_from_args(*args: Any, **kwargs: Any) -> Optional[Any]:
     return None
 
 
+def _calculate_stable_reset_time_sliding_window(period: int) -> int:
+    """
+    Calculate a stable reset time for sliding window algorithm.
+
+    Instead of using the constantly moving window approach, we calculate a stable
+    reset time based on fixed time buckets. This provides users with predictable
+    reset times while maintaining the sliding window behavior for rate limiting.
+
+    Args:
+        period: Time period in seconds for the rate limit window
+
+    Returns:
+        Stable reset time as Unix timestamp
+    """
+    import time
+
+    current_time = time.time()
+
+    # Create stable time buckets based on the period
+    # This ensures reset time changes predictably rather than constantly
+    bucket_start = int(current_time // period) * period
+    reset_time = int(bucket_start + period)
+
+    # If the calculated reset time is very close (within 5 seconds),
+    # advance to the next bucket to give users reasonable time
+    if reset_time - current_time < 5:
+        reset_time += period
+
+    return reset_time
+
+
 def _get_reset_time(backend_instance: Any, limit_key: str, period: int) -> int:
     """Get reset time from backend with fallback."""
     try:
-        return backend_instance.get_reset_time(limit_key)
+        reset_time = backend_instance.get_reset_time(limit_key)
+
+        # Check if backend supports stable reset time for sliding window
+        if hasattr(backend_instance, "get_stable_reset_time"):
+            return backend_instance.get_stable_reset_time(limit_key, period)
+
+        # For sliding window algorithms, provide stable reset time
+        # by calculating when the oldest request in the window will expire
+        if (
+            hasattr(backend_instance, "_algorithm")
+            and backend_instance._algorithm == "sliding_window"
+        ):
+            return _calculate_stable_reset_time_sliding_window(period)
+
+        return reset_time
     except (AttributeError, NotImplementedError):
         return int(time.time() + period)
 
@@ -219,7 +264,7 @@ def _handle_middleware_processed_request(
     """Handle request when middleware has already processed it."""
     # Since middleware has already processed this request, we should not increment again
     # Just get the current count to check against the decorator's limit
-    current_count = backend_instance.get_count(limit_key, period)
+    current_count = backend_instance.get_count(limit_key)
 
     # Check if the decorator's limit is exceeded
     if current_count > limit:

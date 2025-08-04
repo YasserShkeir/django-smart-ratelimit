@@ -332,13 +332,20 @@ def add_token_bucket_headers(
     tokens_remaining = int(metadata.get("tokens_remaining", 0))
     response.headers["X-RateLimit-Remaining"] = str(tokens_remaining)
 
-    # Calculate reset time based on time_to_refill
-    time_to_refill = metadata.get("time_to_refill", 0)
-    reset_time = (
-        int(time.time() + time_to_refill)
-        if time_to_refill > 0
-        else int(time.time() + period)
-    )
+    # Calculate reset time for token bucket using a stable approach
+    # For token buckets, we provide a predictable reset time by using fixed time periods
+    current_time = time.time()
+    tokens_remaining = int(metadata.get("tokens_remaining", 0))
+    bucket_size = metadata.get("bucket_size", limit)
+
+    # Use period-based buckets for consistency, regardless of current token state
+    # This provides users with predictable reset times
+    bucket_start = int(current_time // period) * period
+    reset_time = int(bucket_start + period)
+
+    # If very close to current time, advance to next period
+    if reset_time - current_time < 5:
+        reset_time += period
     response.headers["X-RateLimit-Reset"] = str(reset_time)
 
     # Add Retry-After header only for 429 responses when no tokens remaining
