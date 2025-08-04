@@ -296,8 +296,20 @@ def add_rate_limit_headers(
 
         if reset_time is not None:
             response.headers["X-RateLimit-Reset"] = str(reset_time)
+            # Add Retry-After header only for 429 responses when rate limited
+            if remaining <= 0 and getattr(response, "status_code", 200) == 429:
+                # Handle case where reset_time might be a Mock object in tests
+                try:
+                    retry_after = max(0, int(reset_time) - int(time.time()))
+                    response.headers["Retry-After"] = str(retry_after)
+                except (TypeError, ValueError):
+                    # Fallback if reset_time is not a valid integer
+                    pass
         elif period is not None:
             response.headers["X-RateLimit-Reset"] = str(int(time.time() + period))
+            # Add Retry-After header only for 429 responses when rate limited
+            if remaining <= 0 and getattr(response, "status_code", 200) == 429:
+                response.headers["Retry-After"] = str(period)
 
 
 def add_token_bucket_headers(
@@ -317,9 +329,8 @@ def add_token_bucket_headers(
 
     # Standard headers
     response.headers["X-RateLimit-Limit"] = str(limit)
-    response.headers["X-RateLimit-Remaining"] = str(
-        int(metadata.get("tokens_remaining", 0))
-    )
+    tokens_remaining = int(metadata.get("tokens_remaining", 0))
+    response.headers["X-RateLimit-Remaining"] = str(tokens_remaining)
 
     # Calculate reset time based on time_to_refill
     time_to_refill = metadata.get("time_to_refill", 0)
@@ -330,12 +341,15 @@ def add_token_bucket_headers(
     )
     response.headers["X-RateLimit-Reset"] = str(reset_time)
 
+    # Add Retry-After header only for 429 responses when no tokens remaining
+    if tokens_remaining <= 0 and getattr(response, "status_code", 200) == 429:
+        retry_after = max(0, reset_time - int(time.time()))
+        response.headers["Retry-After"] = str(retry_after)
+
     # Token bucket specific headers
     bucket_size = metadata.get("bucket_size", limit)
     response.headers["X-RateLimit-Bucket-Size"] = str(bucket_size)
-    response.headers["X-RateLimit-Bucket-Remaining"] = str(
-        int(metadata.get("tokens_remaining", 0))
-    )
+    response.headers["X-RateLimit-Bucket-Remaining"] = str(tokens_remaining)
 
     # Optional: Add refill rate information
     refill_rate = metadata.get("refill_rate", 0)
@@ -470,6 +484,80 @@ def load_function_from_string(function_path: str) -> Callable:
         return getattr(module, function_name)
     except (ImportError, AttributeError, ValueError) as e:
         raise ImproperlyConfigured(f"Cannot load function {function_path}: {e}") from e
+
+
+def should_skip_static_media(request: HttpRequest) -> bool:
+    """
+    Check if request is for static or media files and should be skipped.
+
+    This function uses the actual configured STATIC_URL and MEDIA_URL settings
+    instead of hardcoded paths to prevent bypassing rate limits.
+
+    Security Note: Always use this function instead of hardcoding '/static/'
+    and '/media/' to prevent rate limit bypass when these settings are customized.
+
+    Args:
+        request: Django HTTP request object
+
+    Returns:
+        True if request should be skipped (is for static/media files)
+    """
+    from django.conf import settings
+
+    path = request.path
+
+    # Check against configured static URL
+    static_url = getattr(settings, "STATIC_URL", "/static/")
+    if static_url and path.startswith(static_url):
+        return True
+
+    # Check against configured media URL
+    media_url = getattr(settings, "MEDIA_URL", "/media/")
+    if media_url and path.startswith(media_url):
+        return True
+
+    return False
+
+
+def should_skip_common_browser_requests(request: HttpRequest) -> bool:
+    """
+    Check if request is a common browser secondary request that should be skipped.
+
+    This includes favicon, robots.txt, preflight requests, and static/media files.
+    Uses configured static/media URLs for security.
+
+    Args:
+        request: Django HTTP request object
+
+    Returns:
+        True if request should be skipped
+    """
+    path = request.path
+    method = request.method
+
+    # Common browser files
+    browser_files = [
+        "/favicon.ico",
+        "/robots.txt",
+        "/apple-touch-icon.png",
+        "/apple-touch-icon-precomposed.png",
+        "/manifest.json",
+        "/browserconfig.xml",
+        "/sitemap.xml",
+    ]
+
+    if path in browser_files:
+        return True
+
+    # HTTP methods that shouldn't count toward rate limits
+    if method in ["OPTIONS", "HEAD"]:
+        return True
+
+    # Static and media files (using configured URLs)
+    if should_skip_static_media(request):
+        return True
+
+    return False
 
 
 def should_skip_path(path: str, skip_patterns: list) -> bool:
