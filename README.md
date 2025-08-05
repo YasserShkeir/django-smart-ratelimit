@@ -24,19 +24,19 @@ Rate limiting helps protect your Django applications from:
 
 ### Comparison with Other Packages
 
-| Feature                        | django-smart-ratelimit                        | django-ratelimit                               | Django REST Framework            | Other Packages             |
-| ------------------------------ | --------------------------------------------- | ---------------------------------------------- | -------------------------------- | -------------------------- |
-| **Maintenance Status**         | ✅ Actively maintained                        | 🔄 Minimal maintenance (last release Jul 2023) | ✅ Actively maintained           | 🔄 Varies                  |
-| **Multiple Algorithms**        | ✅ Token bucket, sliding window, fixed window | ❌ Fixed window only                           | ❌ Basic throttling only         | ❌ Usually basic           |
-| **Backend Flexibility**        | ✅ Redis, Database, Memory, Multi-backend     | ❌ Django cache framework only                 | ❌ Django cache framework only   | ❌ Limited options         |
-| **Circuit Breaker Protection** | ✅ Automatic failure recovery                 | ❌ No                                          | ❌ No                            | ❌ Rarely available        |
-| **Atomic Operations**          | ✅ Redis Lua scripts prevent race conditions  | ❌ Race condition prone                        | ❌ Race condition prone          | ❌ Usually not atomic      |
-| **Automatic Failover**         | ✅ Graceful degradation between backends      | ❌ No                                          | ❌ No                            | ❌ Single point of failure |
-| **Type Safety**                | ✅ Full mypy compatibility                    | ❌ No type hints                               | ✅ Basic type hints              | ❌ Usually untyped         |
-| **Decorator Syntax**           | ✅ `@rate_limit()`                            | ✅ `@ratelimit()`                              | ❌ Class-based only              | 🔄 Varies                  |
-| **Monitoring Tools**           | ✅ Health checks, cleanup commands            | ❌ No                                          | ❌ No                            | ❌ Usually manual          |
-| **Standard Headers**           | ✅ X-RateLimit-\* headers                     | ❌ No headers                                  | ❌ No standard headers           | ❌ Inconsistent            |
-| **Concurrency Safety**         | ✅ Race condition free                        | ❌ Race conditions possible                    | ❌ Race conditions noted in docs | ❌ Usually problematic     |
+| Feature                        | django-smart-ratelimit                        | django-ratelimit                               | Other Packages             |
+| ------------------------------ | --------------------------------------------- | ---------------------------------------------- | -------------------------- |
+| **Maintenance Status**         | ✅ Actively maintained                        | 🔄 Minimal maintenance (last release Jul 2023) | 🔄 Varies                  |
+| **Multiple Algorithms**        | ✅ Token bucket, sliding window, fixed window | ❌ Fixed window only                           | ❌ Usually basic           |
+| **Backend Flexibility**        | ✅ Redis, Database, Memory, Multi-backend     | ❌ Django cache framework only                 | ❌ Limited options         |
+| **Circuit Breaker Protection** | ✅ Automatic failure recovery                 | ❌ No                                          | ❌ Rarely available        |
+| **Atomic Operations**          | ✅ Redis Lua scripts prevent race conditions  | ❌ Race condition prone                        | ❌ Usually not atomic      |
+| **Automatic Failover**         | ✅ Graceful degradation between backends      | ❌ No                                          | ❌ Single point of failure |
+| **Type Safety**                | ✅ Full mypy compatibility                    | ❌ No type hints                               | ❌ Usually untyped         |
+| **Decorator Syntax**           | ✅ `@rate_limit()`                            | ✅ `@ratelimit()`                              | 🔄 Varies                  |
+| **Monitoring Tools**           | ✅ Health checks, cleanup commands            | ❌ No                                          | ❌ Usually manual          |
+| **Standard Headers**           | ✅ X-RateLimit-\* headers                     | ❌ No headers                                  | ❌ Inconsistent            |
+| **Concurrency Safety**         | ✅ Race condition free                        | ❌ Race conditions possible                    | ❌ Usually problematic     |
 
 ### Key Advantages
 

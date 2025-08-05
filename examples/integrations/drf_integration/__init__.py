@@ -19,7 +19,7 @@ Usage:
     router.register(r'posts', PostViewSet)
 """
 
-__version__ = "0.8.6"
+__version__ = "0.8.7"
 __author__ = "Django Smart Ratelimit Team"
 
 # Import key classes for convenience
