@@ -262,9 +262,9 @@ def _handle_middleware_processed_request(
     block: bool,
 ) -> Any:
     """Handle request when middleware has already processed it."""
-    # Since middleware has already processed this request, we should not increment again
-    # Just get the current count to check against the decorator's limit
-    current_count = backend_instance.get_count(limit_key)
+    # Even though middleware processed the request, the decorator should still
+    # track its own limit with its own key (they use different key patterns)
+    current_count = backend_instance.incr(limit_key, period)
 
     # Check if the decorator's limit is exceeded
     if current_count > limit:
