@@ -20,6 +20,36 @@ Rate limiting helps protect your Django applications from:
 - **API abuse** and scraping attempts
 - **Unintentional traffic spikes** that can overwhelm your server
 
+## Why Choose Django Smart Ratelimit?
+
+### Comparison with Other Packages
+
+| Feature                        | django-smart-ratelimit                        | django-ratelimit                               | Django REST Framework            | Other Packages             |
+| ------------------------------ | --------------------------------------------- | ---------------------------------------------- | -------------------------------- | -------------------------- |
+| **Maintenance Status**         | ✅ Actively maintained                        | 🔄 Minimal maintenance (last release Jul 2023) | ✅ Actively maintained           | 🔄 Varies                  |
+| **Multiple Algorithms**        | ✅ Token bucket, sliding window, fixed window | ❌ Fixed window only                           | ❌ Basic throttling only         | ❌ Usually basic           |
+| **Backend Flexibility**        | ✅ Redis, Database, Memory, Multi-backend     | ❌ Django cache framework only                 | ❌ Django cache framework only   | ❌ Limited options         |
+| **Circuit Breaker Protection** | ✅ Automatic failure recovery                 | ❌ No                                          | ❌ No                            | ❌ Rarely available        |
+| **Atomic Operations**          | ✅ Redis Lua scripts prevent race conditions  | ❌ Race condition prone                        | ❌ Race condition prone          | ❌ Usually not atomic      |
+| **Automatic Failover**         | ✅ Graceful degradation between backends      | ❌ No                                          | ❌ No                            | ❌ Single point of failure |
+| **Type Safety**                | ✅ Full mypy compatibility                    | ❌ No type hints                               | ✅ Basic type hints              | ❌ Usually untyped         |
+| **Decorator Syntax**           | ✅ `@rate_limit()`                            | ✅ `@ratelimit()`                              | ❌ Class-based only              | 🔄 Varies                  |
+| **Monitoring Tools**           | ✅ Health checks, cleanup commands            | ❌ No                                          | ❌ No                            | ❌ Usually manual          |
+| **Standard Headers**           | ✅ X-RateLimit-\* headers                     | ❌ No headers                                  | ❌ No standard headers           | ❌ Inconsistent            |
+| **Concurrency Safety**         | ✅ Race condition free                        | ❌ Race conditions possible                    | ❌ Race conditions noted in docs | ❌ Usually problematic     |
+
+### Key Advantages
+
+**🚀 Modern Architecture**: Built from the ground up with modern Django best practices, type safety, and comprehensive testing.
+
+**🔧 Enterprise-Ready**: Multiple algorithms and backends allow you to choose the right solution for your specific use case - from simple fixed windows to sophisticated token buckets with burst handling.
+
+**🛡️ Reliability**: Circuit breaker protection and automatic failover ensure your rate limiting doesn't become a single point of failure.
+
+**📊 Observability**: Built-in monitoring, health checks, and standard HTTP headers provide visibility into rate limiting behavior.
+
+**🔄 Migration Path**: Easy migration from django-ratelimit with similar decorator syntax but enhanced functionality.
+
 ## Library Features
 
 - **Multiple algorithms**: Token bucket, sliding window, and fixed window
@@ -89,6 +119,49 @@ RATELIMIT_MIDDLEWARE = {
     }
 }
 ```
+
+## Migration from django-ratelimit
+
+Migrating from `django-ratelimit` is straightforward with minimal code changes:
+
+### Basic Decorator Migration
+
+```python
+# OLD: django-ratelimit
+from django_ratelimit.decorators import ratelimit
+
+@ratelimit(key='ip', rate='10/m', block=True)
+def my_view(request):
+    return HttpResponse('Hello')
+
+# NEW: django-smart-ratelimit
+from django_smart_ratelimit import rate_limit
+
+@rate_limit(key='ip', rate='10/m', block=True)
+def my_view(request):
+    return HttpResponse('Hello')
+```
+
+### Enhanced Features Available
+
+```python
+# NEW: Add algorithm choice
+@rate_limit(key='ip', rate='10/m', algorithm='token_bucket')
+
+# NEW: Add backend failover
+@rate_limit(key='ip', rate='10/m', backend='redis')
+
+# NEW: Add skip conditions
+@rate_limit(key='ip', rate='10/m', skip_if=lambda req: req.user.is_staff)
+```
+
+### Key Migration Benefits
+
+- **Drop-in replacement**: Same decorator syntax (ratelimit vs. rate_limit)
+- **Enhanced reliability**: Circuit breaker protection
+- **Better performance**: Atomic Redis operations
+- **More flexibility**: Multiple algorithms and backends
+- **Active maintenance**: Regular updates and bug fixes
 
 ## Algorithm Comparison
 
