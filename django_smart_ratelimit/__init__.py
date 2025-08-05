@@ -5,7 +5,7 @@ with support for multiple backends, algorithms (including token bucket),
 and comprehensive rate limiting strategies.
 """
 
-__version__ = "0.8.7"
+__version__ = "0.8.8"
 __author__ = "Yasser Shkeir"
 
 # Optional backend imports (may not be available)
