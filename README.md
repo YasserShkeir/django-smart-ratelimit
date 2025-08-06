@@ -240,6 +240,7 @@ The library adds standard rate limit headers to responses:
 X-RateLimit-Limit: 100
 X-RateLimit-Remaining: 99
 X-RateLimit-Reset: 1642678800
+Retry-After: 200
 ```
 
 ## Monitoring and Management
