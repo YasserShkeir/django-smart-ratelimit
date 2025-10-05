@@ -1,4 +1,4 @@
-.PHONY: help install test lint format clean build upload docs current-version check-versions release release-patch release-minor release-major
+.PHONY: help install test lint format clean build upload docs current-version check-versions release release-patch release-minor release-major ci-check
 
 # Python environment
 PYTHON := ./run_with_venv.sh python
@@ -6,13 +6,16 @@ PIP := ./run_with_venv.sh pip
 PYTEST := ./run_with_venv.sh pytest
 MYPY := ./run_with_venv.sh mypy
 PRECOMMIT := ./run_with_venv.sh pre-commit
+BANDIT := ./run_with_venv.sh bandit
 
 help:
 	@echo "Available commands:"
 	@echo "  install         Install package and development dependencies"
 	@echo "  test            Run tests with coverage"
-	@echo "  lint            Run linting checks"
+	@echo "  test-quick      Run tests without HTML coverage report"
+	@echo "  lint            Run linting checks (pre-commit hooks)"
 	@echo "  format          Format code with black and isort"
+	@echo "  ci-check        Run all CI checks locally (tests, lint, type-check, security)"
 	@echo "  clean           Remove build artifacts"
 	@echo "  build           Build package"
 	@echo "  upload          Upload package to PyPI"
@@ -93,6 +96,32 @@ security:
 # Pre-commit hooks
 pre-commit:
 	pre-commit run --all-files
+
+# Run all CI checks locally (matches GitHub Actions CI)
+ci-check:
+	@echo "=========================================="
+	@echo "Running all CI checks locally..."
+	@echo "=========================================="
+	@echo ""
+	@echo "1️⃣  Running pre-commit hooks (lint)..."
+	@echo "------------------------------------------"
+	$(PRECOMMIT) run --all-files
+	@echo ""
+	@echo "2️⃣  Running type checks (mypy)..."
+	@echo "------------------------------------------"
+	$(MYPY) django_smart_ratelimit
+	@echo ""
+	@echo "3️⃣  Running security checks (bandit)..."
+	@echo "------------------------------------------"
+	$(BANDIT) -r django_smart_ratelimit/
+	@echo ""
+	@echo "4️⃣  Running tests with coverage..."
+	@echo "------------------------------------------"
+	$(PYTEST) --cov=django_smart_ratelimit --cov-report=term-missing -q
+	@echo ""
+	@echo "=========================================="
+	@echo "✅ All CI checks passed!"
+	@echo "=========================================="
 
 # Get current version
 current-version:

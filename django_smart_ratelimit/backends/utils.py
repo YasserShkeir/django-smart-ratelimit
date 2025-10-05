@@ -9,6 +9,8 @@ import hashlib
 import json
 import logging
 import time
+from datetime import datetime, timedelta
+from datetime import timezone as dt_timezone
 from functools import wraps
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
@@ -267,6 +269,47 @@ def is_expired(timestamp: Union[int, float]) -> bool:
 # ============================================================================
 # Rate Limiting Algorithm Helpers
 # ============================================================================
+
+
+# ============================================================================
+# Algorithm Utilities
+# ============================================================================
+
+
+def get_window_times(window_seconds: int) -> Tuple[datetime, datetime]:
+    """
+    Get the start and end times for a fixed window.
+
+    This utility function calculates the current fixed window boundaries
+    based on the window size. Used by backends that implement fixed window
+    rate limiting algorithms.
+
+    Args:
+        window_seconds: The window size in seconds
+
+    Returns:
+        Tuple of (window_start, window_end) as datetime objects
+
+    Example:
+        If window is 3600 seconds (1 hour) and now is 14:30:00,
+        the window start will be 14:00:00 and end will be 15:00:00
+    """
+    # Import here to avoid Django dependency issues during import
+    try:
+        from django.utils import timezone
+
+        now = timezone.now()
+    except ImportError:
+        # Fallback for non-Django environments
+        now = datetime.now(dt_timezone.utc)
+
+    # Calculate the start of the current window
+    seconds_since_epoch = int(now.timestamp())
+    window_start_seconds = (seconds_since_epoch // window_seconds) * window_seconds
+    window_start = datetime.fromtimestamp(window_start_seconds, tz=dt_timezone.utc)
+    window_end = window_start + timedelta(seconds=window_seconds)
+
+    return window_start, window_end
 
 
 def calculate_sliding_window_count(
@@ -784,9 +827,13 @@ def format_token_bucket_metadata(
 
     if bucket_size is not None:
         metadata["bucket_size"] = bucket_size
-        metadata["utilization_percent"] = (
-            (bucket_size - tokens_remaining) / bucket_size
-        ) * 100
+        # Guard against division by zero
+        if bucket_size > 0:
+            metadata["utilization_percent"] = (
+                (bucket_size - tokens_remaining) / bucket_size
+            ) * 100
+        else:
+            metadata["utilization_percent"] = 0
 
     if refill_rate is not None:
         metadata["refill_rate"] = refill_rate

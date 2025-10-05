@@ -1,8 +1,7 @@
 """Database backend for Django Smart Ratelimit."""
 
 import time
-from datetime import datetime, timedelta
-from datetime import timezone as dt_timezone
+from datetime import timedelta
 from typing import Any, Dict, Optional, Tuple
 
 from django.db import transaction
@@ -16,6 +15,7 @@ from .utils import (
     calculate_token_bucket_state,
     estimate_backend_memory_usage,
     format_token_bucket_metadata,
+    get_window_times,
     log_backend_operation,
     normalize_key,
     serialize_data,
@@ -53,28 +53,6 @@ class DatabaseBackend(BaseBackend):
             f"cleanup_threshold={self.cleanup_threshold}",
             level="info",
         )
-
-    def _get_window_times(self, window_seconds: int) -> Tuple[datetime, datetime]:
-        """
-        Get the start and end times for a fixed window.
-
-        Args:
-            window_seconds: The window size in seconds
-
-        Returns:
-            Tuple of (window_start, window_end) as datetime objects
-        """
-        now = timezone.now()
-
-        # Calculate the start of the current window
-        # For example, if window is 3600 seconds (1 hour) and now is 14:30:00,
-        # the window start should be 14:00:00
-        seconds_since_epoch = int(now.timestamp())
-        window_start_seconds = (seconds_since_epoch // window_seconds) * window_seconds
-        window_start = datetime.fromtimestamp(window_start_seconds, tz=dt_timezone.utc)
-        window_end = window_start + timedelta(seconds=window_seconds)
-
-        return window_start, window_end
 
     # Token Bucket Algorithm Implementation
 
@@ -409,7 +387,7 @@ class DatabaseBackend(BaseBackend):
             Current count in the window
         """
         normalized_key = normalize_key(key, prefix="")
-        window_start, window_end = self._get_window_times(window_seconds)
+        window_start, window_end = get_window_times(window_seconds)
 
         start_time = timezone.now().timestamp()
         try:
@@ -535,7 +513,7 @@ class DatabaseBackend(BaseBackend):
     def _get_count_fixed_window(self, key: str, window_seconds: int) -> int:
         """Get count for fixed window algorithm."""
         normalized_key = normalize_key(key, prefix="")
-        window_start, window_end = self._get_window_times(window_seconds)
+        window_start, window_end = get_window_times(window_seconds)
 
         try:
             counter = RateLimitCounter.objects.get(key=normalized_key)
@@ -596,7 +574,7 @@ class DatabaseBackend(BaseBackend):
         try:
             counter = RateLimitCounter.objects.get(key=key)
 
-            window_start, window_end = self._get_window_times(window_seconds)
+            window_start, window_end = get_window_times(window_seconds)
 
             # Check if counter is from current window
             if (

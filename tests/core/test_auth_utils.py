@@ -11,9 +11,12 @@ from django.test import TestCase
 from django_smart_ratelimit import (
     get_client_info,
     get_user_info,
+    get_user_role,
     has_permission,
     is_authenticated_user,
     is_staff_user,
+    is_superuser,
+    should_bypass_rate_limit,
 )
 
 
@@ -214,3 +217,36 @@ class AuthUtilsTests(TestCase):
         result = has_permission(request, "test.permission")
 
         self.assertFalse(result)
+
+    def test_get_user_role_variants(self):
+        req = HttpRequest()
+        req.user = AnonymousUser()
+        self.assertEqual(get_user_role(req), "anonymous")
+
+        req.user = self.user
+        self.assertEqual(get_user_role(req), "user")
+
+        req.user = self.staff_user
+        self.assertEqual(get_user_role(req), "staff")
+
+        req.user = self.superuser
+        self.assertEqual(get_user_role(req), "superuser")
+
+    def test_is_superuser_helper(self):
+        req = HttpRequest()
+        req.user = self.superuser
+        self.assertTrue(is_superuser(req))
+        req.user = self.user
+        self.assertFalse(is_superuser(req))
+
+    def test_should_bypass_rate_limit(self):
+        req = HttpRequest()
+        req.user = self.superuser
+        self.assertTrue(should_bypass_rate_limit(req, bypass_superuser=True))
+
+        req.user = self.staff_user
+        self.assertTrue(should_bypass_rate_limit(req, bypass_staff=True))
+        self.assertFalse(should_bypass_rate_limit(req, bypass_staff=False))
+
+        req.user = AnonymousUser()
+        self.assertFalse(should_bypass_rate_limit(req))
