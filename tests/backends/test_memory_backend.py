@@ -269,6 +269,86 @@ class MemoryBackendTest(
         self.assertIsNotNone(reset_time)
         self.assertGreater(reset_time, int(time.time() + large_period - 1))
 
+    def test_token_bucket_check_allows_consumption(self):
+        """Memory token_bucket_check should allow consumption and return metadata."""
+        backend = self.backend
+        allowed, meta = backend.token_bucket_check(
+            key="tb_mem",
+            bucket_size=10,
+            refill_rate=1.0,
+            initial_tokens=10,
+            tokens_requested=3,
+        )
+        self.assertTrue(allowed)
+        self.assertIn("tokens_remaining", meta)
+        self.assertLessEqual(meta["tokens_remaining"], 7.0)
+        self.assertEqual(meta.get("bucket_size"), 10)
+        self.assertEqual(meta.get("refill_rate"), 1.0)
+        self.assertEqual(meta.get("tokens_requested"), 3)
+
+    def test_token_bucket_check_rejects_when_insufficient(self):
+        """Memory token_bucket_check should reject when not enough tokens are available."""
+        backend = self.backend
+        allowed, meta = backend.token_bucket_check(
+            key="tb_mem_reject",
+            bucket_size=10,
+            refill_rate=1.0,
+            initial_tokens=1,
+            tokens_requested=3,
+        )
+        self.assertFalse(allowed)
+        self.assertGreaterEqual(meta.get("tokens_remaining", 0), 1.0)
+        self.assertEqual(meta.get("bucket_size"), 10)
+        self.assertEqual(meta.get("refill_rate"), 1.0)
+        self.assertEqual(meta.get("tokens_requested"), 3)
+        self.assertGreater(meta.get("time_to_refill", 0), 0)
+
+    def test_token_bucket_check_zero_bucket_size_rejects(self):
+        """Zero bucket size should be rejected with error-like metadata and inf time_to_refill."""
+        backend = self.backend
+        allowed, meta = backend.token_bucket_check(
+            key="tb_zero",
+            bucket_size=0,
+            refill_rate=1.0,
+            initial_tokens=0,
+            tokens_requested=2,
+        )
+        self.assertFalse(allowed)
+        self.assertEqual(meta.get("tokens_remaining"), 0)
+        self.assertEqual(meta.get("bucket_size"), 0)
+        self.assertEqual(meta.get("tokens_requested"), 2)
+        # time_to_refill is set to infinity in memory backend for this path
+        self.assertTrue(
+            meta.get("time_to_refill") in (float("inf"),)
+            or meta.get("time_to_refill") > 1e9
+        )
+
+    def test_token_bucket_info_before_and_after_consumption(self):
+        """token_bucket_info reflects initial state and updates after consumption."""
+        backend = self.backend
+        # Before any consumption, bucket should appear full
+        info_initial = backend.token_bucket_info("tb_info", 10, 1.0)
+        self.assertEqual(info_initial.get("bucket_size"), 10)
+        self.assertEqual(info_initial.get("refill_rate"), 1.0)
+        self.assertEqual(info_initial.get("tokens_remaining"), 10)
+        self.assertIn("last_refill", info_initial)
+
+        # Consume 4 tokens
+        allowed, meta = backend.token_bucket_check(
+            key="tb_info",
+            bucket_size=10,
+            refill_rate=1.0,
+            initial_tokens=10,
+            tokens_requested=4,
+        )
+        self.assertTrue(allowed)
+        # Immediately check info; should be <= 10 and around 6 (allowing tiny refill)
+        info_after = backend.token_bucket_info("tb_info", 10, 1.0)
+        self.assertEqual(info_after.get("bucket_size"), 10)
+        self.assertLessEqual(info_after.get("tokens_remaining", 10), 10)
+        self.assertGreaterEqual(info_after.get("tokens_remaining", 0), 6.0)
+        self.assertIn("time_to_refill", info_after)
+
 
 class MemoryBackendIntegrationTest(TestCase):
     """Integration tests for the memory backend."""
@@ -345,6 +425,216 @@ class MemoryBackendIntegrationTest(TestCase):
             # 4th _request should be rate limited
             response = middleware(_request)
             self.assertEqual(response.status_code, 429)
+
+
+class MemoryBackendAdvancedTests(TestCase):
+    """Advanced test scenarios for memory backend addressing coverage gaps."""
+
+    def setUp(self):
+        """Set up test environment."""
+        self.backend = MemoryBackend()
+
+    def test_eviction_under_many_keys_churn(self):
+        """Test eviction behavior under high key churn scenarios."""
+        with override_settings(RATELIMIT_MEMORY_MAX_KEYS=50):
+            backend = MemoryBackend()
+
+            # Generate many more keys than the limit to force eviction
+            keys_created = []
+            for i in range(200):
+                key = f"churn_key_{i:04d}"
+                backend.incr(key, 60)  # Long TTL
+                keys_created.append(key)
+
+                # Periodically force cleanup to trigger eviction
+                if i % 25 == 0:
+                    backend._cleanup_if_needed()
+
+            # Force final cleanup
+            backend._cleanup_if_needed()
+
+            # Should maintain max_keys limit
+            stats = backend.get_stats()
+            self.assertLessEqual(stats["total_keys"], 50)
+
+            # Verify some recent keys are preserved (LRU behavior)
+            recent_keys_preserved = 0
+            for key in keys_created[-25:]:  # Check last 25 keys
+                if backend.get_count(key) > 0:
+                    recent_keys_preserved += 1
+
+            # Should preserve recent keys preferentially
+            self.assertGreater(recent_keys_preserved, 10)
+
+    def test_memory_growth_bounds_validation(self):
+        """Test that memory usage stays within expected bounds."""
+
+        with override_settings(RATELIMIT_MEMORY_MAX_KEYS=10):
+            backend = MemoryBackend()
+
+            # Create baseline memory footprint
+            initial_keys = 5
+            for i in range(initial_keys):
+                backend.incr(f"baseline_{i}", 3600)
+
+            baseline_stats = backend.get_stats()
+            self.assertEqual(baseline_stats["total_keys"], initial_keys)
+
+            # Add keys beyond limit to test bounds enforcement
+            for i in range(20):  # Add 20 more keys
+                backend.incr(f"overflow_{i}", 3600)
+                backend._cleanup_if_needed()  # Force cleanup checks
+
+            # Memory should be bounded by max_keys setting
+            final_stats = backend.get_stats()
+            self.assertLessEqual(final_stats["total_keys"], 10)
+
+            # Verify data structure doesn't grow unbounded
+            # This is a proxy test for memory bounds
+            self.assertLess(len(backend._data), 15)  # Some buffer allowed
+
+    def test_ttl_expiry_behavior_validation(self):
+        """Test that TTL expiry behavior works as expected in memory backend."""
+        import time
+
+        from django.test import override_settings
+
+        # Test with fixed window algorithm specifically
+        with override_settings(RATELIMIT_ALGORITHM="fixed_window"):
+            backend = MemoryBackend()
+
+            # Create a short-lived key
+            test_key = "expiry_test"
+            backend.incr(test_key, 1)  # 1 second TTL
+
+            # Should exist initially
+            initial_count = backend.get_count(test_key)
+            self.assertEqual(initial_count, 1)
+
+            # Wait for expiry
+            time.sleep(1.1)
+
+            # Key should still be in data but is_expired should return True
+            # The get_count method should return 0 for expired keys in fixed window
+            expired_count = backend.get_count(test_key)
+
+            # With fixed window, expired keys should return 0
+            self.assertEqual(expired_count, 0)
+
+            # After cleanup, the key should be removed from internal storage
+            backend._last_cleanup = 0  # Force cleanup to run
+            backend._cleanup_if_needed()
+
+            # Verify cleanup worked by checking internal state
+            normalized_key = f"memory:{test_key}"  # Assumes memory prefix
+            # The key should either be gone or marked as expired
+            if normalized_key in backend._data:
+                expiry_time, _ = backend._data[normalized_key]
+                # Expiry time should be in the past
+                self.assertLess(expiry_time, time.time())
+
+            # get_count should still return 0 after cleanup
+            final_count = backend.get_count(test_key)
+            self.assertEqual(final_count, 0)
+
+    def test_gil_contention_scenarios_if_threading(self):
+        """Test behavior under Python GIL contention scenarios."""
+        import queue
+        import threading
+
+        backend = self.backend
+        num_threads = 8
+        operations_per_thread = 25
+        results_queue = queue.Queue()
+        errors_queue = queue.Queue()
+
+        def gil_intensive_worker(worker_id):
+            """Worker that performs GIL-intensive operations."""
+            try:
+                local_results = []
+                for i in range(operations_per_thread):
+                    # Mix of operations to create GIL contention
+                    key = f"gil_test_{worker_id}_{i}"
+
+                    # Increment
+                    count = backend.incr(key, 30)
+                    local_results.append(count)
+
+                    # Get count (read operation)
+                    read_count = backend.get_count(key)
+                    self.assertEqual(read_count, count)
+
+                    # Stats (aggregate operation)
+                    if i % 5 == 0:
+                        stats = backend.get_stats()
+                        self.assertGreater(stats["total_keys"], 0)
+
+                results_queue.put((worker_id, local_results))
+            except Exception as e:
+                errors_queue.put((worker_id, e))
+
+        # Start threads
+        threads = []
+        for worker_id in range(num_threads):
+            thread = threading.Thread(target=gil_intensive_worker, args=(worker_id,))
+            threads.append(thread)
+            thread.start()
+
+        # Wait for completion
+        for thread in threads:
+            thread.join()
+
+        # Validate results
+        errors = []
+        while not errors_queue.empty():
+            worker_id, error = errors_queue.get()
+            errors.append(f"Worker {worker_id}: {error}")
+
+        self.assertEqual(len(errors), 0, f"GIL contention errors: {errors}")
+
+        # Verify all workers completed successfully
+        results = {}
+        while not results_queue.empty():
+            worker_id, worker_results = results_queue.get()
+            results[worker_id] = worker_results
+
+        self.assertEqual(len(results), num_threads)
+
+        # Each worker should have sequential counts for their keys
+        for worker_id, worker_results in results.items():
+            self.assertEqual(len(worker_results), operations_per_thread)
+            # Each increment on a unique key should return 1
+            # (since each key is unique: f"gil_test_{worker_id}_{i}")
+            expected_results = [1] * operations_per_thread
+            self.assertEqual(worker_results, expected_results)
+
+    def test_memory_backend_high_frequency_access_patterns(self):
+        """Test performance under high-frequency access patterns."""
+        backend = self.backend
+
+        # Simulate high-frequency access to same key
+        key = "high_freq_test"
+        frequency_count = 100
+
+        start_time = time.time()
+        for i in range(frequency_count):
+            count = backend.incr(key, 60)
+            self.assertEqual(count, i + 1)
+
+            # Occasionally read stats to exercise different code paths
+            if i % 20 == 0:
+                stats = backend.get_stats()
+                self.assertGreater(stats["total_requests"], 0)
+
+        end_time = time.time()
+        duration = end_time - start_time
+
+        # Sanity check: should complete reasonably quickly
+        self.assertLess(duration, 1.0)  # Under 1 second for 100 operations
+
+        # Verify final state
+        final_count = backend.get_count(key)
+        self.assertEqual(final_count, frequency_count)
 
 
 if __name__ == "__main__":

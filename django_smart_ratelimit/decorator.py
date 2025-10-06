@@ -268,9 +268,20 @@ def _handle_middleware_processed_request(
 
     # Check if the decorator's limit is exceeded
     if current_count > limit:
-        return _handle_rate_limit_exceeded(
-            backend_instance, limit_key, limit, period, block
-        )
+        if block:
+            # Block the request and return 429
+            return _handle_rate_limit_exceeded(
+                backend_instance, limit_key, limit, period, block
+            )
+        else:
+            # Non-blocking: execute function but mark as exceeded
+            response = func(*args, **kwargs)
+            reset_time = _get_reset_time(backend_instance, limit_key, period)
+            add_rate_limit_headers(response, limit, 0, reset_time)
+            # Set a flag on the request to indicate rate limit was exceeded
+            if hasattr(args[0], "META"):
+                args[0].rate_limit_exceeded = True
+            return response
 
     # Execute the original function
     response = func(*args, **kwargs)

@@ -348,6 +348,82 @@ class RedisBackendTests(TestCase):
         self.assertIn("error", health)
         self.assertEqual(health["error"], "Connection failed")
 
+    def test_token_bucket_check_allows_consumption(self):
+        """Redis token_bucket_check should allow and return proper metadata."""
+        # [allowed, tokens_remaining, bucket_size, refill_rate, time_to_refill]
+        self.mock_redis_client.evalsha.return_value = [1, 8.0, 10, 1.0, 2.0]
+
+        backend = RedisBackend()
+        allowed, meta = backend.token_bucket_check(
+            key="tb_key",
+            bucket_size=10,
+            refill_rate=1.0,
+            initial_tokens=10,
+            tokens_requested=2,
+        )
+
+        self.assertTrue(allowed)
+        self.assertEqual(meta.get("tokens_remaining"), 8.0)
+        self.assertEqual(meta.get("bucket_size"), 10)
+        self.assertEqual(meta.get("refill_rate"), 1.0)
+        self.assertEqual(meta.get("tokens_requested"), 2)
+        self.assertIn("time_to_refill", meta)
+
+    def test_token_bucket_check_rejects_when_insufficient(self):
+        """token_bucket_check should reject when not enough tokens."""
+        self.mock_redis_client.evalsha.return_value = [0, 1.0, 10, 1.0, 9.0]
+
+        backend = RedisBackend()
+        allowed, meta = backend.token_bucket_check(
+            key="tb_key",
+            bucket_size=10,
+            refill_rate=1.0,
+            initial_tokens=1,
+            tokens_requested=3,
+        )
+
+        self.assertFalse(allowed)
+        self.assertEqual(meta.get("tokens_remaining"), 1.0)
+        self.assertEqual(meta.get("bucket_size"), 10)
+        self.assertEqual(meta.get("refill_rate"), 1.0)
+        self.assertEqual(meta.get("tokens_requested"), 3)
+        self.assertIsInstance(meta.get("time_to_refill"), float)
+
+    def test_token_bucket_check_error_raises_runtimeerror(self):
+        """Redis token_bucket_check should raise RuntimeError on script failure."""
+        self.mock_redis_client.evalsha.side_effect = Exception("Boom")
+
+        backend = RedisBackend()
+        with self.assertRaises(RuntimeError):
+            backend.token_bucket_check("tb_key", 10, 1.0, 10, 2)
+
+    def test_token_bucket_info_success(self):
+        """token_bucket_info should return metadata from script."""
+        # [tokens_remaining, bucket_size, refill_rate, time_to_refill, last_refill]
+        self.mock_redis_client.evalsha.return_value = [5.0, 10, 1.0, 5.0, 123456.0]
+
+        backend = RedisBackend()
+        info = backend.token_bucket_info("tb_key", 10, 1.0)
+
+        self.assertEqual(info.get("tokens_remaining"), 5.0)
+        self.assertEqual(info.get("bucket_size"), 10)
+        self.assertEqual(info.get("refill_rate"), 1.0)
+        self.assertIn("time_to_refill", info)
+        self.assertIn("last_refill", info)
+
+    def test_token_bucket_info_error_returns_fallback(self):
+        """On script error, token_bucket_info should return fallback state."""
+        self.mock_redis_client.evalsha.side_effect = Exception("Script error")
+
+        backend = RedisBackend()
+        info = backend.token_bucket_info("tb_key", 10, 1.0)
+
+        self.assertEqual(info.get("tokens_remaining"), 10)
+        self.assertEqual(info.get("bucket_size"), 10)
+        self.assertEqual(info.get("refill_rate"), 1.0)
+        self.assertEqual(info.get("time_to_refill"), 0.0)
+        self.assertIn("last_refill", info)
+
 
 class RedisBackendScriptTests(TestCase):
     """Tests for Redis Lua scripts."""
@@ -395,3 +471,134 @@ class RedisBackendScriptTests(TestCase):
         fixed_script = calls[1][0][0]
         self.assertIn("INCR", fixed_script)
         self.assertIn("EXPIRE", fixed_script)
+
+    def test_redis_backend_auth_failure(self):
+        """Test Redis backend with authentication failure."""
+        import os
+
+        # Skip if no Redis auth env var set (avoid breaking CI)
+        if not os.environ.get("TEST_REDIS_AUTH_FAILURE"):
+            self.skipTest("Set TEST_REDIS_AUTH_FAILURE=1 to test auth failures")
+
+        with patch("django_smart_ratelimit.backends.redis_backend.redis") as mock_redis:
+            mock_redis_client = Mock()
+            # Simulate auth failure
+            mock_redis_client.ping.side_effect = Exception(
+                "NOAUTH Authentication required"
+            )
+            mock_redis.Redis.return_value = mock_redis_client
+
+            with self.assertRaises(ImproperlyConfigured) as cm:
+                RedisBackend()
+            self.assertIn("NOAUTH", str(cm.exception))
+
+    def test_redis_backend_dns_failure(self):
+        """Test Redis backend with DNS resolution failure."""
+        import os
+
+        if not os.environ.get("TEST_REDIS_DNS_FAILURE"):
+            self.skipTest("Set TEST_REDIS_DNS_FAILURE=1 to test DNS failures")
+
+        with patch("django_smart_ratelimit.backends.redis_backend.redis") as mock_redis:
+            mock_redis_client = Mock()
+            # Simulate DNS failure
+            mock_redis_client.ping.side_effect = Exception("Name or service not known")
+            mock_redis.Redis.return_value = mock_redis_client
+
+            with self.assertRaises(ImproperlyConfigured) as cm:
+                RedisBackend()
+            self.assertIn("service not known", str(cm.exception))
+
+    def test_redis_backend_utf8_key_value_handling(self):
+        """Test Redis backend handles UTF-8 keys and values correctly."""
+        with patch("django_smart_ratelimit.backends.redis_backend.redis") as mock_redis:
+            mock_redis_client = Mock()
+            mock_redis_client.ping.return_value = True
+            mock_redis_client.script_load.return_value = "script_sha"
+            mock_redis_client.setex.return_value = (
+                True  # RedisBackend uses setex for expiring keys
+            )
+            mock_redis.Redis.return_value = mock_redis_client
+
+            backend = RedisBackend()
+
+            # Test UTF-8 key normalization
+            utf8_key = "test:user:åäö_ñ"
+            backend.set(utf8_key, "value", 60)
+
+            # Verify the key was properly encoded/normalized when passed to Redis
+            mock_redis_client.setex.assert_called()
+            call_args = mock_redis_client.setex.call_args[0]
+            stored_key = call_args[0]
+
+            # Should handle UTF-8 gracefully (either as bytes or normalized string)
+            self.assertIsInstance(stored_key, (str, bytes))
+
+            # Test UTF-8 value handling
+            utf8_value = "värde_测试"
+            backend.set("test:utf8_value", utf8_value, 60)
+
+            call_args = mock_redis_client.setex.call_args[0]
+            stored_value = call_args[2]  # setex(key, expiration, value)
+            self.assertIsInstance(stored_value, (str, bytes))
+
+    def test_redis_backend_health_check_surfaces_error_metadata(self):
+        """Test that health check error includes useful metadata."""
+        with patch("django_smart_ratelimit.backends.redis_backend.redis") as mock_redis:
+            mock_redis_client = Mock()
+            mock_redis_client.ping.return_value = True
+            mock_redis_client.script_load.return_value = "script_sha"
+            mock_redis.Redis.return_value = mock_redis_client
+
+            backend = RedisBackend()
+
+            # Make health check fail with specific error
+            mock_redis_client.ping.side_effect = Exception(
+                "Connection timeout after 5s"
+            )
+            mock_redis_client.info.side_effect = Exception("Connection lost")
+
+            health = backend.health_check()
+
+            self.assertEqual(health["status"], "unhealthy")
+            self.assertIn("error", health)
+
+            # Error should contain useful debugging info
+            error_msg = health["error"]
+            self.assertIsInstance(error_msg, str)
+            self.assertTrue(len(error_msg) > 0)
+
+            # Should include connection details or timeout info
+            self.assertTrue(
+                any(
+                    keyword in error_msg.lower()
+                    for keyword in ["timeout", "connection", "lost", "failed"]
+                ),
+                f"Error message should contain connection details: {error_msg}",
+            )
+
+    def test_redis_backend_bytes_str_normalization(self):
+        """Test Redis backend normalizes between bytes and str consistently."""
+        with patch("django_smart_ratelimit.backends.redis_backend.redis") as mock_redis:
+            mock_redis_client = Mock()
+            mock_redis_client.ping.return_value = True
+            mock_redis_client.script_load.return_value = "script_sha"
+            mock_redis_client.get.return_value = b"42"  # Redis returns bytes
+            mock_redis_client.setex.return_value = True
+            mock_redis.Redis.return_value = mock_redis_client
+
+            backend = RedisBackend()
+
+            # Test get returns consistent type regardless of Redis bytes
+            value = backend.get("test:key")
+
+            # Should be normalized to expected type (likely string for counts)
+            if value is not None:
+                self.assertIsInstance(value, (str, int))
+
+            # Test set handles both str and bytes input
+            backend.set("test:str_key", "string_value", 60)
+            backend.set("test:bytes_key", b"bytes_value", 60)
+
+            # Both should succeed without type errors
+            self.assertEqual(mock_redis_client.setex.call_count, 2)

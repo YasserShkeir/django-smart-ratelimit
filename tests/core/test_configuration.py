@@ -1,6 +1,7 @@
 """Simplified tests for configuration module."""
 
-from django.test import TestCase
+from django.core.exceptions import ImproperlyConfigured
+from django.test import TestCase, override_settings
 
 from django_smart_ratelimit import RateLimitConfigManager
 
@@ -41,3 +42,82 @@ class RateLimitConfigManagerSimpleTests(TestCase):
         except AttributeError:
             # Method might not exist, that's okay
             pass
+
+
+# ---------------- Expanded, comprehensive tests below ----------------
+
+
+class RateLimitConfigManagerValidationTests(TestCase):
+    """Validation and behavior tests for RateLimitConfigManager."""
+
+    def setUp(self):
+        self.mgr = RateLimitConfigManager()
+
+    def test_invalid_rate_format_raises(self):
+        with self.assertRaises(ImproperlyConfigured):
+            self.mgr.get_config("api_endpoints", rate="invalid")
+
+    def test_invalid_key_type_raises(self):
+        with self.assertRaises(ImproperlyConfigured):
+            self.mgr.get_config("api_endpoints", key=123)  # not str or callable
+
+    def test_invalid_skip_if_type_raises(self):
+        with self.assertRaises(ImproperlyConfigured):
+            self.mgr.get_config("api_endpoints", skip_if="not_callable")
+
+    def test_invalid_skip_if_signature_raises(self):
+        def bad_skip_if(a, b):  # wrong arity
+            return False
+
+        with self.assertRaises(ImproperlyConfigured):
+            self.mgr.get_config("api_endpoints", skip_if=bad_skip_if)
+
+    def test_invalid_algorithm_raises(self):
+        with self.assertRaises(ImproperlyConfigured):
+            self.mgr.get_config("api_endpoints", algorithm="unknown")
+
+    def test_register_and_get_custom_config(self):
+        custom = {"rate": "10/m", "key": "ip", "algorithm": "fixed_window"}
+        self.mgr.register_config("custom_actions", custom)
+
+        cfg = self.mgr.get_config("custom_actions")
+        self.assertEqual(cfg["rate"], "10/m")
+        self.assertEqual(cfg["key"], "ip")
+        self.assertEqual(cfg["algorithm"], "fixed_window")
+
+    def test_overrides_are_applied_and_cached(self):
+        cfg1 = self.mgr.get_config("api_endpoints", rate="50/m", block=False)
+        cfg2 = self.mgr.get_config("api_endpoints", rate="50/m", block=False)
+        # Same overrides should hit cache and be equal
+        self.assertEqual(cfg1, cfg2)
+
+    def test_clear_cache(self):
+        _ = self.mgr.get_config("api_endpoints", rate="75/m")
+        self.assertTrue(self.mgr._config_cache)
+        self.mgr.clear_cache()
+        self.assertFalse(self.mgr._config_cache)
+
+    def test_register_validator_called(self):
+        def must_block_validator(cfg):
+            # Ensure configs explicitly set block True
+            if cfg.get("block") is not True:
+                raise ImproperlyConfigured("block must be True for this validator")
+
+        self.mgr.register_validator("must_block", must_block_validator)
+        with self.assertRaises(ImproperlyConfigured):
+            self.mgr.get_config("api_endpoints", block=False)
+
+    @override_settings(
+        RATELIMIT_CONFIG_CUSTOM={
+            "rate": "10/m",
+            "key": "ip",
+            "algorithm": "fixed_window",
+            "block": True,
+        }
+    )
+    def test_get_config_from_django_settings(self):
+        cfg = self.mgr.get_config("custom")
+        self.assertEqual(cfg["rate"], "10/m")
+        self.assertEqual(cfg["key"], "ip")
+        self.assertEqual(cfg["algorithm"], "fixed_window")
+        self.assertTrue(cfg["block"])

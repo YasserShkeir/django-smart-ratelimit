@@ -94,6 +94,10 @@ class MockBackend(BaseBackend):
             raise Exception("Mock backend operation failed")
         return 10
 
+    def health(self) -> Dict[str, Any]:
+        """Mock health method (alias for health_check)."""
+        return self.health_check()
+
     def health_check(self) -> Dict[str, Any]:
         """Mock health check method."""
         if self.fail_health_check:

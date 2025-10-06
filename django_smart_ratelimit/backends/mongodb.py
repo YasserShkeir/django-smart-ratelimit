@@ -13,6 +13,7 @@ from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 
 from .base import BaseBackend
+from .utils import get_window_times
 
 try:
     import pymongo
@@ -215,18 +216,6 @@ class MongoDBBackend(BaseBackend):
             logger.error(f"Failed to create MongoDB indexes: {e}")
             raise ImproperlyConfigured(f"Cannot create MongoDB indexes: {e}")
 
-    def _get_window_times(self, window_seconds: int) -> tuple[datetime, datetime]:
-        """Get the start and end times for a fixed window."""
-        now = datetime.now(timezone.utc)
-
-        # Calculate the start of the current window
-        seconds_since_epoch = int(now.timestamp())
-        window_start_seconds = (seconds_since_epoch // window_seconds) * window_seconds
-        window_start = datetime.fromtimestamp(window_start_seconds, timezone.utc)
-        window_end = window_start + timedelta(seconds=window_seconds)
-
-        return window_start, window_end
-
     def _incr_sliding_window(self, key: str, period: int) -> int:
         """Increment counter for sliding window algorithm."""
         if self._collection is None:
@@ -262,7 +251,7 @@ class MongoDBBackend(BaseBackend):
         if self._counter_collection is None:
             raise ImproperlyConfigured("MongoDB counter collection not initialized")
 
-        window_start, window_end = self._get_window_times(period)
+        window_start, window_end = get_window_times(period)
         expires_at = window_end + timedelta(seconds=60)  # Keep for a bit longer
 
         # Use upsert to atomically increment or create counter

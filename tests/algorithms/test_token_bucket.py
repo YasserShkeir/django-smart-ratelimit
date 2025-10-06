@@ -351,6 +351,33 @@ class TokenBucketAlgorithmTest(BaseBackendTestCase, AlgorithmTestMixin):
         # Should allow exactly the bucket size number of requests
         self.assertEqual(allowed_count, 10)
 
+    def test_generic_path_without_native_backend_methods(self):
+        """Force generic implementation path by using a minimal backend stub."""
+
+        class MinimalBackend:
+            # Expose only get/set used by generic path
+            def __init__(self):
+                self.store = {}
+
+            def get(self, k):
+                return self.store.get(k)
+
+            def set(self, k, v, *_args):
+                self.store[k] = v
+
+        alg = TokenBucketAlgorithm()
+        backend = MinimalBackend()
+        allowed, meta = alg.is_allowed(backend, "gk", 3, 60)
+        self.assertIn("tokens_remaining", meta)
+        self.assertTrue(isinstance(allowed, bool))
+
+    def test_zero_bucket_size_returns_error_metadata(self):
+        alg = TokenBucketAlgorithm({"bucket_size": 0})
+        allowed, meta = alg.is_allowed(MemoryBackend(), "zb", 10, 60)
+        self.assertFalse(allowed)
+        self.assertEqual(meta.get("bucket_size"), 0)
+        self.assertIn("error", meta)
+
 
 @unittest.skipUnless(REDIS_AVAILABLE, "Redis not available")
 class TokenBucketRedisTest(TestCase):
@@ -541,3 +568,92 @@ class TokenBucketEdgeCaseTest(TestCase):
         # Should fall back to allowing requests or raise appropriate errors
         with self.assertRaises(Exception):
             self.algorithm.is_allowed(failing_backend, "test_key", 10, 60)
+
+    def test_boundary_time_skew_handling(self):
+        """Test token bucket behavior around window boundaries with time skew."""
+
+        base_time = 1000000.0
+
+        with patch("time.time") as mock_time:
+            # Test near window boundary
+            mock_time.return_value = base_time
+
+            # Consume tokens right at window start
+            self.algorithm.is_allowed(self.backend, "boundary_test", 5, 60)
+
+            # Test fractional second before window boundary
+            mock_time.return_value = base_time + 59.999  # Just before refill
+            is_allowed, metadata = self.algorithm.is_allowed(
+                self.backend, "boundary_test", 5, 60
+            )
+
+            # Should have similar behavior regardless of tiny time differences
+            self.assertIsInstance(metadata["tokens_remaining"], (int, float))
+
+            # Test exactly at window boundary
+            mock_time.return_value = base_time + 60.0  # Exact refill time
+            is_allowed, metadata = self.algorithm.is_allowed(
+                self.backend, "boundary_test", 5, 60
+            )
+
+            # Should handle boundary precisely
+            self.assertTrue(is_allowed)
+
+    def test_large_bucket_size_handling(self):
+        """Test token bucket with very large bucket sizes to check for overflow."""
+        import sys
+
+        # Test with large but reasonable bucket size
+        large_limit = 10**6  # 1 million tokens
+        is_allowed, metadata = self.algorithm.is_allowed(
+            self.backend, "large_test", large_limit, 3600
+        )
+
+        self.assertTrue(is_allowed)
+        self.assertEqual(metadata["tokens_remaining"], large_limit - 1)
+
+        # Test close to system limits (but not causing overflow)
+        very_large_limit = min(sys.maxsize // 1000, 10**9)  # Avoid actual overflow
+        is_allowed, metadata = self.algorithm.is_allowed(
+            self.backend, "very_large_test", very_large_limit, 3600
+        )
+
+        self.assertTrue(is_allowed)
+        self.assertGreater(metadata["tokens_remaining"], 0)
+
+    def test_multitoken_request_with_near_empty_bucket(self):
+        """Test multi-token requests when bucket is nearly empty - fuzz testing."""
+        # Simple case: fresh bucket, request multiple tokens
+        is_allowed, metadata = self.algorithm.is_allowed(
+            self.backend, "multitoken_test", 10, 60, tokens_requested=3
+        )
+
+        self.assertTrue(is_allowed)
+        self.assertEqual(metadata["tokens_remaining"], 7)  # 10 - 3 = 7
+        self.assertEqual(metadata["tokens_requested"], 3)
+
+        # Now request more tokens than remaining
+        is_allowed, metadata = self.algorithm.is_allowed(
+            self.backend, "multitoken_test", 10, 60, tokens_requested=8
+        )
+
+        # Should fail since only 7 tokens remain but 8 requested
+        self.assertFalse(
+            is_allowed, "Should reject request for 8 tokens when only 7 available"
+        )
+
+        # Try requesting exactly what's available
+        is_allowed, metadata = self.algorithm.is_allowed(
+            self.backend, "multitoken_test2", 10, 60, tokens_requested=5
+        )
+        self.assertTrue(is_allowed)
+
+        is_allowed, metadata = self.algorithm.is_allowed(
+            self.backend, "multitoken_test2", 10, 60, tokens_requested=5
+        )
+        self.assertTrue(is_allowed)  # Should succeed, using remaining 5 tokens
+
+        is_allowed, metadata = self.algorithm.is_allowed(
+            self.backend, "multitoken_test2", 10, 60, tokens_requested=1
+        )
+        self.assertFalse(is_allowed)  # Should fail, bucket now empty
