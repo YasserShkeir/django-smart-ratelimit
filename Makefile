@@ -139,37 +139,61 @@ check-versions:
 	@echo "CHANGELOG.md (latest):"
 	@head -15 CHANGELOG.md | grep -E "^\## \[" | head -2
 
-# Release workflow - manual version specification
-# Usage: make release VERSION=0.*.*
-# Note: Update CHANGELOG.md manually before running this command
+# Release workflow - Automated version bump and tag creation
+# Usage: make release VERSION=0.8.9
+# Prerequisites:
+#   1. Update CHANGELOG.md manually before running
+#   2. Ensure working tree is clean
+#   3. Ensure you're on main branch
+# This will:
+#   1. Update version in all files
+#   2. Commit the version bump
+#   3. Push commit to origin/main
+#   4. Create and push tag (triggers PyPI publish via GitHub Actions)
 release:
 	@if [ -z "$(VERSION)" ]; then \
-		echo "Error: VERSION not specified. Usage: make release VERSION=0.7.4"; \
+		echo "❌ Error: VERSION not specified."; \
+		echo "Usage: make release VERSION=0.8.9"; \
 		exit 1; \
 	fi
-	@echo "Updating version to $(VERSION)..."
+	@echo "🔍 Pre-flight checks..."
+	@if [ "$$(git branch --show-current)" != "main" ]; then \
+		echo "❌ Error: Not on main branch. Switch to main first."; \
+		exit 1; \
+	fi
+	@if [ -n "$$(git status --porcelain)" ]; then \
+		echo "❌ Error: Working tree is not clean. Commit or stash changes first."; \
+		git status --short; \
+		exit 1; \
+	fi
+	@echo "✅ On main branch and working tree is clean"
+	@echo ""
+	@echo "📝 Updating version to $(VERSION)..."
 	@sed -i '' 's/__version__ = ".*"/__version__ = "$(VERSION)"/' django_smart_ratelimit/__init__.py
 	@sed -i '' 's/__version__ = ".*"/__version__ = "$(VERSION)"/' examples/integrations/drf_integration/__init__.py
-	@sed -i '' "s/__version__ = '.*'/__version__ = '$(VERSION)'/" docs/index.md
 	@sed -i '' 's/current_version = ".*"/current_version = "$(VERSION)"/' pyproject.toml
-	git add .
-	git commit -m "bump: version $(VERSION)"
-	git tag -a v$(VERSION) -m "Release v$(VERSION)"
-	git push origin main v$(VERSION)
-	@echo "Released version $(VERSION) successfully!"
-
-# Quick release shortcuts
-release-patch:
-	@echo "Please use: make release VERSION=x.x.x"
-	@echo "Current version:"
-	@$(PYTHON) -c "import django_smart_ratelimit; print(django_smart_ratelimit.__version__)"
-
-release-minor:
-	@echo "Please use: make release VERSION=x.x.x"
-	@echo "Current version:"
-	@$(PYTHON) -c "import django_smart_ratelimit; print(django_smart_ratelimit.__version__)"
-
-release-major:
-	@echo "Please use: make release VERSION=x.x.x"
-	@echo "Current version:"
-	@$(PYTHON) -c "import django_smart_ratelimit; print(django_smart_ratelimit.__version__)"
+	@echo "✅ Version updated in all files"
+	@echo ""
+	@echo "📦 Committing version bump..."
+	@git add django_smart_ratelimit/__init__.py examples/integrations/drf_integration/__init__.py pyproject.toml
+	@git commit -m "bump: version $(VERSION)"
+	@echo "✅ Version bump committed"
+	@echo ""
+	@echo "⬆️  Pushing commit to origin/main..."
+	@git push origin main
+	@echo "✅ Commit pushed"
+	@echo ""
+	@echo "🏷️  Creating and pushing tag v$(VERSION)..."
+	@git tag -a v$(VERSION) -m "Release v$(VERSION)"
+	@git push origin v$(VERSION)
+	@echo "✅ Tag v$(VERSION) pushed"
+	@echo ""
+	@echo "=========================================="
+	@echo "🎉 Release $(VERSION) completed successfully!"
+	@echo "=========================================="
+	@echo ""
+	@echo "📋 Next steps:"
+	@echo "  1. Monitor GitHub Actions: https://github.com/YasserShkeir/django-smart-ratelimit/actions"
+	@echo "  2. The tag push will trigger automatic PyPI publication"
+	@echo "  3. Verify on PyPI: https://pypi.org/project/django-smart-ratelimit/"
+	@echo "  4. (Optional) Create GitHub Release: https://github.com/YasserShkeir/django-smart-ratelimit/releases/new?tag=v$(VERSION)"

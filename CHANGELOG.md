@@ -7,6 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.9] - 2025-10-06
+
+### Fixed
+
+- 🐛 **Decorator Behavior**: Fixed non-blocking mode not properly respecting the `block=False` parameter
+  - Rate limit decorator now correctly allows requests to pass through when blocking is disabled
+  - Response headers are properly updated even in non-blocking mode
+  - Fixes Issue #18 where decorator was blocking requests despite `block=False` setting
+
+### Improved
+
+- 🧪 **Test Suite Refactoring**: Comprehensive cleanup and optimization (PR #23)
+
+  - Refactored DRF integration tests for better clarity and maintainability
+  - Enhanced test tolerances and added health method to MockBackend
+  - Consolidated common test utilities into streamlined helpers
+  - Improved parameterized testing for decorator configurations
+  - Enhanced mock backend management for more reliable testing
+  - Removed 6 duplicate test files, reducing test maintenance overhead
+  - Added `tests/test_utils_streamlined.py` for shared testing utilities
+  - Test results: 400 tests passing (6 skipped), 68% coverage maintained
+
+- 🔧 **Development Tools**: Added local CI validation capabilities
+
+  - New `make ci-check` command runs all CI checks locally before pushing
+  - Matches GitHub Actions CI pipeline for consistent validation
+  - Helps catch issues early in development workflow
+
+- 📝 **Documentation**: Added Retry-After header information to README
+  - Updated documentation to reflect RFC 6585 compliant Retry-After headers
+  - Better clarity on rate limit response behavior
+
+### Changed
+
+- 🗂️ **Test Organization**: Streamlined test file structure
+  - Removed duplicate test files:
+    - `tests/algorithms/test_token_bucket_extended_simple.py`
+    - `tests/backends/test_multi_backend_integration.py`
+    - `tests/core/test_advanced_utils_simple.py`
+    - `tests/core/test_configuration_simple.py`
+    - `tests/core/test_management_commands_simple.py`
+    - `tests/core/test_performance_simple.py`
+  - Consolidated functionality into primary test modules
+  - Enhanced backend test coverage with better organization
+
+### Technical Notes
+
+- This release focuses on test infrastructure improvements and bug fixes
+- The decorator fix addresses a critical issue where non-blocking mode wasn't working as expected
+- Test suite refactoring improves maintainability without affecting functionality
+- All changes are backward compatible
+
 ## [0.8.4] - 2025-08-04
 
 ### Fixed
