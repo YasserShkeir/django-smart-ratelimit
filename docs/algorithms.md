@@ -249,7 +249,7 @@ All backends support token bucket algorithm:
 
 - **Redis Backend**: Uses atomic Lua scripts for race-condition-free operations
 - **Memory Backend**: Thread-safe in-memory implementation
-- **Database Backend**: Django ORM-based implementation (not atomic)
+- **Database Backend**: Django ORM-based implementation (not atomic) that now stores serialized bucket state in the `RateLimitCounter.data` column
 
 #### Performance Characteristics
 

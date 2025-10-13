@@ -155,6 +155,7 @@ RATELIMIT_REDIS = {
 RATELIMIT_BACKEND = 'database'
 RATELIMIT_DATABASE_CLEANUP_THRESHOLD = 1000
 
+
 # Memory Backend
 RATELIMIT_BACKEND = 'memory'
 RATELIMIT_MEMORY_MAX_KEYS = 10000
@@ -163,6 +164,8 @@ RATELIMIT_MEMORY_MAX_KEYS = 10000
 RATELIMIT_ALGORITHM = "sliding_window"  # vs "fixed_window"
 RATELIMIT_KEY_PREFIX = 'ratelimit:'
 ```
+
+> **Persistence note:** The database backend persists token bucket metadata in the `RateLimitCounter.data` column. Make sure you've run migrations after upgrading so the column exists before relying on database-backed token buckets.
 
 ### Multi-Backend Support
 

@@ -13,6 +13,7 @@ from .base import BaseBackend
 from .utils import (
     calculate_sliding_window_count,
     calculate_token_bucket_state,
+    deserialize_data,
     estimate_backend_memory_usage,
     format_token_bucket_metadata,
     get_window_times,
@@ -89,16 +90,19 @@ class DatabaseBackend(BaseBackend):
         try:
             with transaction.atomic():
                 # Get or create bucket data stored as JSON in the data field
+                capped_tokens = min(initial_tokens, bucket_size)
+                initial_token_count = int(capped_tokens)
+                initial_token_value = float(capped_tokens)
                 (
                     counter,
                     created,
                 ) = RateLimitCounter.objects.select_for_update().get_or_create(
                     key=bucket_key,
                     defaults={
-                        "count": 0,  # Not used for token bucket
+                        "count": initial_token_count,
                         "data": serialize_data(
                             {
-                                "tokens": initial_tokens,
+                                "tokens": initial_token_value,
                                 "last_refill": current_timestamp,
                                 "bucket_size": bucket_size,
                                 "refill_rate": refill_rate,
@@ -109,18 +113,28 @@ class DatabaseBackend(BaseBackend):
                     },
                 )
 
-                # Parse bucket data from counter fields
-                bucket_data = {
-                    "tokens": float(counter.count),  # Use count as token storage
-                    "last_refill": counter.updated_at.timestamp(),
-                    "bucket_size": bucket_size,
-                    "refill_rate": refill_rate,
-                }
+                # Parse bucket data from counter fields and stored metadata
+                bucket_data_raw = (
+                    deserialize_data(counter.data, dict) if counter.data else {}
+                )
+                bucket_data = (
+                    bucket_data_raw if isinstance(bucket_data_raw, dict) else {}
+                )
+                current_tokens = float(bucket_data.get("tokens", counter.count))
+                last_refill = float(
+                    bucket_data.get("last_refill", counter.updated_at.timestamp())
+                )
+                bucket_data.update(
+                    {
+                        "bucket_size": bucket_size,
+                        "refill_rate": refill_rate,
+                    }
+                )
 
                 # Use utility to calculate new token bucket state
                 new_state = calculate_token_bucket_state(
-                    current_tokens=bucket_data["tokens"],
-                    last_refill=bucket_data["last_refill"],
+                    current_tokens=current_tokens,
+                    last_refill=last_refill,
                     current_time=current_timestamp,
                     bucket_size=bucket_size,
                     refill_rate=refill_rate,
@@ -130,8 +144,16 @@ class DatabaseBackend(BaseBackend):
                 # Check if request can be served
                 if new_state["is_allowed"]:
                     # Save token state to counter fields
+                    bucket_data.update(
+                        {
+                            "tokens": float(new_state["tokens_remaining"]),
+                            "last_refill": current_timestamp,
+                        }
+                    )
+
                     counter.count = int(new_state["tokens_remaining"])
-                    counter.save(update_fields=["count", "updated_at"])
+                    counter.data = serialize_data(bucket_data)
+                    counter.save(update_fields=["count", "data", "updated_at"])
 
                     # Format metadata using utility
                     metadata = format_token_bucket_metadata(
@@ -152,8 +174,16 @@ class DatabaseBackend(BaseBackend):
                 else:
                     # Request cannot be served - update last_refill time but
                     # don't consume tokens
+                    bucket_data.update(
+                        {
+                            "tokens": float(new_state["current_tokens"]),
+                            "last_refill": current_timestamp,
+                        }
+                    )
+
                     counter.count = int(new_state["current_tokens"])
-                    counter.save(update_fields=["count", "updated_at"])
+                    counter.data = serialize_data(bucket_data)
+                    counter.save(update_fields=["count", "data", "updated_at"])
 
                     # Format metadata using utility
                     metadata = format_token_bucket_metadata(
@@ -209,16 +239,19 @@ class DatabaseBackend(BaseBackend):
         try:
             counter = RateLimitCounter.objects.get(key=bucket_key)
 
-            # Use counter fields instead of non-existent data field
-            bucket_data = {
-                "tokens": float(counter.count),  # Use count as token storage
-                "last_refill": counter.updated_at.timestamp(),
-            }
+            bucket_data_raw = (
+                deserialize_data(counter.data, dict) if counter.data else {}
+            )
+            bucket_data = bucket_data_raw if isinstance(bucket_data_raw, dict) else {}
+            current_tokens = float(bucket_data.get("tokens", counter.count))
+            last_refill = float(
+                bucket_data.get("last_refill", counter.updated_at.timestamp())
+            )
 
             # Use utility to calculate current state without consuming tokens
             state = calculate_token_bucket_state(
-                current_tokens=bucket_data["tokens"],
-                last_refill=bucket_data["last_refill"],
+                current_tokens=current_tokens,
+                last_refill=last_refill,
                 current_time=current_timestamp,
                 bucket_size=bucket_size,
                 refill_rate=refill_rate,
@@ -230,7 +263,7 @@ class DatabaseBackend(BaseBackend):
                 bucket_size=bucket_size,
                 refill_rate=refill_rate,
                 time_to_refill=state["time_to_refill"],
-                last_refill=bucket_data["last_refill"],
+                last_refill=last_refill,
             )
 
         except RateLimitCounter.DoesNotExist:
@@ -249,7 +282,10 @@ class DatabaseBackend(BaseBackend):
         try:
             normalized_key = normalize_key(key, prefix="")
             counter = RateLimitCounter.objects.get(key=normalized_key)
-            # Return simple value since we're using this for generic storage
+
+            if counter.data:
+                return deserialize_data(counter.data)
+
             return counter.count
         except RateLimitCounter.DoesNotExist:
             return None
