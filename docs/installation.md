@@ -72,6 +72,9 @@ RATELIMIT_BACKEND = 'database'
 
 # Run migrations
 python manage.py migrate
+
+# Optional: verify that the RateLimitCounter table now includes the `data` column
+python manage.py showmigrations django_smart_ratelimit
 ```
 
 #### Memory Backend (Development Only)
@@ -259,6 +262,9 @@ python manage.py migrate
 
 # Check database connectivity
 python manage.py dbshell
+
+# Ensure the RateLimitCounter table has the `data` column (required for token bucket)
+python manage.py showmigrations django_smart_ratelimit
 ```
 
 #### Import Errors

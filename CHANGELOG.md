@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- 🪣 **Database Token Bucket Persistence**: Added dedicated metadata storage for database-backed token buckets to prevent missing column errors and ensure token counts persist across requests. A new `RateLimitCounter.data` field now captures serialized bucket state; apply the latest migration before upgrading.
+
 ## [0.8.9] - 2025-10-06
 
 ### Fixed

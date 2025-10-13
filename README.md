@@ -215,6 +215,8 @@ RATELIMIT_BACKEND = 'database'
 # Uses your default Django database
 ```
 
+> **Upgrade note:** Run `python manage.py migrate` after upgrading to ensure the new `RateLimitCounter.data` column exists. The database backend now stores serialized token-bucket state in this field so token counts persist across requests.
+
 ### Multi-Backend with Failover
 
 ```python

@@ -88,6 +88,12 @@ class RateLimitCounter(models.Model):
         default=0, help_text="Current count for this rate limit key"
     )
 
+    data: models.TextField = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Serialized metadata/state for advanced algorithms",
+    )
+
     window_start: models.DateTimeField = models.DateTimeField(
         help_text="Start of the current rate limit window"
     )

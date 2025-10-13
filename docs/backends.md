@@ -116,7 +116,9 @@ RATELIMIT_DATABASE_CLEANUP_THRESHOLD = 1000  # Clean when this many expired entr
 The database backend uses two models:
 
 - `RateLimitEntry`: For sliding window algorithm
-- `RateLimitCounter`: For fixed window algorithm
+- `RateLimitCounter`: For fixed window and shared token bucket state
+
+> **Note:** Starting with the next release, `RateLimitCounter` includes a `data` column that stores serialized metadata for advanced algorithms like token bucket. Run migrations after upgrading to ensure the column exists before enabling those features.
 
 ### Database Optimization
 
@@ -145,6 +147,7 @@ ADD INDEX idx_key_expires (key, expires_at);
 - **Cleanup**: Automatic cleanup of expired entries
 - **Multi-Server**: Works across multiple application servers
 - **Backup**: Included in regular database backups
+- **Token Bucket Support**: Stores bucket state (tokens, refill timestamps) in the database so token consumption persists across requests
 - **Circuit Breaker**: Built-in [circuit breaker protection](circuit_breaker.md) for database connection failures
 
 ## Memory Backend
