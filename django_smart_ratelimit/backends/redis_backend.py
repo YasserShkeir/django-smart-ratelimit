@@ -224,6 +224,29 @@ class RedisBackend(BaseBackend):
         formatted_script = format_lua_script(script_content)
         return self.redis.script_load(formatted_script)
 
+    def _eval_lua(
+        self,
+        sha_attr: str,
+        script_content: str,
+        numkeys: int,
+        *args: Any,
+    ) -> Any:
+        """Evaluate a cached Lua script, reloading on NoScriptError."""
+        sha = getattr(self, sha_attr)
+        try:
+            return self.redis.evalsha(sha, numkeys, *args)
+        except redis.exceptions.NoScriptError:
+            # Reload script and retry once
+            log_backend_operation(
+                "redis_reload_script",
+                "Reloading Lua script after NoScriptError",
+                level="warning",
+                script=sha_attr,
+            )
+            new_sha = self._load_script(script_content)
+            setattr(self, sha_attr, new_sha)
+            return self.redis.evalsha(new_sha, numkeys, *args)
+
     def incr(self, key: str, period: int) -> int:
         """
         Increment the counter for the given key within the time period.
@@ -241,8 +264,9 @@ class RedisBackend(BaseBackend):
         try:
             if self.algorithm == "sliding_window":
                 # Use sliding window algorithm
-                count = self.redis.evalsha(
-                    self.sliding_window_sha,
+                count = self._eval_lua(
+                    "sliding_window_sha",
+                    self.SLIDING_WINDOW_SCRIPT,
                     1,
                     normalized_key,
                     period,
@@ -251,8 +275,9 @@ class RedisBackend(BaseBackend):
                 )
             else:
                 # Use fixed window algorithm (default for unknown algorithms)
-                count = self.redis.evalsha(
-                    self.fixed_window_sha,
+                count = self._eval_lua(
+                    "fixed_window_sha",
+                    self.FIXED_WINDOW_SCRIPT,
                     1,
                     normalized_key,
                     period,
@@ -373,8 +398,9 @@ class RedisBackend(BaseBackend):
 
         start_time = time.time()
         try:
-            result = self.redis.evalsha(
-                self.token_bucket_sha,
+            result = self._eval_lua(
+                "token_bucket_sha",
+                self.TOKEN_BUCKET_SCRIPT,
                 1,
                 normalized_key,
                 bucket_size,
@@ -436,8 +462,9 @@ class RedisBackend(BaseBackend):
         current_time = time.time()
 
         try:
-            result = self.redis.evalsha(
-                self.token_bucket_info_sha,
+            result = self._eval_lua(
+                "token_bucket_info_sha",
+                self.TOKEN_BUCKET_INFO_SCRIPT,
                 1,
                 normalized_key,
                 bucket_size,

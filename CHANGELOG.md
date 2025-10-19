@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- 🔁 **Redis Backend Script Reload**: Automatically reload cached Lua scripts after a `NoScriptError` to keep rate limiting functional when Redis evicts script cache entries. Adds regression coverage in `tests/test_redis_lua_reload.py` to ensure the backend retries with a freshly loaded SHA.
+
 ## [0.8.10] - 2025-10-13
 
 ### Fixed
