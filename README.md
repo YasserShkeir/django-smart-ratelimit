@@ -280,11 +280,11 @@ python manage.py cleanup_ratelimit --dry-run
 
 The library includes comprehensive examples for various use cases:
 
-- **[Basic Rate Limiting](https://github.com/YasserShkeir/django-smart-ratelimit/blob/main/examples/basic_rate_limiting.py)** - IP and user-based limiting
-- **[Custom Key Functions](https://github.com/YasserShkeir/django-smart-ratelimit/blob/main/examples/custom_key_functions.py)** - Geographic and device-based keys
-- **[JWT Rate Limiting](https://github.com/YasserShkeir/django-smart-ratelimit/blob/main/examples/jwt_rate_limiting.py)** - Token-based limiting
-- **[DRF Integration](https://github.com/YasserShkeir/django-smart-ratelimit/blob/main/examples/drf_integration/)** - Django REST Framework examples
-- **[Multi-tenant Applications](https://github.com/YasserShkeir/django-smart-ratelimit/blob/main/examples/tenant_rate_limiting.py)** - Tenant-aware rate limiting
+- **[Basic Rate Limiting](https://github.com/YasserShkeir/django-smart-ratelimit/blob/main/examples/basic/basic_rate_limiting.py)** - IP and user-based limiting
+- **[Custom Key Functions](https://github.com/YasserShkeir/django-smart-ratelimit/blob/main/examples/basic/custom_key_functions.py)** - Geographic and device-based keys
+- **[JWT Rate Limiting](https://github.com/YasserShkeir/django-smart-ratelimit/blob/main/examples/integrations/jwt_rate_limiting.py)** - Token-based limiting
+- **[DRF Integration](https://github.com/YasserShkeir/django-smart-ratelimit/tree/main/examples/integrations/drf_integration/)** - Django REST Framework examples
+- **[Multi-tenant Applications](https://github.com/YasserShkeir/django-smart-ratelimit/blob/main/examples/advanced/tenant_rate_limiting.py)** - Tenant-aware rate limiting
 
 ## Configuration Options
 
