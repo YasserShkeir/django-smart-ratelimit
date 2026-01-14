@@ -38,9 +38,9 @@ pip install django-smart-ratelimit[redis]
 ### Usage in 30 Seconds
 
 ```python
-from django_smart_ratelimit import rate_limit
+from django_smart_ratelimit import ratelimit
 
-@rate_limit(key='ip', rate='5/m', block=True)
+@ratelimit(key='ip', rate='5/m', block=True)
 def login_view(request):
     # If limit is exceeded, this code receives a 429 Too Many Requests
     return authenticate(request)

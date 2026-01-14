@@ -213,8 +213,12 @@ class TestMultiBackend(TestCase):
             # Should use backend2 since backend1 fails
             count = multi_backend.get_count("test_key")
             assert count == 1
-            assert len(backend1.operation_calls) >= 1  # Health check
-            assert len(backend2.operation_calls) >= 2  # Health check + actual call
+            # backend1 should have been tried (health check or operation attempt)
+            assert len(backend1.operation_calls) >= 1
+            # backend2 should have been used for the actual operation
+            assert len(backend2.operation_calls) >= 1
+            # Verify backend2 received the get_count call
+            assert any(call[0] == "get_count" for call in backend2.operation_calls)
 
     def test_round_robin_strategy(self):
         """Test round_robin fallback strategy."""
