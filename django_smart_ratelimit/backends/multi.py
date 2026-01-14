@@ -1,16 +1,19 @@
 """Multi-backend support for Django Smart Ratelimit."""
 
+import itertools
 import logging
+import threading
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
+from ..messages import LOG_BACKEND_INIT_FAILED
 from .base import BaseBackend
 from .factory import BackendFactory
 from .utils import (
     estimate_backend_memory_usage,
     log_backend_operation,
-    retry_backend_operation,
     validate_backend_config,
+    with_retry,
 )
 
 logger = logging.getLogger(__name__)
@@ -51,7 +54,7 @@ class BackendHealthChecker:
             return self._health_status.get(backend_name, True)
 
         # Perform health check using utility retry mechanism
-        @retry_backend_operation(max_retries=2, delay=0.5)
+        @with_retry(max_retries=2, delay=0.5)
         def _check_backend_health() -> bool:
             # Try to perform a lightweight operation
             test_key = f"_health_check_{int(now)}"
@@ -92,6 +95,7 @@ class MultiBackend(BaseBackend):
         self,
         enable_circuit_breaker: bool = True,
         circuit_breaker_config: Optional[Dict[str, Any]] = None,
+        fail_open: bool = False,
         **kwargs: Any,
     ) -> None:
         """
@@ -100,6 +104,7 @@ class MultiBackend(BaseBackend):
         Args:
             enable_circuit_breaker: Whether to enable circuit breaker protection
             circuit_breaker_config: Custom circuit breaker configuration
+            fail_open: Whether to fail open on all backend failures
             **kwargs: Configuration options including:
                 - backends: List of backend configurations
                 - fallback_strategy: How to handle fallbacks
@@ -108,37 +113,40 @@ class MultiBackend(BaseBackend):
                 - health_check_timeout: Timeout for health checks
         """
         # Initialize parent class with circuit breaker
-        super().__init__(enable_circuit_breaker, circuit_breaker_config)
-
-        from django.conf import settings
+        super().__init__(
+            enable_circuit_breaker=enable_circuit_breaker,
+            circuit_breaker_config=circuit_breaker_config,
+            fail_open=fail_open,
+            **kwargs,
+        )
 
         # Validate configuration using utility
         validate_backend_config(kwargs, backend_type="multi")
 
         self.backends: List[Tuple[str, BaseBackend]] = []
+        from django_smart_ratelimit.config import get_settings
+
+        settings = get_settings()
+
         self.fallback_strategy = kwargs.get(
             "fallback_strategy",
-            getattr(
-                settings,
-                "RATELIMIT_MULTI_BACKEND_STRATEGY",
-                "first_healthy",
-            ),
+            settings.multi_backend_strategy,
         )
         self.health_checker = BackendHealthChecker(
             check_interval=kwargs.get(
                 "health_check_interval",
-                getattr(settings, "RATELIMIT_HEALTH_CHECK_INTERVAL", 30),
+                settings.health_check_interval,
             ),
             timeout=kwargs.get(
                 "health_check_timeout",
-                getattr(settings, "RATELIMIT_HEALTH_CHECK_TIMEOUT", 5),
+                settings.health_check_timeout,
             ),
         )
 
         # Initialize backends from configuration
         backend_configs = kwargs.get(
             "backends",
-            getattr(settings, "RATELIMIT_MULTI_BACKENDS", []),
+            settings.multi_backends,
         )
 
         if not backend_configs:
@@ -176,7 +184,7 @@ class MultiBackend(BaseBackend):
             except Exception as e:
                 log_backend_operation(
                     "multi_backend_init_error",
-                    f"Failed to initialize backend {backend_config}: {e}",
+                    LOG_BACKEND_INIT_FAILED.format(backend=backend_config, error=e),
                     level="error",
                 )
                 # Continue with other backends rather than failing completely
@@ -192,29 +200,101 @@ class MultiBackend(BaseBackend):
             level="info",
         )
 
-        self._current_backend_index = 0
+        # Thread safety
+        self._lock = threading.RLock()
+        self._backend_cycle = itertools.cycle(self.backends)
+        self._backend_health: Dict[int, bool] = {id(b[1]): True for b in self.backends}
+        self._shutdown = threading.Event()
 
-    def _get_healthy_backend(self) -> Optional[Tuple[str, BaseBackend]]:
+        # Start health check thread
+        self.health_check_interval = kwargs.get(
+            "health_check_interval",
+            settings.health_check_interval,
+        )
+        if self.health_check_interval > 0:
+            self._start_health_check(self.health_check_interval)
+
+    def _start_health_check(self, interval: int = 30) -> None:
+        """Start background health check thread."""
+
+        def check_health() -> None:
+            while not self._shutdown.is_set():
+                for name, backend in self.backends:
+                    try:
+                        # Simple ping/check
+                        backend.get_count("health:check")
+                        self._mark_healthy(backend)
+                        log_backend_operation(
+                            "multi_backend_health_check",
+                            f"Backend {name} is healthy",
+                            level="debug",
+                        )
+                    except Exception as e:
+                        self._mark_unhealthy(backend)
+                        log_backend_operation(
+                            "multi_backend_health_check_error",
+                            f"Backend {name} health check failed: {e}",
+                            level="warning",
+                        )
+
+                self._shutdown.wait(interval)
+
+        self._health_thread = threading.Thread(target=check_health, daemon=True)
+        self._health_thread.start()
+
+    def _mark_unhealthy(self, backend: BaseBackend) -> None:
+        """Mark a backend as unhealthy."""
+        with self._lock:
+            self._backend_health[id(backend)] = False
+
+    def _mark_healthy(self, backend: BaseBackend) -> None:
+        """Mark a backend as healthy."""
+        with self._lock:
+            self._backend_health[id(backend)] = True
+
+    def _get_healthy_backends(self) -> List[Tuple[str, BaseBackend]]:
+        """Get list of healthy backends."""
+        with self._lock:
+            return [
+                (name, b)
+                for name, b in self.backends
+                if self._backend_health.get(id(b), True)
+            ]
+
+    def _get_ordered_backends(self) -> List[Tuple[str, BaseBackend]]:
         """
-        Get the first healthy backend based on fallback strategy.
+        Get backends in order based on strategy.
 
         Returns:
-            Tuple of (backend_name, backend) if healthy backend found, None otherwise
+            List of (name, backend) tuples in the order they should be tried
         """
-        if self.fallback_strategy == "first_healthy":
-            for name, backend in self.backends:
-                if self.health_checker.is_healthy(name, backend):
-                    return name, backend
-        elif self.fallback_strategy == "round_robin":
-            # Try backends in round-robin order
-            for i in range(len(self.backends)):
-                idx = (self._current_backend_index + i) % len(self.backends)
-                name, backend = self.backends[idx]
-                if self.health_checker.is_healthy(name, backend):
-                    self._current_backend_index = (idx + 1) % len(self.backends)
-                    return name, backend
+        if self.fallback_strategy == "round_robin":
+            primary = None
+            with self._lock:
+                # Find next healthy backend
+                for _ in range(len(self.backends)):
+                    candidate = next(self._backend_cycle)
+                    _, backend = candidate
+                    if self._backend_health.get(id(backend), True):
+                        primary = candidate
+                        break
 
-        return None
+            # If no healthy backend found, default to the first one
+            # Note: We don't advance cycle if we fall back to index 0,
+            # but we already advanced it in the loop.
+            if primary is None:
+                primary = self.backends[0]
+
+            # Rotate list to start with primary
+            try:
+                start_index = self.backends.index(primary)
+            except ValueError:
+                start_index = 0
+
+            return self.backends[start_index:] + self.backends[:start_index]
+
+        # Default: first_healthy (linear order)
+        return self.backends
 
     def _execute_with_fallback(
         self, method_name: str, *args: Any, **kwargs: Any
@@ -237,8 +317,22 @@ class MultiBackend(BaseBackend):
         last_exception = None
         attempted_backends = []
 
-        for name, backend in self.backends:
-            if not self.health_checker.is_healthy(name, backend):
+        ordered_backends = self._get_ordered_backends()
+        for name, backend in ordered_backends:
+            # Check thread-safe health status
+            is_healthy = self._backend_health.get(id(backend), True)
+
+            # If interval is 0, force synchronous check (for testing)
+            if self.health_check_interval == 0:
+                try:
+                    backend.get_count("health:check")
+                    self._mark_healthy(backend)
+                    is_healthy = True
+                except Exception:
+                    self._mark_unhealthy(backend)
+                    is_healthy = False
+
+            if not is_healthy:
                 continue
 
             try:
@@ -264,7 +358,7 @@ class MultiBackend(BaseBackend):
                 attempted_backends.append(name)
                 last_exception = e
                 # Mark backend as unhealthy
-                self.health_checker._health_status[name] = False
+                self._mark_unhealthy(backend)
                 continue
 
         # All backends failed
@@ -280,6 +374,27 @@ class MultiBackend(BaseBackend):
         )
 
         if last_exception:
+            # Use the mixin's error handling
+            # We use the key from args if available (usually the first arg)
+            key = args[0] if args else "unknown"
+            allowed, meta = self._handle_backend_error(method_name, key, last_exception)
+
+            if allowed:
+                # Return a "success" value appropriate for the method
+                if method_name == "incr":
+                    return 1  # Allow one request
+                elif method_name == "get_count":
+                    return 0  # Assume 0 count
+                elif method_name == "get_reset_time":
+                    return None
+                elif method_name == "token_bucket_check":
+                    # Return success tuple for token bucket
+                    return True, {"error": str(last_exception), "fail_open": True}
+                elif method_name == "token_bucket_info":
+                    # Return empty info
+                    return {}
+                return None
+
             raise last_exception
         else:
             raise RuntimeError(error_msg)
@@ -297,17 +412,18 @@ class MultiBackend(BaseBackend):
         """
         return self._execute_with_fallback("incr", key, period)
 
-    def get_count(self, key: str) -> int:
+    def get_count(self, key: str, period: int = 60) -> int:
         """
         Get current count with fallback.
 
         Args:
             key: Rate limit key
+            period: Time period in seconds (default: 60)
 
         Returns:
             Current count
         """
-        return self._execute_with_fallback("get_count", key)
+        return self._execute_with_fallback("get_count", key, period)
 
     def get_reset_time(self, key: str) -> Optional[int]:
         """
@@ -344,21 +460,6 @@ class MultiBackend(BaseBackend):
         """
         return self._execute_with_fallback("increment", key, window_seconds, limit)
 
-    def get_count_with_window(self, key: str, _window_seconds: int) -> int:
-        """
-        Get current count with window (legacy method).
-
-        Args:
-            key: Rate limit key
-            window_seconds: Window size in seconds
-
-        Returns:
-            Current count
-        """
-        # For backward compatibility, just call get_count with the key
-        # The window_seconds parameter is ignored as it's not part of the base interface
-        return self._execute_with_fallback("get_count", key)
-
     def cleanup_expired(self) -> int:
         """
         Clean up expired entries with fallback.
@@ -377,7 +478,7 @@ class MultiBackend(BaseBackend):
         """
         status = {}
         for name, backend in self.backends:
-            is_healthy = self.health_checker.is_healthy(name, backend)
+            is_healthy = self._backend_health.get(id(backend), True)
             status[name] = {
                 "healthy": is_healthy,
                 "backend_class": backend.__class__.__name__,
@@ -397,7 +498,7 @@ class MultiBackend(BaseBackend):
             "healthy_backends": sum(
                 1
                 for name, backend in self.backends
-                if self.health_checker.is_healthy(name, backend)
+                if self._backend_health.get(id(backend), True)
             ),
             "fallback_strategy": self.fallback_strategy,
             "backends": self.get_backend_status(),

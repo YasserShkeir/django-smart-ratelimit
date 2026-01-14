@@ -1,18 +1,26 @@
 """
-Performance Optimization Utilities
+Performance Optimization Utilities.
 
 This module provides performance optimization utilities for rate limiting,
 including caching strategies, batch operations, and performance monitoring.
 """
 
+import functools
+import logging
+import sys
+import threading
 import time
+from collections import defaultdict
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Union
 
 from django.core.cache import cache
 from django.http import HttpRequest
 
-from .utils import generate_key
+from .key_functions import generate_key
+
+logger = logging.getLogger(__name__)
 
 
 class RateLimitCache:
@@ -478,7 +486,8 @@ class RateLimitOptimizer:
 
                     return result
 
-                except Exception:
+                except Exception as e:
+                    logger.warning(f"Circuit breaker failure recorded: {e}")
                     state["failures"] = int(state["failures"]) + 1
                     state["last_failure_time"] = current_time
 
@@ -498,3 +507,167 @@ rate_limit_cache = RateLimitCache()
 performance_monitor = PerformanceMonitor()
 batch_processor = BatchRateLimitProcessor()
 optimizer = RateLimitOptimizer()
+
+
+def timed(func: Callable[..., Any]) -> Callable[..., Any]:
+    """
+    Decorator to time function execution and record metrics.
+
+    This decorator records metrics to the singleton MetricsCollector if
+    _record_metrics attribute is not False.
+    """
+
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> Any:
+        start = time.perf_counter()
+        try:
+            return func(*args, **kwargs)
+        finally:
+            duration_ms = (time.perf_counter() - start) * 1000
+
+            # Record if metrics enabled
+            if getattr(wrapper, "_record_metrics", True):
+                try:
+                    get_metrics().record_request(
+                        key=kwargs.get("key", "unknown"),
+                        allowed=True,  # We assume allowed unless exception? Or can't know.
+                        duration_ms=duration_ms,
+                        backend=func.__module__,
+                    )
+                except Exception:
+                    # Don't fail if metrics recording fails
+                    pass  # nosec B110 - intentional resilient error handling
+
+            # Also log for legacy support
+            logger.debug(f"Function {func.__name__} took {duration_ms:.4f}ms")
+
+    return wrapper
+
+
+class RateLimitMetrics:
+    """Metrics collection for rate limiting."""
+
+    def __init__(self) -> None:
+        """Initialize RateLimitMetrics."""
+        self._stats: Dict[str, Dict[str, Any]] = {}
+
+    def record_request(self, key: str, allowed: bool, duration: float) -> None:
+        """Record a rate limit request."""
+        if key not in self._stats:
+            self._stats[key] = {
+                "total_requests": 0,
+                "allowed_requests": 0,
+                "denied_requests": 0,
+                "total_duration": 0.0,
+            }
+
+        stats = self._stats[key]
+        stats["total_requests"] += 1
+        if allowed:
+            stats["allowed_requests"] += 1
+        else:
+            stats["denied_requests"] += 1
+        stats["total_duration"] += duration
+
+    def get_stats(self, key: str) -> Dict[str, Any]:
+        """Get stats for a key."""
+        return self._stats.get(
+            key,
+            {
+                "total_requests": 0,
+                "allowed_requests": 0,
+                "denied_requests": 0,
+                "total_duration": 0.0,
+            },
+        )
+
+
+def get_memory_usage(obj: Any) -> int:
+    """Estimate memory usage of an object."""
+    return sys.getsizeof(obj)
+
+
+@dataclass
+class RequestMetrics:
+    """Metrics for a single request."""
+
+    key: str
+    allowed: bool
+    duration_ms: float
+    backend: str
+    timestamp: float = field(default_factory=time.time)
+
+
+class MetricsCollector:
+    """Singleton metrics collector."""
+
+    _instance: Optional["MetricsCollector"] = None
+    _lock = threading.Lock()
+
+    def __new__(cls) -> "MetricsCollector":
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._initialize()
+        return cls._instance
+
+    def _initialize(self) -> None:
+        self._metrics: Dict[str, List[RequestMetrics]] = defaultdict(list)
+        self._counters: Dict[str, int] = defaultdict(int)
+        self._lock = threading.Lock()
+        self._max_history = 1000
+
+    def record_request(
+        self,
+        key: str,
+        allowed: bool,
+        duration_ms: float,
+        backend: str,
+    ) -> None:
+        """Record a rate limit check."""
+        with self._lock:
+            self._counters["total_requests"] += 1
+            if allowed:
+                self._counters["allowed_requests"] += 1
+            else:
+                self._counters["denied_requests"] += 1
+
+            # Store recent metrics
+            metrics = RequestMetrics(
+                key=key,
+                allowed=allowed,
+                duration_ms=duration_ms,
+                backend=backend,
+            )
+            self._metrics[key].append(metrics)
+
+            # Trim old entries
+            if len(self._metrics[key]) > self._max_history:
+                self._metrics[key] = self._metrics[key][-self._max_history :]
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Get current statistics."""
+        with self._lock:
+            total = self._counters["total_requests"]
+            allowed = self._counters["allowed_requests"]
+            denied = self._counters["denied_requests"]
+
+            return {
+                "total_requests": total,
+                "allowed_requests": allowed,
+                "denied_requests": denied,
+                "denial_rate": denied / total if total > 0 else 0.0,
+                "unique_keys": len(self._metrics),
+            }
+
+    def reset(self) -> None:
+        """Reset all metrics."""
+        with self._lock:
+            self._metrics.clear()
+            self._counters.clear()
+
+
+def get_metrics() -> MetricsCollector:
+    """Get the singleton metrics collector."""
+    return MetricsCollector()

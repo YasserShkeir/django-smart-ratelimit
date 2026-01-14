@@ -1,5 +1,5 @@
 """
-Enhanced Configuration Utilities
+Enhanced Configuration Utilities.
 
 This module provides advanced configuration management for rate limiting,
 including dynamic configuration, validation, and standardized patterns.
@@ -9,13 +9,13 @@ import inspect
 import logging
 from typing import Any, Callable, Dict, List, Optional
 
-from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.http import HttpRequest
 
 from .auth_utils import is_authenticated_user
+from .backends.utils import parse_rate
+from .config import get_settings
 from .key_functions import user_or_ip_key
-from .utils import parse_rate
 
 logger = logging.getLogger(__name__)
 
@@ -93,8 +93,8 @@ class RateLimitConfigManager:
             config = self._default_configs[config_name].copy()
         else:
             # Try to load from Django settings
-            setting_name = f"RATELIMIT_CONFIG_{config_name.upper()}"
-            config = getattr(settings, setting_name, {})
+            settings = get_settings()
+            config = settings.custom_configs.get(config_name.lower(), {})
 
         # Apply overrides
         config.update(overrides)
@@ -266,9 +266,7 @@ class DynamicRateLimitConfig:
 
 # Predefined condition functions for common use cases
 class RateLimitConditions:
-    """
-    Collection of predefined condition functions for dynamic rate limiting.
-    """
+    """Collection of predefined condition functions for dynamic rate limiting."""
 
     @staticmethod
     def is_authenticated(request: HttpRequest) -> bool:

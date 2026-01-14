@@ -160,7 +160,7 @@ class Command(BaseCommand):
                             )
                             self.stdout.write(f"  Host: {host}")
                             self.stdout.write(
-                                f"  Port: {getattr(backend, 'config', {}).get('port', 27017)}"
+                                f"  Port: {getattr(backend, 'config', {}).get('port', 27017)}"  # noqa: E501
                             )
 
                             try:

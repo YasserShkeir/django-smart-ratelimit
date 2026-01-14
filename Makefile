@@ -132,10 +132,8 @@ check-versions:
 	@echo "Checking version references across all files:"
 	@echo "django_smart_ratelimit/__init__.py:"
 	@grep "__version__" django_smart_ratelimit/__init__.py
-	@echo "examples/integrations/drf_integration/__init__.py:"
-	@grep "__version__" examples/integrations/drf_integration/__init__.py
-	@echo "pyproject.toml:"
-	@grep "current_version" pyproject.toml
+	@echo "pyproject.toml (version):"
+	@grep "^version = " pyproject.toml
 	@echo "CHANGELOG.md (latest):"
 	@head -15 CHANGELOG.md | grep -E "^\## \[" | head -2
 
@@ -170,12 +168,11 @@ release:
 	@echo ""
 	@echo "📝 Updating version to $(VERSION)..."
 	@sed -i '' 's/__version__ = ".*"/__version__ = "$(VERSION)"/' django_smart_ratelimit/__init__.py
-	@sed -i '' 's/__version__ = ".*"/__version__ = "$(VERSION)"/' examples/integrations/drf_integration/__init__.py
-	@sed -i '' 's/current_version = ".*"/current_version = "$(VERSION)"/' pyproject.toml
+	@sed -i '' 's/^version = ".*"/version = "$(VERSION)"/' pyproject.toml
 	@echo "✅ Version updated in all files"
 	@echo ""
 	@echo "📦 Committing version bump..."
-	@git add django_smart_ratelimit/__init__.py examples/integrations/drf_integration/__init__.py pyproject.toml
+	@git add django_smart_ratelimit/__init__.py pyproject.toml
 	@git commit -m "bump: version $(VERSION)"
 	@echo "✅ Version bump committed"
 	@echo ""

@@ -10,10 +10,13 @@ as it allows temporary bursts while maintaining an average rate over time.
 """
 
 import json
+import logging
 import math
 from typing import Any, Dict, Optional, Tuple
 
 from .base import RateLimitAlgorithm
+
+logger = logging.getLogger(__name__)
 
 
 class TokenBucketAlgorithm(RateLimitAlgorithm):
@@ -167,10 +170,13 @@ class TokenBucketAlgorithm(RateLimitAlgorithm):
             bucket_data = {"tokens": initial_tokens, "last_refill": current_time}
 
         # Calculate tokens to add based on time elapsed
+        # Formula: elapsed_time * refill_rate
+        # This implements the "leaky bucket" refill pattern where tokens drip in
         time_elapsed = current_time - bucket_data["last_refill"]
         tokens_to_add = time_elapsed * refill_rate
 
         # Update token count (cannot exceed bucket size)
+        # Cap tokens at bucket size (bucket can't overflow)
         current_tokens = min(bucket_size, bucket_data["tokens"] + tokens_to_add)
 
         # Check if request can be served
@@ -296,5 +302,8 @@ class TokenBucketAlgorithm(RateLimitAlgorithm):
             if hasattr(backend, "delete"):
                 return backend.delete(bucket_key)
             return False
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                f"Failed to reset token bucket for key {key}: {e}", exc_info=True
+            )
             return False

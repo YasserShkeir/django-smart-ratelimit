@@ -13,8 +13,13 @@ from enum import Enum
 from threading import Lock
 from typing import Any, Callable, Dict, Optional, TypeVar
 
-from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
+
+from .circuit_breaker_state import (
+    CircuitBreakerStateStorage,
+    MemoryCircuitBreakerState,
+    RedisCircuitBreakerState,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,12 +35,41 @@ class CircuitBreakerState(Enum):
 
 
 class CircuitBreakerError(Exception):
-    """Raised when circuit breaker is in OPEN state."""
+    """Raised when circuit breaker prevents operation."""
 
-    def __init__(self, message: str, next_attempt_time: Optional[float] = None):
-        """Initialize CircuitBreakerError with message and optional next attempt time."""
+    def __init__(
+        self,
+        message: str = "Circuit breaker is open",
+        next_attempt_time: Optional[float] = None,
+        breaker_name: Optional[str] = None,
+        failure_count: Optional[int] = None,
+        last_failure_time: Optional[float] = None,
+        recovery_time: Optional[float] = None,
+    ):
+        """
+        Initialize CircuitBreakerError with context.
+
+        Args:
+            message: Error message
+            next_attempt_time: Timestamp when next attempt is allowed (legacy)
+            breaker_name: Name of the circuit breaker
+            failure_count: Number of failures that tripped the breaker
+            last_failure_time: Timestamp of the last failure
+            recovery_time: Seconds until recovery attempt allowed
+        """
         super().__init__(message)
         self.next_attempt_time = next_attempt_time
+        self.breaker_name = breaker_name
+        self.failure_count = failure_count
+        self.last_failure_time = last_failure_time
+        self.recovery_time = recovery_time
+        self.next_attempt_time = next_attempt_time
+
+    def __str__(self) -> str:
+        """Return string representation of the error."""
+        if self.recovery_time:
+            return f"{self.args[0]} (retry in {self.recovery_time:.1f}s)"
+        return self.args[0]
 
 
 class CircuitBreakerConfig:
@@ -52,6 +86,7 @@ class CircuitBreakerConfig:
         half_open_max_calls: int = 1,
         exponential_backoff_multiplier: float = 2.0,
         exponential_backoff_max: int = 300,
+        state_backend: str = "memory",
     ):
         """
         Initialize circuit breaker configuration.
@@ -66,6 +101,7 @@ class CircuitBreakerConfig:
             half_open_max_calls: Max calls allowed in HALF_OPEN state before decision
             exponential_backoff_multiplier: Multiplier for exponential backoff
             exponential_backoff_max: Maximum backoff time (seconds)
+            state_backend: Backend for state storage ("memory" or "redis")
         """
         self.failure_threshold = failure_threshold
         self.recovery_timeout = recovery_timeout
@@ -76,6 +112,7 @@ class CircuitBreakerConfig:
         self.half_open_max_calls = half_open_max_calls
         self.exponential_backoff_multiplier = exponential_backoff_multiplier
         self.exponential_backoff_max = exponential_backoff_max
+        self.state_backend = state_backend
 
         # Validate configuration
         if failure_threshold <= 0:
@@ -157,17 +194,26 @@ class CircuitBreaker:
     prevents calls when failure rate exceeds threshold.
     """
 
-    def __init__(self, config: CircuitBreakerConfig):
+    def __init__(
+        self, config: CircuitBreakerConfig, redis_client: Optional[Any] = None
+    ):
         """Initialize circuit breaker with configuration."""
         self._config = config
-        self._state = CircuitBreakerState.CLOSED
-        self._failure_count = 0
-        self._last_failure_time: Optional[float] = None
-        self._last_state_change: float = time.time()
-        self._half_open_calls = 0
-        self._consecutive_failures = 0
-        self._lock = Lock()
+        self._redis_client = redis_client
         self._stats = CircuitBreakerStats()
+        self._lock = Lock()
+
+        # Initialize state storage
+        self._storage: CircuitBreakerStateStorage
+        if config.state_backend == "redis" and redis_client:
+            self._storage = RedisCircuitBreakerState(redis_client)
+        else:
+            self._storage = MemoryCircuitBreakerState()
+            if config.state_backend == "redis":
+                logger.warning(
+                    f"Circuit breaker '{config.name}' configured for Redis state "
+                    "but no redis_client provided. Falling back to memory."
+                )
 
         logger.info(
             f"Circuit breaker '{self._config.name}' initialized with "
@@ -178,151 +224,186 @@ class CircuitBreaker:
     @property
     def state(self) -> CircuitBreakerState:
         """Get current circuit breaker state."""
-        return self._state
+        state_str = self._storage.get_state(self._config.name or "default")
+        try:
+            return CircuitBreakerState(state_str)
+        except ValueError:
+            return CircuitBreakerState.CLOSED
 
     @property
     def stats(self) -> CircuitBreakerStats:
         """Get circuit breaker statistics."""
         return self._stats
 
+    @property
+    def _failure_count_prop(self) -> int:
+        """Get failure count from storage."""
+        return self._storage.get_failure_count(self._config.name or "default")
+
+    @property
+    def _last_failure_time(self) -> Optional[float]:
+        """Get last failure time from storage."""
+        return self._storage.get_last_failure_time(self._config.name or "default")
+
     def _calculate_backoff_time(self) -> float:
         """Calculate exponential backoff time based on consecutive failures."""
-        if self._consecutive_failures <= 1:
+        count = self._failure_count_prop
+        if count <= self._config.failure_threshold:
             return self._config.recovery_timeout
 
+        extra_failures = count - self._config.failure_threshold
         backoff = self._config.recovery_timeout * (
-            self._config.exponential_backoff_multiplier
-            ** (self._consecutive_failures - 1)
+            self._config.exponential_backoff_multiplier**extra_failures
         )
         return min(backoff, self._config.exponential_backoff_max)
 
     def _should_attempt_reset(self) -> bool:
         """Check if enough time has passed to attempt circuit reset."""
-        if not self._last_failure_time:
+        last_failure = self._last_failure_time
+        if not last_failure:
             return True
 
         current_time = time.time()
         backoff_time = self._calculate_backoff_time()
 
-        return current_time - self._last_failure_time >= backoff_time
+        return current_time - last_failure >= backoff_time
 
     def _change_state(self, new_state: CircuitBreakerState) -> None:
-        """Change circuit breaker state and log the change."""
-        old_state = self._state
-        self._state = new_state
-        self._last_state_change = time.time()
-        self._stats.record_state_change(old_state, new_state)
+        """Transition circuit breaker to new state."""
+        old_state_str = self._storage.get_state(self._config.name or "default")
+        try:
+            old_state = CircuitBreakerState(old_state_str)
+        except ValueError:
+            old_state = CircuitBreakerState.CLOSED
 
-        logger.info(
-            f"Circuit breaker '{self._config.name}' state changed: "
-            f"{old_state.value} -> {new_state.value}"
-        )
-
-        if new_state == CircuitBreakerState.HALF_OPEN:
-            self._half_open_calls = 0
-
-    def _handle_success(self) -> None:
-        """Handle successful operation."""
-        with self._lock:
-            self._stats.record_success()
-
-            if self._state == CircuitBreakerState.HALF_OPEN:
-                # Successful call in HALF_OPEN, reset to CLOSED
-                self._change_state(CircuitBreakerState.CLOSED)
-                self._failure_count = 0
-                self._consecutive_failures = 0
-                logger.info(
-                    f"Circuit breaker '{self._config.name}' recovered successfully"
+        if old_state != new_state:
+            name = self._config.name or "default"
+            # Set state in storage
+            # Add a small buffer to TTL for cache expiration
+            ttl = None
+            if new_state == CircuitBreakerState.OPEN:
+                ttl = int(
+                    self._config.recovery_timeout * 2
+                    + self._config.exponential_backoff_max
                 )
-            elif self._state == CircuitBreakerState.CLOSED:
-                # Reset failure count after successful operation
-                current_time = time.time()
-                if (
-                    self._last_failure_time
-                    and current_time - self._last_failure_time
-                    >= self._config.reset_timeout
-                ):
-                    self._failure_count = 0
-                    self._consecutive_failures = 0
+            elif new_state == CircuitBreakerState.HALF_OPEN:
+                # Reset half-open calls when entering HALF_OPEN
+                self._storage.reset_half_open_calls(name)
 
-    def _handle_failure(self, exception: Exception) -> None:
-        """Handle failed operation."""
-        with self._lock:
-            self._stats.record_failure()
-            current_time = time.time()
+            self._storage.set_state(name, new_state.value, ttl=ttl)
 
-            if self._state == CircuitBreakerState.CLOSED:
-                self._failure_count += 1
-                self._consecutive_failures += 1
-                self._last_failure_time = current_time
+            self._stats.record_state_change(old_state, new_state)
 
-                if self._failure_count >= self._config.failure_threshold:
-                    self._change_state(CircuitBreakerState.OPEN)
-                    logger.warning(
-                        f"Circuit breaker '{self._config.name}' opened due to "
-                        f"{self._failure_count} failures. Exception: {exception}"
-                    )
+            logger.info(
+                f"Circuit breaker '{self._config.name}' changed state: "
+                f"{old_state.value} -> {new_state.value}"
+            )
 
-            elif self._state == CircuitBreakerState.HALF_OPEN:
-                # Failure in HALF_OPEN, go back to OPEN
-                self._consecutive_failures += 1
-                self._last_failure_time = current_time
-                self._change_state(CircuitBreakerState.OPEN)
-                logger.warning(
-                    f"Circuit breaker '{self._config.name}' failed recovery attempt"
-                )
+    def _check_reset_timeout(self) -> None:
+        """Reset failure count if reset_timeout passed since last failure."""
+        if self.state != CircuitBreakerState.CLOSED:
+            return
+
+        last_fail = self._last_failure_time
+        if not last_fail:
+            return
+
+        if time.time() - last_fail > self._config.reset_timeout:
+            self._storage.reset_failures(self._config.name or "default")
 
     def call(self, func: Callable[..., T], *args: Any, **kwargs: Any) -> T:
         """
-        Call function through circuit breaker.
+        Execute function within circuit breaker context.
 
         Args:
-            func: Function to call
-            *args: Positional arguments for function
-            **kwargs: Keyword arguments for function
+            func: Function to execute
+            *args: Positional arguments
+            **kwargs: Keyword arguments
 
         Returns:
-            Function result
+            Result of the function execution
 
         Raises:
-            CircuitBreakerError: When circuit is open
-            Any exception raised by the function
+            CircuitBreakerError: If circuit is open
+            Exception: Original exception from function if not caught
         """
-        with self._lock:
-            current_time = time.time()
+        self._check_reset_timeout()
+        if not self.is_allowed():
+            self._stats.record_failure()
 
-            # Check if we should transition from OPEN to HALF_OPEN
-            if self._state == CircuitBreakerState.OPEN and self._should_attempt_reset():
-                self._change_state(CircuitBreakerState.HALF_OPEN)
+            # Calculate when retry is allowed
+            last_fail = self._last_failure_time or time.time()
+            backoff = self._calculate_backoff_time()
+            next_attempt = last_fail + backoff
 
-            # Block calls if circuit is OPEN
-            if self._state == CircuitBreakerState.OPEN:
-                backoff_time = self._calculate_backoff_time()
-                next_attempt = (self._last_failure_time or current_time) + backoff_time
+            raise CircuitBreakerError(
+                message=f"Circuit breaker '{self._config.name}' is open",
+                breaker_name=self._config.name,
+                failure_count=self._failure_count_prop,
+                last_failure_time=last_fail,
+                recovery_time=max(0, next_attempt - time.time()),
+            )
 
-                raise CircuitBreakerError(
-                    f"Circuit breaker '{self._config.name}' is OPEN. "
-                    f"Next attempt allowed at {time.ctime(next_attempt)}",
-                    next_attempt_time=next_attempt,
-                )
-
-            # Limit calls in HALF_OPEN state
-            if self._state == CircuitBreakerState.HALF_OPEN:
-                if self._half_open_calls >= self._config.half_open_max_calls:
-                    raise CircuitBreakerError(
-                        f"Circuit breaker '{self._config.name}' is in HALF_OPEN state "
-                        f"and max calls ({self._config.half_open_max_calls}) exceeded"
-                    )
-                self._half_open_calls += 1
-
-        # Execute the function
         try:
             result = func(*args, **kwargs)
-            self._handle_success()
+            self.report_success()
             return result
-        except self._config.expected_exception as e:
-            self._handle_failure(e)
+        except Exception as e:
+            # Check if this exception should trigger circuit breaker
+            if isinstance(e, self._config.expected_exception):
+                self.report_failure()
             raise
+
+    def is_allowed(self) -> bool:
+        """
+        Check if request is allowed by circuit breaker.
+
+        Returns:
+            True if allowed, False otherwise
+        """
+        current_state = self.state
+
+        if current_state == CircuitBreakerState.CLOSED:
+            return True
+
+        if current_state == CircuitBreakerState.OPEN:
+            if self._should_attempt_reset():
+                self._change_state(CircuitBreakerState.HALF_OPEN)
+                return True
+            return False
+
+        if current_state == CircuitBreakerState.HALF_OPEN:
+            # Check if we exceeded max calls in half-open state
+            name = self._config.name or "default"
+            # We increment first to reserve the spot
+            count = self._storage.increment_half_open_calls(name)
+            if count > self._config.half_open_max_calls:
+                return False
+            return True
+
+        return False
+
+    def report_success(self) -> None:
+        """Report successful execution."""
+        if self.state == CircuitBreakerState.HALF_OPEN:
+            # Success in HALF_OPEN -> reset to CLOSED
+            self._change_state(CircuitBreakerState.CLOSED)
+            self._storage.reset_failures(self._config.name or "default")
+
+        self._stats.record_success()
+
+    def report_failure(self) -> None:
+        """Report failed execution."""
+        self._stats.record_failure()
+        name = self._config.name or "default"
+
+        # Increment failures in storage
+        new_count = self._storage.increment_failure(name)
+
+        # Check threshold
+        if new_count >= self._config.failure_threshold:
+            if self.state != CircuitBreakerState.OPEN:
+                self._change_state(CircuitBreakerState.OPEN)
 
     def call_with_fallback(
         self, func: Callable[..., T], *args: Any, **kwargs: Any
@@ -348,19 +429,42 @@ class CircuitBreaker:
                 return self._config.fallback_function(*args, **kwargs)
             raise
 
+    def __enter__(self) -> "CircuitBreaker":
+        """Context manager entry."""
+        if not self.is_allowed():
+            self._stats.record_failure()
+            # Calculate when retry is allowed
+            last_fail = self._last_failure_time or time.time()
+            backoff = self._calculate_backoff_time()
+            next_attempt = last_fail + backoff
+
+            raise CircuitBreakerError(
+                message=f"Circuit breaker '{self._config.name}' is open",
+                breaker_name=self._config.name,
+                failure_count=self._failure_count_prop,
+                last_failure_time=last_fail,
+                recovery_time=max(0, next_attempt - time.time()),
+            )
+        return self
+
+    def __exit__(
+        self,
+        exc_type: Optional[type],
+        exc_val: Optional[Exception],
+        _exc_tb: Optional[Any],
+    ) -> None:
+        """Context manager exit."""
+        if exc_type is None:
+            self.report_success()
+        elif issubclass(exc_type, self._config.expected_exception) and exc_val:
+            self.report_failure()
+            # Don't suppress exception
+
     def reset(self) -> None:
         """Manually reset circuit breaker to CLOSED state."""
-        with self._lock:
-            old_state = self._state
-            self._change_state(CircuitBreakerState.CLOSED)
-            self._failure_count = 0
-            self._consecutive_failures = 0
-            self._half_open_calls = 0
-            self._last_failure_time = None
-
-            logger.info(
-                f"Circuit breaker '{self._config.name}' manually reset from {old_state.value}"
-            )
+        self._change_state(CircuitBreakerState.CLOSED)
+        self._storage.reset_failures(self._config.name or "default")
+        logger.info(f"Circuit breaker '{self._config.name}' manually reset to CLOSED")
 
     def get_status(self) -> Dict[str, Any]:
         """Get current circuit breaker status."""
@@ -368,24 +472,26 @@ class CircuitBreaker:
         backoff_time = self._calculate_backoff_time()
         next_attempt_time = None
 
-        if self._state == CircuitBreakerState.OPEN and self._last_failure_time:
-            next_attempt_time = self._last_failure_time + backoff_time
+        last_failure = self._last_failure_time
+
+        if self.state == CircuitBreakerState.OPEN and last_failure:
+            next_attempt_time = last_failure + backoff_time
 
         return {
             "name": self._config.name,
-            "state": self._state.value,
-            "failure_count": self._failure_count,
-            "consecutive_failures": self._consecutive_failures,
+            "state": self.state.value,
+            "failure_count": self._failure_count_prop,
+            "consecutive_failures": max(
+                0, self._failure_count_prop - self._config.failure_threshold
+            ),
             "failure_threshold": self._config.failure_threshold,
-            "last_failure_time": self._last_failure_time,
+            "last_failure_time": last_failure,
             "time_since_last_failure": (
-                current_time - self._last_failure_time
-                if self._last_failure_time
-                else None
+                current_time - last_failure if last_failure else None
             ),
             "next_attempt_time": next_attempt_time,
             "backoff_time": backoff_time,
-            "half_open_calls": self._half_open_calls,
+            "half_open_calls": 0,
             "stats": self._stats.get_stats(),
         }
 
@@ -399,7 +505,10 @@ class CircuitBreakerRegistry:
         self._lock = Lock()
 
     def get_or_create(
-        self, name: str, config: Optional[CircuitBreakerConfig] = None
+        self,
+        name: str,
+        config: Optional[CircuitBreakerConfig] = None,
+        redis_client: Optional[Any] = None,
     ) -> CircuitBreaker:
         """
         Get existing circuit breaker or create new one.
@@ -407,6 +516,7 @@ class CircuitBreakerRegistry:
         Args:
             name: Circuit breaker name
             config: Configuration for new circuit breaker
+            redis_client: Optional Redis client for distributed state
 
         Returns:
             CircuitBreaker instance
@@ -422,7 +532,7 @@ class CircuitBreakerRegistry:
             if config is None:
                 config = CircuitBreakerConfig(name=name)
 
-            breaker = CircuitBreaker(config)
+            breaker = CircuitBreaker(config, redis_client=redis_client)
             self._breakers[name] = breaker
             return breaker
 
@@ -460,7 +570,7 @@ def circuit_breaker(
     fallback_function: Optional[Callable] = None,
 ) -> Callable:
     """
-    Decorator for applying circuit breaker pattern to functions.
+    Decorate function with circuit breaker pattern.
 
     Args:
         failure_threshold: Number of failures before opening circuit
@@ -474,6 +584,11 @@ def circuit_breaker(
     """
 
     def decorator(func: Callable) -> Callable:
+        # Import inside function to avoid circular imports
+        from django_smart_ratelimit.config import get_settings
+
+        settings = get_settings()
+
         breaker_name = name or f"{func.__module__}.{func.__name__}"
         config = CircuitBreakerConfig(
             failure_threshold=failure_threshold,
@@ -481,8 +596,29 @@ def circuit_breaker(
             expected_exception=expected_exception,
             name=breaker_name,
             fallback_function=fallback_function,
+            state_backend=settings.circuit_breaker_storage,
         )
-        breaker = circuit_breaker_registry.get_or_create(breaker_name, config)
+
+        # Configure Redis client if needed
+        redis_client = None
+        if (
+            settings.circuit_breaker_storage == "redis"
+            and settings.circuit_breaker_redis_url
+        ):
+            try:
+                import redis
+
+                redis_client = redis.from_url(settings.circuit_breaker_redis_url)
+            except ImportError:
+                logger.error(
+                    "Redis configured for circuit breaker but redis-py not installed."
+                )
+            except Exception as e:
+                logger.error(f"Failed to connect to Redis for circuit breaker: {e}")
+
+        breaker = circuit_breaker_registry.get_or_create(
+            breaker_name, config, redis_client=redis_client
+        )
 
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             if fallback_function:
@@ -500,6 +636,10 @@ def circuit_breaker(
 
 def get_circuit_breaker_config_from_settings() -> Dict[str, Any]:
     """Get circuit breaker configuration from Django settings."""
+    from django_smart_ratelimit.config import get_settings
+
+    settings = get_settings()
+
     default_config = {
         "failure_threshold": 5,
         "recovery_timeout": 60,
@@ -509,9 +649,7 @@ def get_circuit_breaker_config_from_settings() -> Dict[str, Any]:
         "exponential_backoff_max": 300,
     }
 
-    # Check for Django settings
-    if hasattr(settings, "RATELIMIT_CIRCUIT_BREAKER"):
-        config = getattr(settings, "RATELIMIT_CIRCUIT_BREAKER", {})
-        default_config.update(config)
+    if settings.circuit_breaker_config:
+        default_config.update(settings.circuit_breaker_config)
 
     return default_config

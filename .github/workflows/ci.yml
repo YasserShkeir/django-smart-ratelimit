@@ -69,7 +69,7 @@ jobs:
 
       - name: Run tests
         run: |
-          pytest
+          pytest -m "not benchmark"
         env:
           REDIS_URL: redis://localhost:6379/0
           MONGODB_URL: mongodb://localhost:27017/test
@@ -114,7 +114,7 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          pytest --cov=django_smart_ratelimit --cov-report=xml --cov-report=term-missing
+          pytest -m "not benchmark" --cov=django_smart_ratelimit --cov-report=xml --cov-report=term-missing
         env:
           REDIS_URL: redis://localhost:6379/0
           MONGODB_URL: mongodb://localhost:27017/test

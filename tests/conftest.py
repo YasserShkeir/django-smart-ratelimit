@@ -37,6 +37,37 @@ def django_user(django_user_model):
 
 
 @pytest.fixture
+def staff_user(django_user_model):
+    """Create a staff user for testing."""
+    return django_user_model.objects.create_user(
+        username="staffuser",
+        email="staff@example.com",
+        password="testpass123",
+        is_staff=True,
+    )
+
+
+@pytest.fixture
+def superuser(django_user_model):
+    """Create a superuser for testing."""
+    return django_user_model.objects.create_user(
+        username="superuser",
+        email="super@example.com",
+        password="testpass123",
+        is_staff=True,
+        is_superuser=True,
+    )
+
+
+@pytest.fixture
+def request_factory():
+    """Return a Django RequestFactory."""
+    from django.test import RequestFactory
+
+    return RequestFactory()
+
+
+@pytest.fixture
 def redis_backend():
     """Return a Redis backend instance for testing."""
     from unittest.mock import Mock, patch

@@ -5,7 +5,7 @@ with support for multiple backends, algorithms (including token bucket),
 and comprehensive rate limiting strategies.
 """
 
-__version__ = "0.8.11"
+__version__ = "1.0.0"
 __author__ = "Yasser Shkeir"
 
 # Optional backend imports (may not be available)
@@ -36,33 +36,9 @@ from .backends.factory import BackendFactory
 from .backends.memory import MemoryBackend
 from .backends.multi import BackendHealthChecker, MultiBackend
 
-if TYPE_CHECKING:
-    from .backends.mongodb import MongoDBBackend as MongoDBBackendType
-    from .backends.redis_backend import RedisBackend as RedisBackendType
-else:
-    RedisBackendType = None
-    MongoDBBackendType = None
-
-RedisBackend: Optional[type] = None
-MongoDBBackend: Optional[type] = None
-
-try:
-    from .backends.redis_backend import RedisBackend
-except ImportError:
-    pass
-
-try:
-    from .backends.mongodb import MongoDBBackend
-except ImportError:
-    pass
-
-# Note: DatabaseBackend and model imports are kept in submodules to avoid Django app loading issues
-# Import them from django_smart_ratelimit.backends.database and django_smart_ratelimit.models respectively
-
 # Circuit Breaker
 from .circuit_breaker import (
     CircuitBreakerConfig,
-    CircuitBreakerError,
     CircuitBreakerState,
     circuit_breaker,
     circuit_breaker_registry,
@@ -74,17 +50,24 @@ from .configuration import RateLimitConfigManager
 # Core functionality
 from .decorator import rate_limit
 
-# Common key functions
-from .key_functions import (
-    api_key_aware_key,
-    composite_key,
-    device_fingerprint_key,
-    geographic_key,
-    tenant_aware_key,
-    time_aware_key,
-    user_or_ip_key,
-    user_role_key,
+# Exceptions
+from .exceptions import (
+    BackendConnectionError,
+    BackendError,
+    BackendTimeoutError,
+    CircuitBreakerError,
+    CircuitBreakerOpen,
+    ConfigurationError,
+    KeyGenerationError,
+    RateLimitExceeded,
+    RateLimitException,
 )
+
+# Common key functions
+from .key_functions import api_key_aware_key, composite_key, geographic_key
+from .key_functions import get_device_fingerprint_key as device_fingerprint_key
+from .key_functions import get_tenant_key as tenant_aware_key
+from .key_functions import time_aware_key, user_or_ip_key, user_role_key
 from .middleware import RateLimitMiddleware
 
 # Performance utilities
@@ -107,20 +90,68 @@ from .utils import (
     get_tenant_key,
     get_user_key,
     is_exempt_request,
+    is_ratelimited,
     load_function_from_string,
     parse_rate,
     should_skip_path,
     validate_rate_config,
 )
 
+if TYPE_CHECKING:
+    from .backends.mongodb import MongoDBBackend as MongoDBBackendType
+    from .backends.redis_backend import RedisBackend as RedisBackendType
+else:
+    RedisBackendType = None
+    MongoDBBackendType = None
+
+RedisBackend: Optional[type] = None
+MongoDBBackend: Optional[type] = None
+
+try:
+    from .backends.redis_backend import RedisBackend
+except ImportError:
+    pass
+
+try:
+    from .backends.mongodb import MongoDBBackend
+except ImportError:
+    pass
+
+# and django_smart_ratelimit.models respectively
+
 # Models (conditional import to avoid Django app loading issues)
 # These will be set by _import_django_components() when needed
+
+# Logging format constants
+RATELIMIT_LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# Log level constants
+LOG_LEVEL_DEBUG = "DEBUG"
+LOG_LEVEL_INFO = "INFO"
+LOG_LEVEL_WARNING = "WARNING"
+LOG_LEVEL_ERROR = "ERROR"
 
 
 __all__ = [
     # Core functionality
     "rate_limit",
     "RateLimitMiddleware",
+    # Logging
+    "RATELIMIT_LOG_FORMAT",
+    "LOG_LEVEL_DEBUG",
+    "LOG_LEVEL_INFO",
+    "LOG_LEVEL_WARNING",
+    "LOG_LEVEL_ERROR",
+    # Exceptions
+    "RateLimitException",
+    "RateLimitExceeded",
+    "BackendError",
+    "BackendConnectionError",
+    "BackendTimeoutError",
+    "ConfigurationError",
+    "CircuitBreakerError",
+    "CircuitBreakerOpen",
+    "KeyGenerationError",
     # Algorithms
     "TokenBucketAlgorithm",
     "RateLimitAlgorithm",

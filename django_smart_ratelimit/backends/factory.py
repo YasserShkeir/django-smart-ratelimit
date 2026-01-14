@@ -4,11 +4,31 @@ import importlib
 import logging
 from typing import Any, Dict, Type
 
-from django.conf import settings
-
 from .base import BaseBackend
 
 logger = logging.getLogger(__name__)
+
+# Registry of built-in backends
+BUILTIN_BACKENDS: Dict[str, str] = {
+    "memory": "django_smart_ratelimit.backends.memory.MemoryBackend",
+    "redis": "django_smart_ratelimit.backends.redis_backend.RedisBackend",
+    "async_redis": "django_smart_ratelimit.backends.redis_backend.AsyncRedisBackend",
+    "mongodb": "django_smart_ratelimit.backends.mongodb.MongoDBBackend",
+    "multi": "django_smart_ratelimit.backends.multi.MultiBackend",
+}
+
+# Custom backend registry
+_custom_backends: Dict[str, Type[BaseBackend]] = {}
+
+
+def register_backend(name: str, backend_class: Type[BaseBackend]) -> None:
+    """Register a custom backend.
+
+    Args:
+        name: Name to register the backend under
+        backend_class: The backend class to register
+    """
+    _custom_backends[name] = backend_class
 
 
 class BackendFactory:
@@ -19,10 +39,10 @@ class BackendFactory:
     @classmethod
     def get_backend_class(cls, backend_path: str) -> Type[BaseBackend]:
         """
-        Get backend class from dotted path.
+        Get backend class from dotted path or short name.
 
         Args:
-            backend_path: Dotted path to backend class
+            backend_path: Dotted path to backend class or short name (e.g. 'redis')
 
         Returns:
             Backend class
@@ -31,6 +51,14 @@ class BackendFactory:
             ImportError: If backend cannot be imported
             AttributeError: If backend class not found
         """
+        # Check custom backends first
+        if backend_path in _custom_backends:
+            return _custom_backends[backend_path]
+
+        # Check built-in aliases
+        if backend_path in BUILTIN_BACKENDS:
+            backend_path = BUILTIN_BACKENDS[backend_path]
+
         if backend_path in cls._backend_cache:
             return cls._backend_cache[backend_path]
 
@@ -80,12 +108,16 @@ class BackendFactory:
             ImportError: If backend cannot be imported
             AttributeError: If backend class not found
         """
-        backend_path = getattr(settings, "RATELIMIT_BACKEND", None)
+        from django_smart_ratelimit.config import get_settings
+
+        settings = get_settings()
+
+        backend_path = settings.backend_class
         if not backend_path:
             # Default to Redis backend for backward compatibility
             backend_path = "django_smart_ratelimit.backends.redis_backend.RedisBackend"
 
-        backend_config = getattr(settings, "RATELIMIT_BACKEND_CONFIG", {})
+        backend_config = settings.backend_config
         return cls.create_backend(backend_path, **backend_config)
 
     @classmethod
