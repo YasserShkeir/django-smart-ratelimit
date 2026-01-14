@@ -9,7 +9,7 @@ __version__ = "1.0.0"
 __author__ = "Yasser Shkeir"
 
 # Optional backend imports (may not be available)
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Union
 
 # Algorithms
 from .algorithms import TokenBucketAlgorithm
@@ -49,6 +49,34 @@ from .configuration import RateLimitConfigManager
 
 # Core functionality
 from .decorator import rate_limit
+
+
+def ratelimit(
+    key: Union[str, Callable],
+    rate: Optional[str] = None,
+    block: bool = True,
+    backend: Optional[str] = None,
+    skip_if: Optional[Callable] = None,
+    algorithm: Optional[str] = None,
+    algorithm_config: Optional[Dict[str, Any]] = None,
+    settings: Optional[Any] = None,
+) -> Callable:
+    """Alias for rate_limit decorator.
+
+    This is provided for compatibility with django-ratelimit naming convention.
+    See rate_limit for full documentation.
+    """
+    return rate_limit(
+        key=key,
+        rate=rate,
+        block=block,
+        backend=backend,
+        skip_if=skip_if,
+        algorithm=algorithm,
+        algorithm_config=algorithm_config,
+        settings=settings,
+    )
+
 
 # Exceptions
 from .exceptions import (
@@ -135,6 +163,7 @@ LOG_LEVEL_ERROR = "ERROR"
 __all__ = [
     # Core functionality
     "rate_limit",
+    "ratelimit",  # Alias for rate_limit
     "RateLimitMiddleware",
     # Logging
     "RATELIMIT_LOG_FORMAT",

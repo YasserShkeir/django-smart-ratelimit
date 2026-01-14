@@ -1,17 +1,18 @@
 # Decorator API
 
-The primary way to use Django Smart Ratelimit is via the `@rate_limit` decorator.
+The primary way to use Django Smart Ratelimit is via the `@rate_limit` decorator (also available as `@ratelimit` for compatibility with other libraries).
 
-## @rate_limit
+## @rate_limit / @ratelimit
 
-Applies rate limiting to a Django view (sync or async).
+Applies rate limiting to a Django view (sync or async). Both names are identical - use whichever you prefer.
 
 ```python
-from django_smart_ratelimit import rate_limit
+from django_smart_ratelimit import rate_limit  # or: ratelimit
 
 @rate_limit(key='ip', rate='5/m', block=True)
 def my_view(request):
     ...
+```
 ```
 
 ### Parameters

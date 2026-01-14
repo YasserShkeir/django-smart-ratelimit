@@ -13,7 +13,7 @@ from django.contrib.auth.models import AnonymousUser
 from django.http import HttpResponse
 from django.test import RequestFactory, TestCase
 
-from django_smart_ratelimit import generate_key, parse_rate, rate_limit
+from django_smart_ratelimit import generate_key, parse_rate, rate_limit, ratelimit
 from tests.utils import BaseBackendTestCase, create_test_user
 
 # Check if redis is available
@@ -23,6 +23,36 @@ try:
     HAS_REDIS = True
 except ImportError:
     HAS_REDIS = False
+
+
+class RateLimitAliasTests(TestCase):
+    """Tests for the ratelimit alias."""
+
+    def test_ratelimit_alias_is_callable(self):
+        """Verify ratelimit alias is callable."""
+        self.assertTrue(callable(ratelimit))
+
+    def test_ratelimit_alias_has_same_signature(self):
+        """Verify ratelimit alias has the same parameters as rate_limit."""
+        import inspect
+
+        rate_limit_sig = inspect.signature(rate_limit)
+        ratelimit_sig = inspect.signature(ratelimit)
+        self.assertEqual(
+            list(rate_limit_sig.parameters.keys()),
+            list(ratelimit_sig.parameters.keys()),
+        )
+
+    def test_ratelimit_alias_works_as_decorator(self):
+        """Verify ratelimit can be used as a decorator."""
+        from django.http import HttpResponse
+
+        @ratelimit(key="ip", rate="10/m", block=False)
+        def dummy_view(request):
+            return HttpResponse("OK")
+
+        # Should be wrapped (callable)
+        self.assertTrue(callable(dummy_view))
 
 
 class RateLimitDecoratorCoreTests(BaseBackendTestCase):
