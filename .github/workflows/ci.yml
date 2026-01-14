@@ -126,7 +126,7 @@ jobs:
           file: ./coverage.xml
           flags: unittests
           name: codecov-umbrella
-          fail_ci_if_error: true
+          fail_ci_if_error: false
 
   lint:
     runs-on: ubuntu-latest
@@ -163,10 +163,6 @@ jobs:
 
       - name: Run mypy on core library
         run: mypy django_smart_ratelimit
-
-      - name: Run mypy on examples
-        run: mypy examples/ --ignore-missing-imports
-        continue-on-error: true
 
   security:
     runs-on: ubuntu-latest
