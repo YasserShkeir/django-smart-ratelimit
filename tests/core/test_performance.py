@@ -1,139 +1,86 @@
-"""Expanded tests for performance module."""
+"""Tests for performance module."""
 
-from unittest.mock import patch
+import time
 
-from django.http import HttpRequest
 from django.test import TestCase
 
-from django_smart_ratelimit import RateLimitCache
-from django_smart_ratelimit.performance import PerformanceMonitor, RateLimitOptimizer
+from django_smart_ratelimit.backends.memory import MemoryBackend
+from django_smart_ratelimit.performance import RateLimitMetrics, get_memory_usage, timed
 
 
-class RateLimitCacheTests(TestCase):
-    """Tests for RateLimitCache class."""
+class TestPerformance(TestCase):
+    """Tests for performance utilities."""
 
-    def setUp(self):
-        """Set up test fixtures."""
-        self.cache = RateLimitCache()
+    def test_timing_decorator(self):
+        """Test the timing decorator captures execution time."""
 
-    def test_initialization(self):
-        """Test cache initialization."""
-        self.assertEqual(self.cache.cache_prefix, "rl_cache")
-        self.assertEqual(self.cache.default_timeout, 300)
+        @timed
+        def slow_function():
+            time.sleep(0.01)
+            return "done"
 
-    def test_custom_initialization(self):
-        """Test cache initialization with custom parameters."""
-        cache = RateLimitCache(cache_prefix="custom", default_timeout=600)
-        self.assertEqual(cache.cache_prefix, "custom")
-        self.assertEqual(cache.default_timeout, 600)
+        result = slow_function()
 
-    def test_make_cache_key(self):
-        """Test cache key generation."""
-        key = self.cache._make_cache_key("test_key")
-        self.assertEqual(key, "rl_cache:test_key")
+        assert result == "done"
+        # We can't easily check the log output without capturing logs,
+        # but we verified the function runs and returns.
 
-    def test_make_cache_key_with_operation(self):
-        """Test cache key generation with operation."""
-        key = self.cache._make_cache_key("test_key", "info")
-        self.assertEqual(key, "rl_cache:info:test_key")
+    def test_metrics_collection(self):
+        """Test metrics are collected properly."""
+        metrics = RateLimitMetrics()
 
-    @patch("django_smart_ratelimit.performance.cache")
-    def test_get_rate_limit_info(self, mock_cache):
-        """Test get rate limit info."""
-        mock_cache.get.return_value = {"limit": 100, "remaining": 50}
-        info = self.cache.get_rate_limit_info("test_key")
+        metrics.record_request("key1", allowed=True, duration=0.01)
+        metrics.record_request("key1", allowed=False, duration=0.02)
 
-        mock_cache.get.assert_called_once_with("rl_cache:info:test_key")
-        self.assertEqual(info, {"limit": 100, "remaining": 50})
+        stats = metrics.get_stats("key1")
 
-    @patch("django_smart_ratelimit.performance.cache")
-    def test_set_rate_limit_info(self, mock_cache):
-        """Test set rate limit info."""
-        info = {"limit": 100, "remaining": 50}
-        self.cache.set_rate_limit_info("test_key", info)
+        assert stats["total_requests"] == 2
+        assert stats["allowed_requests"] == 1
+        assert stats["denied_requests"] == 1
+        assert abs(stats["total_duration"] - 0.03) < 0.001
 
-        mock_cache.set.assert_called_once_with("rl_cache:info:test_key", info, 300)
+    def test_memory_usage_tracking(self):
+        """Test memory usage tracking for backends."""
+        backend = MemoryBackend()
 
-    @patch("django_smart_ratelimit.performance.cache")
-    def test_invalidate_rate_limit_info(self, mock_cache):
-        """Test invalidating cached rate limit info."""
-        self.cache.invalidate_rate_limit_info("test_key")
-        mock_cache.delete.assert_called_once_with("rl_cache:info:test_key")
+        # Add some data
+        for i in range(100):
+            backend.incr(f"key:{i}", period=60)
 
-    @patch("django_smart_ratelimit.performance.cache")
-    def test_backend_health_cache(self, mock_cache):
-        """Test backend health get/set caching."""
-        self.cache.set_backend_health("redis", True, timeout=42)
-        mock_cache.set.assert_called_once_with("rl_cache:health:redis", True, 42)
+        memory = get_memory_usage(backend)
 
-        mock_cache.get.return_value = True
-        is_healthy = self.cache.get_backend_health("redis")
-        mock_cache.get.assert_called_once_with("rl_cache:health:redis")
-        self.assertTrue(is_healthy)
-
-    @patch("django_smart_ratelimit.performance.cache")
-    def test_batch_invalidate(self, mock_cache):
-        """Test batch invalidation of multiple keys."""
-        self.cache.batch_invalidate(["k1", "k2"])
-        mock_cache.delete_many.assert_called_once_with(
-            ["rl_cache:info:k1", "rl_cache:info:k2"]
-        )
+        assert memory > 0
 
 
-class PerformanceMonitorTests(TestCase):
-    """Tests for PerformanceMonitor timing and metrics."""
+class TestMetricsCollector(TestCase):
+    """Tests for the new MetricsCollector singleton."""
 
-    def test_time_operation_and_metrics(self):
-        monitor = PerformanceMonitor()
-        with monitor.time_operation("op1"):
-            # Simulate work
-            pass
+    def test_singleton_nature(self):
+        from django_smart_ratelimit.performance import MetricsCollector, get_metrics
 
-        metrics = monitor.get_metrics("op1")
-        self.assertEqual(metrics["count"], 1)
-        self.assertGreaterEqual(metrics["avg_time"], 0.0)
+        m1 = get_metrics()
+        m2 = get_metrics()
+        m3 = MetricsCollector()
 
-        summary = monitor.get_performance_summary()
-        self.assertIn("total_operations", summary)
-        self.assertEqual(summary["total_operations"], 1)
-        self.assertEqual(summary["operations"], ["op1"])
+        self.assertIs(m1, m2)
+        self.assertIs(m1, m3)
 
-        monitor.reset_metrics()
-        self.assertEqual(monitor.get_metrics(), {})
+    def test_record_request(self):
+        from django_smart_ratelimit.performance import get_metrics
 
+        metrics = get_metrics()
+        metrics.reset()
 
-class RateLimitOptimizerTests(TestCase):
-    """Tests for RateLimitOptimizer key generation optimization."""
+        metrics.record_request("k1", True, 10.5, "memory")
+        metrics.record_request("k1", False, 5.0, "memory")
+        metrics.record_request("k2", True, 2.0, "redis")
 
-    @patch("django_smart_ratelimit.performance.cache")
-    def test_optimize_key_generation_uses_cache(self, mock_cache):
-        optimizer = RateLimitOptimizer()
+        stats = metrics.get_stats()
+        self.assertEqual(stats["total_requests"], 3)
+        self.assertEqual(stats["allowed_requests"], 2)
+        self.assertEqual(stats["denied_requests"], 1)
+        self.assertEqual(stats["unique_keys"], 2)
 
-        def original_key_func(request: HttpRequest) -> str:
-            return f"{request.method}:{request.path}"
-
-        optimized = optimizer.optimize_key_generation(
-            original_key_func, cache_timeout=5
-        )
-
-        # Build minimal request
-        req = HttpRequest()
-        req.method = "GET"
-        req.path = "/api/test/"
-        req.META["REMOTE_ADDR"] = "127.0.0.1"
-        req.user = type("U", (), {"is_authenticated": False})()
-
-        # First call should set cache
-        mock_cache.get.return_value = None
-        result1 = optimized(req)
-        self.assertEqual(result1, "GET:/api/test/")
-        self.assertTrue(mock_cache.set.called)
-
-        # Second call should hit cache
-        mock_cache.get.reset_mock()
-        mock_cache.set.reset_mock()
-        mock_cache.get.return_value = "GET:/api/test/"
-        result2 = optimized(req)
-        self.assertEqual(result2, "GET:/api/test/")
-        mock_cache.get.assert_called_once()
-        mock_cache.set.assert_not_called()
+        # Check internal storage history
+        self.assertEqual(len(metrics._metrics["k1"]), 2)
+        self.assertEqual(metrics._metrics["k1"][0].duration_ms, 10.5)

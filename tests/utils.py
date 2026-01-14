@@ -6,11 +6,10 @@ that are used across multiple test files.
 """
 
 import time
-from contextlib import contextmanager
 from typing import Any, Dict, List, Optional, Tuple
 from unittest.mock import Mock, patch
 
-from django.test import TestCase, override_settings
+from django.test import TestCase
 
 from django_smart_ratelimit import BaseBackend, MemoryBackend
 
@@ -52,7 +51,7 @@ class MockBackend(BaseBackend):
         self.storage[key] = current + 1
         return current + 1
 
-    def get_count(self, key: str) -> int:
+    def get_count(self, key: str, period: int = 60) -> int:
         """Mock get_count method."""
         self.operation_calls.append(("get_count", key))
         if self._should_fail_operation("get_count"):
@@ -123,6 +122,10 @@ class BaseBackendTestCase(TestCase):
         """Clean up after tests."""
         if hasattr(self.backend, "clear_all"):
             self.backend.clear_all()
+
+        # Stop background threads
+        if hasattr(self.backend, "shutdown"):
+            self.backend.shutdown()
 
     def get_backend(self):
         """Override this method to return the backend to test."""
@@ -262,52 +265,6 @@ class MongoBackendTestMixin:
             setattr(self.mock_collection, attr, value)
 
 
-@contextmanager
-def temporary_settings(**_kwargs):
-    """Context manager for temporarily overriding Django settings."""
-    with override_settings(**_kwargs):
-        yield
-
-
-def create_test_settings(backend_type: str = "memory", **overrides):
-    """Create test settings for a specific backend type."""
-    base_settings = {
-        "memory": {
-            "RATELIMIT_BACKEND": "memory",
-            "RATELIMIT_MEMORY": {
-                "max_entries": 1000,
-                "cleanup_interval": 60,
-            },
-        },
-        "redis": {
-            "RATELIMIT_BACKEND": "redis",
-            "RATELIMIT_REDIS": {
-                "host": "localhost",
-                "port": 6379,
-                "db": 0,
-            },
-        },
-        "mongodb": {
-            "RATELIMIT_BACKEND": "mongodb",
-            "RATELIMIT_MONGODB": {
-                "host": "localhost",
-                "port": 27017,
-                "db": "test",
-            },
-        },
-        "database": {
-            "RATELIMIT_BACKEND": "database",
-            "RATELIMIT_DATABASE": {
-                "cleanup_threshold": 1000,
-            },
-        },
-    }
-
-    settings = base_settings.get(backend_type, {})
-    settings.update(overrides)
-    return settings
-
-
 class AlgorithmTestMixin:
     """
     Mixin for algorithm tests that provides common algorithm testing patterns.
@@ -428,38 +385,6 @@ class ErrorHandlingTestMixin:
         # Subclasses should implement specific recovery scenarios
 
 
-# Utility functions for common test patterns
-
-
-def create_expired_data(backend, key: str, hours_ago: int = 2):
-    """Create expired data for testing cleanup functionality."""
-    # This is a placeholder - implementation depends on backend type
-
-
-def wait_for_expiration(seconds: float = 1.1):
-    """Wait for data to expire in tests."""
-    time.sleep(seconds)
-
-
-def assert_cleanup_effectiveness(test_case, backend, key: str):
-    """Assert that cleanup removes expired data."""
-    # Create some data
-    backend.incr(key, 1)  # Short expiry
-
-    # Wait for expiration
-    wait_for_expiration()
-
-    # Trigger cleanup
-    if hasattr(backend, "cleanup_expired"):
-        backend.cleanup_expired()
-    elif hasattr(backend, "_cleanup_if_needed"):
-        backend._cleanup_if_needed()
-
-    # Verify cleanup
-    count = backend.get_count(key)
-    test_case.assertEqual(count, 0, "Expired data should be cleaned up")
-
-
 def generate_test_keys(count: int = 10, prefix: str = "test") -> List[str]:
     """Generate test keys for testing."""
     return [f"{prefix}:{i}" for i in range(count)]
@@ -534,26 +459,3 @@ def create_test_superuser(
         is_staff=True,
         is_superuser=True,
     )
-
-
-def create_test_request(factory, path="/", method="GET", user=None, **_kwargs):
-    """Create a test request with optional user authentication."""
-    if method.upper() == "GET":
-        request = factory.get(path, **_kwargs)
-    elif method.upper() == "POST":
-        request = factory.post(path, **_kwargs)
-    elif method.upper() == "PUT":
-        request = factory.put(path, **_kwargs)
-    elif method.upper() == "DELETE":
-        request = factory.delete(path, **_kwargs)
-    else:
-        request = factory.get(path, **_kwargs)
-
-    if user:
-        request.user = user
-    else:
-        from django.contrib.auth.models import AnonymousUser
-
-        request.user = AnonymousUser()
-
-    return request

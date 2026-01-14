@@ -7,26 +7,38 @@ single-server deployments.
 """
 
 import threading
-import time
-from typing import Any, Dict, List, Optional, Tuple, Union
+from collections import OrderedDict, defaultdict
+from dataclasses import asdict, dataclass
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
-from django.conf import settings
-
+from ..exceptions import BackendError
+from ..messages import ERROR_BACKEND_UNAVAILABLE
 from .base import BaseBackend
 from .utils import (
+    calculate_expiry,
     calculate_sliding_window_count,
     calculate_token_bucket_state,
     clean_expired_entries,
-    cleanup_memory_data,
     create_operation_timer,
-    estimate_memory_usage,
+    filter_sliding_window_requests,
     format_token_bucket_metadata,
     generate_expiry_timestamp,
+    get_current_timestamp,
     is_expired,
     log_backend_operation,
     normalize_key,
     validate_backend_config,
 )
+
+
+@dataclass
+class TokenBucketState:
+    """State for token bucket algorithm."""
+
+    __slots__ = ("tokens", "last_refill")
+
+    tokens: float
+    last_refill: float
 
 
 class MemoryBackend(BaseBackend):
@@ -47,17 +59,35 @@ class MemoryBackend(BaseBackend):
 
     def __init__(self, **config: Any) -> None:
         """Initialize the memory backend with enhanced utilities."""
+        # Read Django settings first
+        from django_smart_ratelimit.config import get_settings
+
+        settings = get_settings()
+
         # Extract circuit breaker configuration before processing
         enable_circuit_breaker = config.pop("enable_circuit_breaker", True)
         circuit_breaker_config = config.pop("circuit_breaker_config", None)
+        fail_open = config.pop("fail_open", settings.fail_open)
+        enable_background_cleanup = config.pop("enable_background_cleanup", True)
 
         # Initialize parent class with circuit breaker
-        super().__init__(enable_circuit_breaker, circuit_breaker_config)
+        super().__init__(
+            enable_circuit_breaker=enable_circuit_breaker,
+            circuit_breaker_config=circuit_breaker_config,
+            fail_open=fail_open,
+            **config,
+        )
 
-        # Read Django settings first
-        max_keys_setting = getattr(settings, "RATELIMIT_MEMORY_MAX_KEYS", 10000)
-        cleanup_interval_setting = getattr(
-            settings, "RATELIMIT_MEMORY_CLEANUP_INTERVAL", 300
+        # Check backend options first, then explicit settings
+        max_keys_setting = (
+            config.get("max_keys")
+            or settings.backend_options.get("max_keys")
+            or settings.memory_max_keys
+        )
+        cleanup_interval_setting = (
+            config.get("cleanup_interval")
+            or settings.backend_options.get("cleanup_interval")
+            or settings.memory_cleanup_interval
         )
 
         # Validate and normalize configuration
@@ -65,11 +95,19 @@ class MemoryBackend(BaseBackend):
 
         # Dictionary to store rate limit data
         # Format: {key: (expiry_time, [(timestamp, unique_id), ...])}
-        self._data: Dict[str, Tuple[float, List[Tuple[float, str]]]] = {}
+        self._data: OrderedDict[str, Tuple[float, List[Tuple[float, str]]]] = (
+            OrderedDict()
+        )
+
+        # Partition index for expiration cleanup
+        # Key: partition_id (timestamp // cleanup_interval), Value: Set[key]
+        self._partitions: Dict[int, Set[str]] = defaultdict(set)
+        # Store partition_id for each key for quick updates
+        self._key_partition: Dict[str, int] = {}
 
         # Dictionary to store token bucket data
-        # Format: {key: {'tokens': float, 'last_refill': float}}
-        self._token_buckets: Dict[str, Dict[str, float]] = {}
+        # Format: {key: TokenBucketState}
+        self._token_buckets: OrderedDict[str, TokenBucketState] = OrderedDict()
 
         # Generic storage for algorithm implementations
         self._storage: Dict[str, Any] = {}
@@ -85,11 +123,83 @@ class MemoryBackend(BaseBackend):
         )
 
         # Cleanup tracking
-        self._last_cleanup = time.time()
+        self._last_cleanup = get_current_timestamp()
+
+        # Background cleanup thread
+        self._shutdown_event = threading.Event()
+        self._cleanup_thread: Optional[threading.Thread] = None
+
+        if enable_background_cleanup:
+            self._start_cleanup_thread()
 
         # Configuration
-        self._algorithm = getattr(settings, "RATELIMIT_ALGORITHM", "sliding_window")
-        self._key_prefix = getattr(settings, "RATELIMIT_KEY_PREFIX", "ratelimit:")
+        self._algorithm = settings.default_algorithm
+        self._key_prefix = settings.key_prefix
+
+    def _start_cleanup_thread(self) -> None:
+        """Start background cleanup thread."""
+        self._cleanup_thread = threading.Thread(
+            target=self._cleanup_loop,
+            daemon=True,
+            name="ratelimit-cleanup",
+        )
+        self._cleanup_thread.start()
+
+    def _get_partition_id(self, expiry_time: float) -> int:
+        """Get partition ID for an expiry time."""
+        return int(expiry_time // self._cleanup_interval)
+
+    def _update_partition(self, key: str, expiry_time: float) -> None:
+        """
+        Update the time partition for a key.
+        Must be called with lock held.
+        """
+        new_partition = self._get_partition_id(expiry_time)
+        old_partition = self._key_partition.get(key)
+
+        if old_partition != new_partition:
+            if old_partition is not None:
+                if old_partition in self._partitions:
+                    self._partitions[old_partition].discard(key)
+                    if not self._partitions[old_partition]:
+                        del self._partitions[old_partition]
+
+            self._partitions[new_partition].add(key)
+            self._key_partition[key] = new_partition
+
+    def _remove_from_partition(self, key: str) -> None:
+        """
+        Remove a key from its partition.
+        Must be called with lock held.
+        """
+        partition_id = self._key_partition.pop(key, None)
+        if partition_id is not None and partition_id in self._partitions:
+            self._partitions[partition_id].discard(key)
+            if not self._partitions[partition_id]:
+                del self._partitions[partition_id]
+
+    def _cleanup_loop(self) -> None:
+        """Background cleanup loop."""
+        import time
+
+        from .utils import log_backend_operation
+
+        while not self._shutdown_event.is_set():
+            time.sleep(self._cleanup_interval)
+            if self._shutdown_event.is_set():
+                break
+            try:
+                with self._lock:
+                    self._cleanup_if_needed()
+            except Exception as e:
+                # Log error but keep thread running
+                log_backend_operation("cleanup_error", str(e), level="error")
+
+    def shutdown(self) -> None:
+        """Stop background cleanup thread."""
+        self._shutdown_event.set()
+        if self._cleanup_thread and self._cleanup_thread.is_alive():
+            self._cleanup_thread.join(timeout=1.0)
 
     def incr(self, key: str, period: int) -> int:
         """
@@ -106,31 +216,27 @@ class MemoryBackend(BaseBackend):
             try:
                 # Normalize the key
                 normalized_key = normalize_key(key, self._key_prefix)
-                now = time.time()
+                now = get_current_timestamp()
                 unique_id = f"{now}:{threading.current_thread().ident}"
 
                 with self._lock:
-                    # Perform cleanup if needed
-                    self._cleanup_if_needed()
-
                     # Get or create entry
                     if normalized_key not in self._data:
-                        self._data[normalized_key] = (now + period, [])
+                        self._data[normalized_key] = (calculate_expiry(period, now), [])
+                    else:
+                        self._data.move_to_end(normalized_key)
 
                     expiry_time, requests = self._data[normalized_key]
 
                     if self._algorithm == "sliding_window":
                         # Use utility function for sliding window calculation
-                        cutoff_time = now - period
-                        requests = [
-                            (ts, uid) for ts, uid in requests if ts > cutoff_time
-                        ]
+                        requests = filter_sliding_window_requests(requests, period, now)
 
                         # Add current request
                         requests.append((now, unique_id))
 
                         # Update expiry time for sliding window
-                        expiry_time = now + period
+                        expiry_time = calculate_expiry(period, now)
 
                         self._data[normalized_key] = (expiry_time, requests)
                         result = len(requests)
@@ -146,8 +252,15 @@ class MemoryBackend(BaseBackend):
 
                         self._data[normalized_key] = (expiry_time, requests)
 
+                    # Update partition for optimized cleanup
+                    self._update_partition(normalized_key, expiry_time)
+
+                    self._cleanup_if_needed()
+
                 log_backend_operation(
-                    "incr", f"memory backend increment for key {key}", timer.elapsed_ms
+                    "incr",
+                    f"memory backend increment for key {key}",
+                    timer.elapsed_ms,
                 )
                 return result
 
@@ -158,7 +271,8 @@ class MemoryBackend(BaseBackend):
                     timer.elapsed_ms,
                     "error",
                 )
-                raise
+                allowed, meta = self._handle_backend_error("incr", key, e)
+                return 0 if allowed else 9999
 
     def reset(self, key: str) -> None:
         """
@@ -174,11 +288,15 @@ class MemoryBackend(BaseBackend):
                 with self._lock:
                     if normalized_key in self._data:
                         del self._data[normalized_key]
+                        self._remove_from_partition(normalized_key)
+
                     if normalized_key in self._token_buckets:
                         del self._token_buckets[normalized_key]
 
                 log_backend_operation(
-                    "reset", f"memory backend reset for key {key}", timer.elapsed_ms
+                    "reset",
+                    f"memory backend reset for key {key}",
+                    timer.elapsed_ms,
                 )
 
             except Exception as e:
@@ -188,14 +306,17 @@ class MemoryBackend(BaseBackend):
                     timer.elapsed_ms,
                     "error",
                 )
-                raise
+                allowed, meta = self._handle_backend_error("reset", key, e)
+                if not allowed:
+                    raise BackendError(ERROR_BACKEND_UNAVAILABLE) from e
 
-    def get_count(self, key: str) -> int:
+    def get_count(self, key: str, period: int = 60) -> int:
         """
         Get the current count for the given key.
 
         Args:
             key: The rate limit key
+            period: Time period in seconds (default: 60)
 
         Returns:
             Current count (0 if key doesn't exist)
@@ -203,7 +324,7 @@ class MemoryBackend(BaseBackend):
         with create_operation_timer() as timer:
             try:
                 normalized_key = normalize_key(key, self._key_prefix)
-                now = time.time()
+                now = get_current_timestamp()
 
                 with self._lock:
                     if normalized_key not in self._data:
@@ -212,11 +333,7 @@ class MemoryBackend(BaseBackend):
                         expiry_time, requests = self._data[normalized_key]
 
                         if self._algorithm == "sliding_window":
-                            # Use utility function for sliding window calculation
-                            # Use a default period of 60 seconds for sliding window
-                            # This is a limitation of the get_count method - we don't
-                            # know the exact period
-                            period = 60
+                            # Use utility function for sliding window calc
                             result = calculate_sliding_window_count(
                                 requests, period, now
                             )
@@ -241,7 +358,8 @@ class MemoryBackend(BaseBackend):
                     timer.elapsed_ms,
                     "error",
                 )
-                raise
+                allowed, meta = self._handle_backend_error("get_count", key, e)
+                return 0 if allowed else 9999
 
     def get_reset_time(self, key: str) -> Optional[int]:
         """
@@ -260,7 +378,23 @@ class MemoryBackend(BaseBackend):
             if normalized_key not in self._data:
                 return None
 
-            expiry_time, _ = self._data[normalized_key]
+            expiry_time, requests = self._data[normalized_key]
+
+            if self._algorithm == "sliding_window":
+                if not requests:
+                    return None
+
+                # Calculate period from the last request and expiry time
+                # expiry_time = last_request_time + period
+                # period = expiry_time - last_request_time
+                last_ts = requests[-1][0]
+                period = expiry_time - last_ts
+
+                # Reset time is when the oldest request expires
+                # oldest_request_expiry = oldest_ts + period
+                oldest_ts = requests[0][0]
+                return int(oldest_ts + period)
+
             return int(expiry_time)
 
     # Token Bucket Algorithm Implementation
@@ -289,7 +423,7 @@ class MemoryBackend(BaseBackend):
         with create_operation_timer() as timer:
             try:
                 normalized_key = normalize_key(key, self._key_prefix)
-                current_time = time.time()
+                current_time = get_current_timestamp()
                 bucket_key = f"{normalized_key}:token_bucket"
 
                 # Handle edge case: zero bucket size means no requests allowed
@@ -306,22 +440,21 @@ class MemoryBackend(BaseBackend):
                     return False, metadata
 
                 with self._lock:
-                    # Perform cleanup if needed
-                    self._cleanup_if_needed()
-
                     # Get current bucket state
                     if bucket_key not in self._token_buckets:
-                        self._token_buckets[bucket_key] = {
-                            "tokens": initial_tokens,
-                            "last_refill": current_time,
-                        }
+                        self._token_buckets[bucket_key] = TokenBucketState(
+                            tokens=initial_tokens,
+                            last_refill=current_time,
+                        )
+                    else:
+                        self._token_buckets.move_to_end(bucket_key)
 
                     bucket_data = self._token_buckets[bucket_key]
 
                     # Use utility function to calculate token bucket state
                     bucket_state = calculate_token_bucket_state(
-                        bucket_data["tokens"],
-                        bucket_data["last_refill"],
+                        bucket_data.tokens,
+                        bucket_data.last_refill,
                         current_time,
                         bucket_size,
                         refill_rate,
@@ -334,10 +467,10 @@ class MemoryBackend(BaseBackend):
                     if bucket_state["is_allowed"]:
                         # Consume tokens
                         remaining_tokens = bucket_state["tokens_remaining"]
-                        self._token_buckets[bucket_key] = {
-                            "tokens": remaining_tokens,
-                            "last_refill": current_time,
-                        }
+                        self._token_buckets[bucket_key] = TokenBucketState(
+                            tokens=remaining_tokens,
+                            last_refill=current_time,
+                        )
 
                         # Use utility function to format metadata
                         metadata = format_token_bucket_metadata(
@@ -348,6 +481,8 @@ class MemoryBackend(BaseBackend):
                         )
                         metadata.update({"tokens_requested": tokens_requested})
 
+                        self._cleanup_if_needed()
+
                         log_backend_operation(
                             "token_bucket_check",
                             f"memory backend token bucket check success for key {key}",
@@ -357,10 +492,10 @@ class MemoryBackend(BaseBackend):
                     else:
                         # Request cannot be served - update last_refill time
                         # but don't consume tokens
-                        self._token_buckets[bucket_key] = {
-                            "tokens": current_tokens,
-                            "last_refill": current_time,
-                        }
+                        self._token_buckets[bucket_key] = TokenBucketState(
+                            tokens=current_tokens,
+                            last_refill=current_time,
+                        )
 
                         metadata = format_token_bucket_metadata(
                             current_tokens,
@@ -369,6 +504,8 @@ class MemoryBackend(BaseBackend):
                             bucket_state["time_to_refill"],
                         )
                         metadata.update({"tokens_requested": tokens_requested})
+
+                        self._cleanup_if_needed()
 
                         log_backend_operation(
                             "token_bucket_check",
@@ -384,7 +521,16 @@ class MemoryBackend(BaseBackend):
                     timer.elapsed_ms,
                     "error",
                 )
-                raise
+                if self.fail_open:
+                    # In fail-open mode, we allow the request
+                    metadata = format_token_bucket_metadata(
+                        bucket_size, bucket_size, refill_rate, 0.0
+                    )
+                    metadata.update({"tokens_requested": tokens_requested})
+                    return True, metadata
+                raise BackendError(
+                    f"Memory backend token bucket check failed: {str(e)}"
+                ) from e
 
     def token_bucket_info(
         self, key: str, bucket_size: int, refill_rate: float
@@ -400,38 +546,69 @@ class MemoryBackend(BaseBackend):
         Returns:
             Dictionary with current bucket state
         """
-        current_time = time.time()
-        bucket_key = f"{key}:token_bucket"
+        with create_operation_timer() as timer:
+            try:
+                normalized_key = normalize_key(key, self._key_prefix)
+                current_time = get_current_timestamp()
+                bucket_key = f"{normalized_key}:token_bucket"
 
-        with self._lock:
-            # Get current bucket state
-            if bucket_key not in self._token_buckets:
-                return {
-                    "tokens_remaining": bucket_size,
-                    "bucket_size": bucket_size,
-                    "refill_rate": refill_rate,
-                    "time_to_refill": 0.0,
-                    "last_refill": current_time,
-                }
+                with self._lock:
+                    # Get current bucket state
+                    if bucket_key not in self._token_buckets:
+                        result = {
+                            "tokens_remaining": bucket_size,
+                            "bucket_size": bucket_size,
+                            "refill_rate": refill_rate,
+                            "time_to_refill": 0.0,
+                            "last_refill": current_time,
+                        }
+                    else:
+                        bucket_data = self._token_buckets[bucket_key]
 
-            bucket_data = self._token_buckets[bucket_key]
+                        # Calculate current tokens without updating state
+                        time_elapsed = current_time - bucket_data.last_refill
+                        tokens_to_add = time_elapsed * refill_rate
+                        current_tokens = min(
+                            bucket_size, bucket_data.tokens + tokens_to_add
+                        )
 
-            # Calculate current tokens without updating state
-            time_elapsed = current_time - bucket_data["last_refill"]
-            tokens_to_add = time_elapsed * refill_rate
-            current_tokens = min(bucket_size, bucket_data["tokens"] + tokens_to_add)
+                        result = {
+                            "tokens_remaining": current_tokens,
+                            "bucket_size": bucket_size,
+                            "refill_rate": refill_rate,
+                            "time_to_refill": (
+                                max(0, (bucket_size - current_tokens) / refill_rate)
+                                if refill_rate > 0
+                                else 0
+                            ),
+                            "last_refill": bucket_data.last_refill,
+                        }
 
-            return {
-                "tokens_remaining": current_tokens,
-                "bucket_size": bucket_size,
-                "refill_rate": refill_rate,
-                "time_to_refill": (
-                    max(0, (bucket_size - current_tokens) / refill_rate)
-                    if refill_rate > 0
-                    else 0
-                ),
-                "last_refill": bucket_data["last_refill"],
-            }
+                log_backend_operation(
+                    "token_bucket_info",
+                    f"memory backend token bucket info for key {key}",
+                    timer.elapsed_ms,
+                )
+                return result
+
+            except Exception as e:
+                log_backend_operation(
+                    "token_bucket_info",
+                    f"memory backend token bucket info failed for key {key}: {str(e)}",
+                    timer.elapsed_ms,
+                    "error",
+                )
+                if self.fail_open:
+                    return {
+                        "tokens_remaining": bucket_size,
+                        "bucket_size": bucket_size,
+                        "refill_rate": refill_rate,
+                        "time_to_refill": 0.0,
+                        "last_refill": get_current_timestamp(),
+                    }
+                raise BackendError(
+                    f"Memory backend token bucket info failed: {str(e)}"
+                ) from e
 
     # Generic storage methods for algorithm implementations
 
@@ -451,13 +628,18 @@ class MemoryBackend(BaseBackend):
                     # Store with expiration time
                     self._storage[key] = {
                         "value": value,
-                        "expires_at": time.time() + expiration,
+                        "expires_at": calculate_expiry(expiration),
                     }
                 else:
                     # Store without expiration
                     self._storage[key] = {"value": value, "expires_at": None}
                 return True
-            except Exception:
+            except Exception as e:
+                log_backend_operation(
+                    "set",
+                    f"Failed to set key {key} in memory backend: {e}",
+                    level="warning",
+                )
                 return False
 
     def delete(self, key: str) -> bool:
@@ -472,6 +654,7 @@ class MemoryBackend(BaseBackend):
 
             if key in self._data:
                 del self._data[key]
+                self._remove_from_partition(key)
                 deleted = True
 
             if key in self._token_buckets:
@@ -486,7 +669,7 @@ class MemoryBackend(BaseBackend):
 
         This method is called internally and should be called with the lock held.
         """
-        now = time.time()
+        now = get_current_timestamp()
 
         # Check if cleanup is needed (but always cleanup if we're over the limit)
         total_keys = len(self._data) + len(self._token_buckets) + len(self._storage)
@@ -499,74 +682,55 @@ class MemoryBackend(BaseBackend):
         # Use utility function to clean expired entries from generic storage
         self._storage = clean_expired_entries(self._storage, now)
 
-        # Cleanup expired keys from rate limit data
-        expired_keys = []
-        for key, (expiry_time, requests) in self._data.items():
-            if self._algorithm != "sliding_window" and is_expired(expiry_time):
-                expired_keys.append(key)
+        # Cleanup expired keys from rate limit data using partitions
+        # This avoids iterating through all keys
+        current_partition = self._get_partition_id(now)
 
-        for key in expired_keys:
-            del self._data[key]
+        # Find partitions that are strictly older than current
+        # We process keys so we don't modify dict while iterating
+        expired_partitions = [
+            p for p in self._partitions.keys() if p < current_partition
+        ]
 
-        # If we have too many keys, use utility function for cleanup
+        for p_id in expired_partitions:
+            # Remove all keys in this partition
+            if p_id in self._partitions:
+                partition_keys = list(self._partitions[p_id])
+                for key in partition_keys:
+                    # Remove from data
+                    if key in self._data:
+                        del self._data[key]
+
+                    # Remove from key map
+                    if key in self._key_partition:
+                        del self._key_partition[key]
+
+                # Remove partition
+                del self._partitions[p_id]
+
+        # If we have too many keys, use LRU cleanup
+        # Since we use OrderedDict, we can efficiently pop the oldest items
         total_keys = len(self._data) + len(self._token_buckets) + len(self._storage)
-        if total_keys > self._max_keys:
-            # First, cleanup token buckets using utility function
-            if self._token_buckets:
-                # Add last_access timestamps for LRU cleanup
-                token_data_with_access = {}
-                for key, data in self._token_buckets.items():
-                    token_data_with_access[key] = {
-                        **data,
-                        "last_access": data.get("last_refill", 0),
-                    }
 
-                cleaned_buckets = cleanup_memory_data(
-                    token_data_with_access,
-                    max_size=min(len(self._token_buckets), self._max_keys // 2),
-                    cleanup_strategy="lru",
-                )
+        while total_keys > self._max_keys:
+            d_len = len(self._data)
+            t_len = len(self._token_buckets)
+            s_len = len(self._storage)
 
-                # Remove last_access timestamps
-                self._token_buckets = {
-                    key: {k: v for k, v in data.items() if k != "last_access"}
-                    for key, data in cleaned_buckets.items()
-                }
+            # Heuristic: Evict from the largest collection first, preferring _data
+            if d_len > 0 and (d_len >= t_len or t_len == 0):
+                key, _ = self._data.popitem(last=False)
+                self._remove_from_partition(key)
+            elif t_len > 0:
+                self._token_buckets.popitem(last=False)
+            elif s_len > 0:
+                # _storage is treated as unordered, evict arbitrary
+                key = next(iter(self._storage))
+                del self._storage[key]
+            else:
+                break
 
-            # If still too many keys, cleanup rate limit data using LRU
             total_keys = len(self._data) + len(self._token_buckets) + len(self._storage)
-            if total_keys > self._max_keys:
-                # Convert _data to have timestamps for LRU cleanup
-                data_with_timestamps = {}
-                for key, (expiry_time, requests) in self._data.items():
-                    # Use the most recent request timestamp as last_access
-                    last_access = (
-                        max((ts for ts, _ in requests), default=0) if requests else 0
-                    )
-                    data_with_timestamps[key] = {
-                        "expiry_time": expiry_time,
-                        "requests": requests,
-                        "last_access": last_access,
-                    }
-
-                max_data_keys = (
-                    self._max_keys - len(self._token_buckets) - len(self._storage)
-                )
-                if max_data_keys > 0:
-                    cleaned_data = cleanup_memory_data(
-                        data_with_timestamps,
-                        max_size=max_data_keys,
-                        cleanup_strategy="lru",
-                    )
-
-                    # Convert back to original format
-                    self._data = {
-                        key: (data["expiry_time"], data["requests"])
-                        for key, data in cleaned_data.items()
-                    }
-                else:
-                    # No room for any data keys
-                    self._data.clear()
 
         self._last_cleanup = now
 
@@ -580,6 +744,8 @@ class MemoryBackend(BaseBackend):
             self._data.clear()
             self._token_buckets.clear()
             self._storage.clear()
+            self._partitions.clear()
+            self._key_partition.clear()
 
     def get_stats(self) -> Dict[str, Union[int, str, float]]:
         """
@@ -588,6 +754,8 @@ class MemoryBackend(BaseBackend):
         Returns:
             Dictionary containing comprehensive backend statistics
         """
+        from .utils import estimate_backend_memory_usage
+
         with self._lock:
             active_keys = 0
             total_requests = 0
@@ -598,11 +766,19 @@ class MemoryBackend(BaseBackend):
                     total_requests += len(requests)
 
             # Use utility function to estimate memory usage
-            total_memory = (
-                estimate_memory_usage(self._data)
-                + estimate_memory_usage(self._token_buckets)
-                + estimate_memory_usage(self._storage)
-            )
+            # Estimate for main data
+            mem_data = estimate_backend_memory_usage(self._data, "memory")
+            total_memory = mem_data["estimated_bytes"]
+
+            # Estimate for token buckets
+            # We need to convert dataclasses to dicts for JSON serialization estimate
+            token_buckets_dict = {k: asdict(v) for k, v in self._token_buckets.items()}
+            mem_tokens = estimate_backend_memory_usage(token_buckets_dict, "memory")
+            total_memory += mem_tokens["estimated_bytes"]
+
+            # Estimate for generic storage
+            mem_storage = estimate_backend_memory_usage(self._storage, "memory")
+            total_memory += mem_storage["estimated_bytes"]
 
             return {
                 "total_keys": len(self._data),
@@ -615,7 +791,7 @@ class MemoryBackend(BaseBackend):
                 "last_cleanup": int(self._last_cleanup),
                 "algorithm": self._algorithm,
                 "estimated_memory_bytes": total_memory,
-                "estimated_memory_mb": round(total_memory / (1024 * 1024), 2),
+                "estimated_memory_mb": 0.0,
                 "memory_utilization_percent": round(
                     (
                         (
@@ -629,3 +805,28 @@ class MemoryBackend(BaseBackend):
                     2,
                 ),
             }
+
+    def health_check(self) -> Dict[str, Any]:
+        """
+        Check the health of the Memory backend.
+
+        Returns:
+            Dictionary with health status information
+        """
+        start_time = get_current_timestamp()
+
+        # Memory backend is always healthy if we can run code
+        # But we can check memory usage
+
+        total_keys = len(self._data) + len(self._token_buckets) + len(self._storage)
+
+        response_time = get_current_timestamp() - start_time
+
+        return {
+            "status": "healthy",
+            "response_time": response_time,
+            "total_keys": total_keys,
+            "max_keys": self._max_keys,
+            "cleanup_interval": self._cleanup_interval,
+            "algorithm": self._algorithm,
+        }

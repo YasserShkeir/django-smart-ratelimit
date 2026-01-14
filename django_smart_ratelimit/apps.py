@@ -1,5 +1,7 @@
 """Django app configuration for Django Smart Ratelimit."""
 
+from typing import Any
+
 from django.apps import AppConfig
 
 
@@ -12,4 +14,13 @@ class DjangoSmartRatelimitConfig(AppConfig):
 
     def ready(self) -> None:
         """Initialize the app when Django starts."""
-        # Import signal handlers if needed
+        from django.core.signals import setting_changed
+
+        from django_smart_ratelimit.config import reset_settings
+
+        def reload_settings(sender: Any, setting: str, **kwargs: Any) -> None:
+            if setting.startswith("RATELIMIT_"):
+                # print(f"Resetting settings due to change in {setting}")
+                reset_settings()
+
+        setting_changed.connect(reload_settings)

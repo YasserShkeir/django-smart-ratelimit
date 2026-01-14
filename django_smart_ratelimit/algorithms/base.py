@@ -5,9 +5,12 @@ This module defines the base interface that all rate limiting algorithms
 must implement to ensure consistent behavior across different algorithms.
 """
 
+import logging
 import time
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 class RateLimitAlgorithm(ABC):
@@ -81,7 +84,10 @@ class RateLimitAlgorithm(ABC):
             if hasattr(backend, "delete"):
                 return backend.delete(key)
             return False
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                f"Failed to reset key {key} in algorithm: {e}", exc_info=True
+            )
             return False
 
     def get_current_time(self) -> float:

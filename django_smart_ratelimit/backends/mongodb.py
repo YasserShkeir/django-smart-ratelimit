@@ -9,11 +9,12 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
-from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 
+from ..exceptions import BackendError
+from ..messages import ERROR_BACKEND_UNAVAILABLE
 from .base import BaseBackend
-from .utils import get_window_times
+from .utils import get_current_datetime, get_current_timestamp, get_window_times
 
 try:
     import pymongo
@@ -52,6 +53,7 @@ class MongoDBBackend(BaseBackend):
         self,
         enable_circuit_breaker: bool = True,
         circuit_breaker_config: Optional[Dict[str, Any]] = None,
+        fail_open: Optional[bool] = None,
         **kwargs: Any,
     ) -> None:
         """Initialize the MongoDB backend with connection and configuration."""
@@ -65,7 +67,10 @@ class MongoDBBackend(BaseBackend):
             )
 
         # Get MongoDB configuration from settings
-        mongo_config = getattr(settings, "RATELIMIT_MONGODB", {})
+        from django_smart_ratelimit.config import get_settings
+
+        settings = get_settings()
+        mongo_config = settings.mongodb_config
 
         # Default configuration
         self.config = {
@@ -92,6 +97,11 @@ class MongoDBBackend(BaseBackend):
             **mongo_config,
             **kwargs,
         }
+
+        if fail_open is None:
+            self.fail_open = settings.fail_open
+        else:
+            self.fail_open = fail_open
 
         # Initialize connection
         self._client = None
@@ -153,6 +163,9 @@ class MongoDBBackend(BaseBackend):
                 maxPoolSize=self.config["max_pool_size"],
                 minPoolSize=self.config["min_pool_size"],
                 maxIdleTimeMS=self.config["max_idle_time"],
+                # Security: Ensure writes are durable and replicated
+                w="majority",
+                journal=True,
             )
 
             # Test connection
@@ -171,11 +184,16 @@ class MongoDBBackend(BaseBackend):
 
         except Exception as e:
             logger.error(f"Failed to connect to MongoDB: {e}")
+            if self.fail_open:
+                self._client = None
+                return
             raise ImproperlyConfigured(f"Cannot connect to MongoDB: {e}")
 
     def _setup_collections(self) -> None:
         """Set up MongoDB collections with appropriate indexes."""
         if self._collection is None or self._counter_collection is None:
+            if self.fail_open:
+                return
             raise ImproperlyConfigured("MongoDB collections not initialized")
 
         try:
@@ -221,7 +239,7 @@ class MongoDBBackend(BaseBackend):
         if self._collection is None:
             raise ImproperlyConfigured("MongoDB collection not initialized")
 
-        now = datetime.now(timezone.utc)
+        now = get_current_datetime()
         expires_at = now + timedelta(seconds=period)
         window_start = now - timedelta(seconds=period)
 
@@ -251,6 +269,7 @@ class MongoDBBackend(BaseBackend):
         if self._counter_collection is None:
             raise ImproperlyConfigured("MongoDB counter collection not initialized")
 
+        # Use align_to_clock setting (defaults to True in get_window_times)
         window_start, window_end = get_window_times(period)
         expires_at = window_end + timedelta(seconds=60)  # Keep for a bit longer
 
@@ -288,25 +307,26 @@ class MongoDBBackend(BaseBackend):
         Returns:
             Current count after increment
         """
-        if self._collection is None:
-            raise ImproperlyConfigured("MongoDB backend not properly initialized")
-
         try:
+            if self._collection is None:
+                raise ImproperlyConfigured("MongoDB backend not properly initialized")
+
             if self.config["algorithm"] == "fixed_window":
                 return self._incr_fixed_window(key, period)
             else:
                 return self._incr_sliding_window(key, period)
         except Exception as e:
             logger.error(f"Error incrementing counter for key {key}: {e}")
-            # Return a high count to fail-safe by denying the request
-            return 9999
+            allowed, meta = self._handle_backend_error("incr", key, e)
+            return 0 if allowed else 9999
 
-    def get_count(self, key: str) -> int:
+    def get_count(self, key: str, period: int = 60) -> int:
         """
         Get the current count for the given key.
 
         Args:
             key: The rate limit key
+            period: Time period in seconds (default: 60)
 
         Returns:
             Current count (0 if key doesn't exist)
@@ -317,7 +337,7 @@ class MongoDBBackend(BaseBackend):
         try:
             if self.config["algorithm"] == "fixed_window":
                 # For fixed window, get the current window counter
-                now = datetime.now(timezone.utc)
+                now = get_current_datetime()
                 # Find the most recent counter for this key
                 counter = self._counter_collection.find_one(
                     {"key": key}, sort=[("window_start", pymongo.DESCENDING)]
@@ -328,16 +348,14 @@ class MongoDBBackend(BaseBackend):
                 return 0
             else:
                 # For sliding window, count recent entries
-                # We don't know the exact period, so we use a reasonable default
-                window_start = datetime.now(timezone.utc) - timedelta(
-                    seconds=3600
-                )  # 1 hour default
+                window_start = get_current_datetime() - timedelta(seconds=period)
                 return self._collection.count_documents(
                     {"key": key, "timestamp": {"$gte": window_start}}
                 )
         except Exception as e:
             logger.error(f"Error getting count for key {key}: {e}")
-            return 0
+            allowed, meta = self._handle_backend_error("get_count", key, e)
+            return 0 if allowed else 9999
 
     def get_reset_time(self, key: str) -> Optional[int]:
         """
@@ -359,9 +377,11 @@ class MongoDBBackend(BaseBackend):
                     {"key": key}, sort=[("window_start", pymongo.DESCENDING)]
                 )
 
-                if counter and self._ensure_utc_aware(
-                    counter["window_end"]
-                ) > datetime.now(timezone.utc):
+                if (
+                    counter
+                    and self._ensure_utc_aware(counter["window_end"])
+                    > get_current_datetime()
+                ):
                     return int(counter["window_end"].timestamp())
                 return None
             else:
@@ -370,8 +390,10 @@ class MongoDBBackend(BaseBackend):
                     {"key": key}, sort=[("expires_at", pymongo.ASCENDING)]
                 )
 
-                if entry and self._ensure_utc_aware(entry["expires_at"]) > datetime.now(
-                    timezone.utc
+                if (
+                    entry
+                    and self._ensure_utc_aware(entry["expires_at"])
+                    > get_current_datetime()
                 ):
                     return int(entry["expires_at"].timestamp())
                 return None
@@ -399,24 +421,43 @@ class MongoDBBackend(BaseBackend):
             logger.debug(f"Reset rate limit for key: {key}")
         except Exception as e:
             logger.error(f"Error resetting key {key}: {e}")
+            allowed, meta = self._handle_backend_error("reset", key, e)
+            if not allowed:
+                raise BackendError(ERROR_BACKEND_UNAVAILABLE) from e
 
-    def health_check(self) -> bool:
+    def health_check(self) -> Dict[str, Any]:
         """
         Check if the MongoDB backend is healthy.
 
         Returns:
-            True if healthy, False otherwise
+            Dictionary with health status information
         """
+        start_time = get_current_timestamp()
         try:
             if self._client is None:
-                return False
+                return {
+                    "status": "unhealthy",
+                    "error": "Client not initialized",
+                    "response_time": 0.0,
+                }
 
             # Test connection with a simple ping
             self._client.admin.command("ping")
-            return True
+
+            response_time = get_current_timestamp() - start_time
+
+            return {
+                "status": "healthy",
+                "response_time": response_time,
+                "algorithm": self.config["algorithm"],
+            }
         except Exception as e:
             logger.error(f"MongoDB health check failed: {e}")
-            return False
+            return {
+                "status": "unhealthy",
+                "error": str(e),
+                "response_time": get_current_timestamp() - start_time,
+            }
 
     def get_stats(self) -> Dict[str, Any]:
         """

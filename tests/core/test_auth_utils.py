@@ -18,6 +18,7 @@ from django_smart_ratelimit import (
     is_superuser,
     should_bypass_rate_limit,
 )
+from django_smart_ratelimit.auth_utils import is_internal_request
 
 
 class AuthUtilsTests(TestCase):
@@ -219,6 +220,7 @@ class AuthUtilsTests(TestCase):
         self.assertFalse(result)
 
     def test_get_user_role_variants(self):
+        """Test get_user_role with different user types."""
         req = HttpRequest()
         req.user = AnonymousUser()
         self.assertEqual(get_user_role(req), "anonymous")
@@ -233,6 +235,7 @@ class AuthUtilsTests(TestCase):
         self.assertEqual(get_user_role(req), "superuser")
 
     def test_is_superuser_helper(self):
+        """Test is_superuser helper function."""
         req = HttpRequest()
         req.user = self.superuser
         self.assertTrue(is_superuser(req))
@@ -240,6 +243,7 @@ class AuthUtilsTests(TestCase):
         self.assertFalse(is_superuser(req))
 
     def test_should_bypass_rate_limit(self):
+        """Test should_bypass_rate_limit with different configurations."""
         req = HttpRequest()
         req.user = self.superuser
         self.assertTrue(should_bypass_rate_limit(req, bypass_superuser=True))
@@ -250,3 +254,88 @@ class AuthUtilsTests(TestCase):
 
         req.user = AnonymousUser()
         self.assertFalse(should_bypass_rate_limit(req))
+
+    def test_is_internal_request_defaults(self):
+        """Test is_internal_request with default settings."""
+        request = HttpRequest()
+        request.META["REMOTE_ADDR"] = "127.0.0.1"
+        self.assertTrue(is_internal_request(request))
+
+        request.META["REMOTE_ADDR"] = "10.0.0.5"
+        self.assertTrue(is_internal_request(request))
+
+        request.META["REMOTE_ADDR"] = "8.8.8.8"
+        self.assertFalse(is_internal_request(request))
+
+    def test_is_internal_request_custom_ips(self):
+        """Test is_internal_request with custom IP list."""
+        request = HttpRequest()
+        request.META["REMOTE_ADDR"] = "1.2.3.4"
+        self.assertTrue(is_internal_request(request, internal_ips=["1.2.3.4"]))
+
+        request.META["REMOTE_ADDR"] = "5.6.7.8"
+        self.assertFalse(is_internal_request(request, internal_ips=["1.2.3.4"]))
+
+    def test_is_internal_request_cidr(self):
+        """Test is_internal_request with CIDR notation."""
+        request = HttpRequest()
+        request.META["REMOTE_ADDR"] = "192.168.1.50"
+        self.assertTrue(is_internal_request(request, internal_ips=["192.168.0.0/16"]))
+
+    def test_is_internal_request_cidr_ipv4(self):
+        """Test CIDR matching for IPv4 addresses."""
+        request = HttpRequest()
+        internal_ips = ["10.0.0.0/8"]
+
+        # Inside range
+        request.META["REMOTE_ADDR"] = "10.0.0.1"
+        self.assertTrue(is_internal_request(request, internal_ips))
+
+        request.META["REMOTE_ADDR"] = "10.255.255.255"
+        self.assertTrue(is_internal_request(request, internal_ips))
+
+        # Outside range
+        request.META["REMOTE_ADDR"] = "11.0.0.1"
+        self.assertFalse(is_internal_request(request, internal_ips))
+
+    def test_is_internal_request_cidr_ipv6(self):
+        """Test CIDR matching for IPv6 addresses."""
+        request = HttpRequest()
+        internal_ips = ["fc00::/7"]
+
+        # Inside range
+        request.META["REMOTE_ADDR"] = "fc00::1"
+        self.assertTrue(is_internal_request(request, internal_ips))
+
+        # Outside range
+        request.META["REMOTE_ADDR"] = "2001:db8::1"
+        self.assertFalse(is_internal_request(request, internal_ips))
+
+    def test_is_internal_request_edge_cases(self):
+        """Test boundary IPs in CIDR ranges."""
+        request = HttpRequest()
+        internal_ips = ["192.168.1.0/24"]
+
+        # Network address
+        request.META["REMOTE_ADDR"] = "192.168.1.0"
+        self.assertTrue(is_internal_request(request, internal_ips))
+
+        # Broadcast address
+        request.META["REMOTE_ADDR"] = "192.168.1.255"
+        self.assertTrue(is_internal_request(request, internal_ips))
+
+        # Just outside
+        request.META["REMOTE_ADDR"] = "192.168.2.0"
+        self.assertFalse(is_internal_request(request, internal_ips))
+
+    def test_is_internal_request_invalid_ip(self):
+        """Test is_internal_request with invalid IP address."""
+        request = HttpRequest()
+        request.META["REMOTE_ADDR"] = "invalid-ip"
+        self.assertFalse(is_internal_request(request))
+
+    def test_is_internal_request_no_remote_addr(self):
+        """Test is_internal_request when REMOTE_ADDR is missing."""
+        request = HttpRequest()
+        # No REMOTE_ADDR
+        self.assertFalse(is_internal_request(request))

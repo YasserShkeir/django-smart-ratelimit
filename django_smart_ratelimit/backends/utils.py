@@ -9,10 +9,14 @@ import hashlib
 import json
 import logging
 import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
 from functools import wraps
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
+
+from django.core.cache import cache
+from django.core.exceptions import ImproperlyConfigured
 
 logger = logging.getLogger(__name__)
 
@@ -23,38 +27,57 @@ logger = logging.getLogger(__name__)
 
 
 def with_retry(
-    max_retries: int = 3, delay: float = 0.1, exponential_backoff: bool = True
+    max_retries: int = 3,
+    delay: float = 0.1,
+    max_delay: float = 2.0,
+    exponential_backoff: bool = True,
+    exponential_base: float = 2.0,
+    exceptions: Tuple[Type[BaseException], ...] = (Exception,),
+    on_retry: Optional[Callable[[BaseException, int], None]] = None,
 ) -> Callable:
     """
-    Decorator for retrying backend operations with exponential backoff.
+    Retry backend operations with exponential backoff.
 
     Args:
         max_retries: Maximum number of retry attempts
         delay: Initial delay between retries in seconds
+        max_delay: Maximum delay between retries
         exponential_backoff: Whether to use exponential backoff
+        exponential_base: Base for exponential backoff calculation
+        exceptions: Tuple of exception types to catch and retry
+        on_retry: Optional callback called on each retry (exception, attempt)
     """
 
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            last_exception: Optional[Exception] = None
+            last_exception: Optional[BaseException] = None
             current_delay = delay
 
             for attempt in range(max_retries + 1):
                 try:
                     return func(*args, **kwargs)
-                except Exception as e:
+                except exceptions as e:
                     last_exception = e
                     if attempt < max_retries:
-                        logger.warning(
-                            f"Backend operation failed (attempt {attempt + 1}/{max_retries + 1}): {e}"
-                        )
+                        if on_retry:
+                            on_retry(e, attempt + 1)
+                        else:
+                            logger.warning(
+                                f"Backend operation failed (attempt {attempt + 1}/"
+                                f"{max_retries + 1}): {e}"
+                            )
+
                         time.sleep(current_delay)
+
                         if exponential_backoff:
-                            current_delay *= 2
+                            current_delay = min(
+                                current_delay * exponential_base, max_delay
+                            )
                     else:
                         logger.error(
-                            f"Backend operation failed after {max_retries + 1} attempts: {e}"
+                            f"Backend operation failed after {max_retries + 1} "
+                            f"attempts: {e}"
                         )
 
             if last_exception is not None:
@@ -222,22 +245,139 @@ def normalize_key(key: str, prefix: str = "", max_length: int = 250) -> str:
     # Handle long keys by hashing
     if len(full_key) > max_length:
         # Keep readable prefix and hash the rest
-        hash_suffix = hashlib.md5(full_key.encode(), usedforsecurity=False).hexdigest()[
-            :16
-        ]
-        if prefix:
-            readable_part = f"{prefix}:..."
-        else:
-            readable_part = "..."
+        hash_suffix = hashlib.sha256(full_key.encode("utf-8")).hexdigest()
+        # Truncate prefix to fit hash
+        prefix_len = max_length - len(hash_suffix) - 1
+        full_key = f"{full_key[:prefix_len]}:{hash_suffix}"
 
-        # Calculate available space for readable part
-        available_length = max_length - len(hash_suffix) - 1  # -1 for separator
-        if len(readable_part) > available_length:
-            readable_part = readable_part[:available_length]
+    # Ensure key is safe for backends (no spaces, control chars)
+    # This is a basic sanitization, backends might have stricter rules
+    return full_key.replace(" ", "_")
 
-        full_key = f"{readable_part}:{hash_suffix}"
 
-    return full_key
+def parse_rate(rate: str) -> Tuple[int, int]:
+    """
+    Parse rate limit string into (limit, period_seconds).
+
+    Args:
+        rate: Rate string like "10/m", "100/h", etc.
+
+    Returns:
+        Tuple of (limit, period_in_seconds)
+
+    Raises:
+        ImproperlyConfigured: If rate format is invalid
+    """
+    try:
+        limit_str, period_str = rate.split("/")
+        limit = int(limit_str)
+
+        period_map = {
+            "s": 1,  # second
+            "m": 60,  # minute
+            "h": 3600,  # hour
+            "d": 86400,  # day
+        }
+
+        if period_str not in period_map:
+            raise ValueError(f"Unknown period: {period_str}")
+
+        period = period_map[period_str]
+        return limit, period
+
+    except (ValueError, IndexError) as e:
+        raise ImproperlyConfigured(
+            f"Invalid rate format: {rate}. Use format like '10/m'"
+        ) from e
+
+
+def validate_rate_config(
+    rate: str, algorithm: Optional[str] = None, algorithm_config: Optional[dict] = None
+) -> None:
+    """
+    Validate rate limiting configuration.
+
+    Args:
+        rate: Rate string to validate
+        algorithm: Algorithm name to validate
+        algorithm_config: Algorithm configuration to validate
+
+    Raises:
+        ImproperlyConfigured: If configuration is invalid
+    """
+    # Validate rate format
+    parse_rate(rate)
+
+    # Validate algorithm
+    valid_algorithms = ["fixed_window", "sliding_window", "token_bucket"]
+    if algorithm and algorithm not in valid_algorithms:
+        raise ImproperlyConfigured(
+            f"Invalid algorithm: {algorithm}. Must be one of {valid_algorithms}"
+        )
+
+    # Validate token bucket configuration
+    if algorithm == "token_bucket" and algorithm_config:
+        if "bucket_size" in algorithm_config:
+            if (
+                not isinstance(algorithm_config["bucket_size"], (int, float))
+                or algorithm_config["bucket_size"] < 0
+            ):
+                raise ImproperlyConfigured("bucket_size must be a non-negative number")
+
+        if "refill_rate" in algorithm_config:
+            if (
+                not isinstance(algorithm_config["refill_rate"], (int, float))
+                or algorithm_config["refill_rate"] < 0
+            ):
+                raise ImproperlyConfigured("refill_rate must be a non-negative number")
+
+
+def get_current_timestamp() -> float:
+    """Get current Unix timestamp with consistent precision."""
+    return time.time()
+
+
+def get_current_datetime() -> datetime:
+    """
+    Get current UTC datetime.
+
+    Centralized to allow easier mocking and consistency.
+    """
+    return datetime.now(dt_timezone.utc)
+
+
+def calculate_expiry(period: int, current_time: Optional[float] = None) -> float:
+    """
+    Calculate expiry timestamp for a rate limit window.
+
+    Args:
+        period: Window period in seconds
+        current_time: Current timestamp (defaults to now)
+
+    Returns:
+        Expiry timestamp
+    """
+    if current_time is None:
+        current_time = get_current_timestamp()
+    return current_time + period
+
+
+def get_sliding_window_start(
+    period: int, current_time: Optional[float] = None
+) -> float:
+    """
+    Calculate the start of the sliding window (looking back 'period' seconds).
+
+    Args:
+        period: Window period in seconds
+        current_time: Current timestamp (defaults to now)
+
+    Returns:
+        Window start timestamp
+    """
+    if current_time is None:
+        current_time = get_current_timestamp()
+    return current_time - period
 
 
 def generate_expiry_timestamp(ttl_seconds: int) -> int:
@@ -276,7 +416,9 @@ def is_expired(timestamp: Union[int, float]) -> bool:
 # ============================================================================
 
 
-def get_window_times(window_seconds: int) -> Tuple[datetime, datetime]:
+def get_window_times(
+    window_seconds: int, align_to_clock: Optional[bool] = None
+) -> Tuple[datetime, datetime]:
     """
     Get the start and end times for a fixed window.
 
@@ -286,13 +428,20 @@ def get_window_times(window_seconds: int) -> Tuple[datetime, datetime]:
 
     Args:
         window_seconds: The window size in seconds
+        align_to_clock: If True, align window to clock boundaries (e.g., :00, :01).
+                        If False, window starts at current time.
+                        If None, uses RATELIMIT_ALIGN_WINDOW_TO_CLOCK setting.
 
     Returns:
         Tuple of (window_start, window_end) as datetime objects
 
-    Example:
+    Example (align_to_clock=True):
         If window is 3600 seconds (1 hour) and now is 14:30:00,
         the window start will be 14:00:00 and end will be 15:00:00
+
+    Example (align_to_clock=False):
+        If window is 3600 seconds (1 hour) and now is 14:30:00,
+        the window start will be 14:30:00 and end will be 15:30:00
     """
     # Import here to avoid Django dependency issues during import
     try:
@@ -303,13 +452,98 @@ def get_window_times(window_seconds: int) -> Tuple[datetime, datetime]:
         # Fallback for non-Django environments
         now = datetime.now(dt_timezone.utc)
 
-    # Calculate the start of the current window
-    seconds_since_epoch = int(now.timestamp())
-    window_start_seconds = (seconds_since_epoch // window_seconds) * window_seconds
-    window_start = datetime.fromtimestamp(window_start_seconds, tz=dt_timezone.utc)
+    # Determine alignment mode from settings if not explicitly provided
+    if align_to_clock is None:
+        try:
+            from django_smart_ratelimit.config import get_settings
+
+            align_to_clock = get_settings().align_window_to_clock
+        except Exception:
+            align_to_clock = True  # Default to clock-aligned for backward compat
+
+    if align_to_clock:
+        # Calculate the start of the current clock-aligned window
+        seconds_since_epoch = int(now.timestamp())
+        window_start_seconds = (seconds_since_epoch // window_seconds) * window_seconds
+        window_start = datetime.fromtimestamp(window_start_seconds, tz=dt_timezone.utc)
+    else:
+        # Window starts at current time (first-request aligned)
+        window_start = now
+
     window_end = window_start + timedelta(seconds=window_seconds)
 
     return window_start, window_end
+
+
+def get_time_bucket_key_suffix(
+    window_seconds: int, align_to_clock: Optional[bool] = None
+) -> str:
+    """
+    Get a time bucket suffix for cache keys.
+
+    When align_to_clock=True, returns a suffix based on the current time bucket
+    (e.g., ':1705161600'). This causes keys to automatically rotate at clock boundaries.
+
+    When align_to_clock=False, returns empty string (keys are static, TTL handles expiry).
+
+    Args:
+        window_seconds: The window size in seconds
+        align_to_clock: If True, return time bucket suffix. If False, return empty string.
+                        If None, uses RATELIMIT_ALIGN_WINDOW_TO_CLOCK setting.
+
+    Returns:
+        Time bucket suffix string (e.g., ':1705161600') or empty string
+    """
+    # Determine alignment mode from settings if not explicitly provided
+    if align_to_clock is None:
+        try:
+            from django_smart_ratelimit.config import get_settings
+
+            align_to_clock = get_settings().align_window_to_clock
+        except Exception:
+            align_to_clock = True  # Default to clock-aligned for backward compat
+
+    if not align_to_clock:
+        return ""
+
+    # Calculate the current time bucket
+    current_time = time.time()
+    bucket = int(current_time // window_seconds) * window_seconds
+    return f":{bucket}"
+
+
+def filter_sliding_window_requests(
+    requests: List[Tuple[float, str]], window_size: int, current_time: float
+) -> List[Tuple[float, str]]:
+    """
+    Filter requests that are within the sliding window.
+
+    Sliding window algorithm:
+    1. Get all request timestamps
+    2. Calculate cutoff time (current_time - window_size)
+    3. Keep only timestamps > cutoff
+    4. Count remaining is current usage
+
+    This provides smoother rate limiting than fixed windows because there's
+    no "boundary burst" problem where users can double their rate at the
+    window reset edge.
+
+    Uses millisecond precision to avoid floating point issues.
+
+    Args:
+        requests: List of (timestamp, unique_id) tuples
+        window_size: Window size in seconds
+        current_time: Current timestamp
+
+    Returns:
+        List of requests within the window
+    """
+    # Use milliseconds for precision to avoid floating point comparison issues
+    current_ms = int(current_time * 1000)
+    window_ms = int(window_size * 1000)
+    cutoff_ms = current_ms - window_ms
+
+    return [(ts, uid) for ts, uid in requests if int(ts * 1000) > cutoff_ms]
 
 
 def calculate_sliding_window_count(
@@ -326,8 +560,7 @@ def calculate_sliding_window_count(
     Returns:
         Total count in the sliding window
     """
-    cutoff_time = current_time - window_size
-    return sum(1 for timestamp, _ in window_data if timestamp > cutoff_time)
+    return len(filter_sliding_window_requests(window_data, window_size, current_time))
 
 
 def clean_expired_entries(data: Dict[str, Any], current_time: float) -> Dict[str, Any]:
@@ -623,9 +856,15 @@ def log_operation_result(
     duration_info = f" in {duration_ms:.2f}ms" if duration_ms is not None else ""
 
     if success:
-        message = f"{backend_type} {operation} operation for key '{key}' succeeded{duration_info}"
+        message = (
+            f"{backend_type} {operation} operation for key '{key}' "
+            f"succeeded{duration_info}"
+        )
     else:
-        message = f"{backend_type} {operation} operation for key '{key}' failed{duration_info}"
+        message = (
+            f"{backend_type} {operation} operation for key '{key}' "
+            f"failed{duration_info}"
+        )
         if error:
             message += f": {error}"
 
@@ -656,10 +895,12 @@ class OperationTimer:
         self.elapsed_ms: Optional[float] = None
 
     def __enter__(self) -> "OperationTimer":
+        """Start timer."""
         self.start_time = time.time()
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        """Stop timer."""
         if self.start_time is not None:
             end_time = time.time()
             self.elapsed_ms = (end_time - self.start_time) * 1000
@@ -678,32 +919,6 @@ def create_operation_timer() -> OperationTimer:
 # ============================================================================
 # Memory Management Helpers
 # ============================================================================
-
-
-def estimate_memory_usage(data: Any) -> int:
-    """
-    Estimate memory usage of data structures.
-
-    Args:
-        data: Data structure to analyze
-
-    Returns:
-        Estimated memory usage in bytes
-    """
-    import sys
-
-    if isinstance(data, dict):
-        size = sys.getsizeof(data)
-        for key, value in data.items():
-            size += estimate_memory_usage(key) + estimate_memory_usage(value)
-        return size
-    elif isinstance(data, (list, tuple, set)):
-        size = sys.getsizeof(data)
-        for item in data:
-            size += estimate_memory_usage(item)
-        return size
-    else:
-        return sys.getsizeof(data)
 
 
 def cleanup_memory_data(
@@ -863,7 +1078,11 @@ def estimate_backend_memory_usage(
     Returns:
         Memory usage estimates
     """
-    estimated_bytes = estimate_memory_usage(data)
+    try:
+        # Simple estimation based on string representation
+        estimated_bytes = len(json.dumps(data, default=str))
+    except Exception:
+        estimated_bytes = 0
 
     # Backend-specific multipliers for overhead
     multipliers = {
@@ -892,17 +1111,6 @@ def estimate_backend_memory_usage(
 # ============================================================================
 
 
-def retry_backend_operation(max_retries: int = 3, delay: float = 0.1) -> Callable:
-    """
-    Decorator for retrying backend operations.
-
-    Args:
-        max_retries: Maximum number of retry attempts
-        delay: Delay between retries in seconds
-    """
-    return with_retry(max_retries=max_retries, delay=delay, exponential_backoff=True)
-
-
 def format_lua_script(script: str) -> str:
     """
     Format and optimize a Lua script.
@@ -920,3 +1128,451 @@ def format_lua_script(script: str) -> str:
         if line and not line.startswith("--"):
             lines.append(line)
     return "\n".join(lines)
+
+
+# ============================================================================
+# Advanced Utilities (Merged from advanced_utils.py)
+# ============================================================================
+
+
+class BackendOperationMixin:
+    """
+    Mixin class providing common backend operation patterns.
+
+    This reduces code duplication across backend implementations by providing
+    standardized patterns for common operations.
+    """
+
+    def _execute_with_retry(
+        self,
+        operation_name: str,
+        operation_func: Callable,
+        max_retries: int = 3,
+        retry_delay: float = 0.1,
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> Any:
+        """
+        Execute an operation with retry logic and logging.
+
+        Args:
+            operation_name: Name of the operation for logging
+            operation_func: Function to execute
+            max_retries: Maximum number of retry attempts
+            retry_delay: Delay between retries in seconds
+            *_args, **_kwargs: Arguments to pass to operation_func
+
+        Returns:
+            Result of the operation
+
+        Raises:
+            Last exception encountered after all retries
+        """
+        last_exception: Optional[Exception] = None
+
+        for attempt in range(max_retries + 1):
+            try:
+                start_time = time.time()
+                result = operation_func(*_args, **_kwargs)
+
+                # Log successful operation
+                duration_ms = (time.time() - start_time) * 1000
+                log_backend_operation(
+                    operation_name,
+                    f"Operation successful on attempt {attempt + 1}",
+                    duration_ms,
+                )
+
+                return result
+
+            except Exception as e:
+                last_exception = e
+
+                if attempt < max_retries:
+                    logger.warning(
+                        f"Backend operation {operation_name} failed (attempt "
+                        f"{attempt + 1}/{max_retries + 1}): {e}"
+                    )
+                    time.sleep(retry_delay * (2**attempt))  # Exponential backoff
+                else:
+                    # Log final failure
+                    duration_ms = (time.time() - start_time) * 1000
+                    log_backend_operation(
+                        operation_name,
+                        f"Operation failed after {max_retries + 1} attempts: {e}",
+                        duration_ms,
+                        "error",
+                    )
+
+        if last_exception:
+            raise last_exception
+        else:
+            raise RuntimeError(f"Operation {operation_name} failed without exception")
+
+    def _normalize_backend_key(self, key: str, operation_type: str = "") -> str:
+        """
+        Normalize a key for backend operations with operation-specific prefixes.
+
+        Args:
+            key: The key to normalize
+            operation_type: Type of operation (e.g., "token_bucket", "sliding", "fixed")
+
+        Returns:
+            Normalized key
+        """
+        prefix = getattr(self, "key_prefix", "")
+        if operation_type:
+            key = f"{key}:{operation_type}"
+        return normalize_key(key, prefix)
+
+    def _format_operation_metadata(
+        self, operation_type: str, success: bool, **metadata: Any
+    ) -> Dict[str, Any]:
+        """
+        Format metadata for backend operations in a standardized way.
+
+        Args:
+            operation_type: Type of operation
+            success: Whether the operation succeeded
+            **metadata: Additional metadata fields
+
+        Returns:
+            Formatted metadata dictionary
+        """
+        base_metadata = {
+            "operation_type": operation_type,
+            "success": success,
+            "timestamp": time.time(),
+            "backend": self.__class__.__name__,
+        }
+        base_metadata.update(metadata)
+        return base_metadata
+
+
+class TokenBucketHelper:
+    """
+    Helper class for token bucket operations across different backends.
+
+    Provides standardized token bucket logic that can be used by any backend.
+    """
+
+    @staticmethod
+    def calculate_tokens_and_metadata(
+        bucket_size: int,
+        refill_rate: float,
+        initial_tokens: int,
+        tokens_requested: int,
+        current_tokens: float,
+        last_refill: float,
+        current_time: float,
+    ) -> Tuple[bool, Dict[str, Any]]:
+        """
+        Calculate token bucket state and metadata in a standardized way.
+
+        Args:
+            bucket_size: Maximum bucket capacity
+            refill_rate: Tokens per second refill rate
+            initial_tokens: Initial tokens when bucket is created
+            tokens_requested: Tokens requested for this operation
+            current_tokens: Current number of tokens
+            last_refill: Last refill timestamp
+            current_time: Current timestamp
+
+        Returns:
+            Tuple of (is_allowed, metadata)
+        """
+        # Calculate time-based token refill
+        time_passed = max(0, current_time - last_refill)
+        tokens_to_add = time_passed * refill_rate
+
+        # Update current tokens, capped at bucket size
+        updated_tokens = min(bucket_size, current_tokens + tokens_to_add)
+
+        # Check if request can be served
+        is_allowed = updated_tokens >= tokens_requested
+
+        if is_allowed:
+            remaining_tokens = updated_tokens - tokens_requested
+        else:
+            remaining_tokens = updated_tokens
+
+        # Calculate time until enough tokens are available
+        if not is_allowed and refill_rate > 0:
+            tokens_needed = tokens_requested - updated_tokens
+            time_to_refill = tokens_needed / refill_rate
+        else:
+            time_to_refill = 0
+
+        # Format metadata
+        metadata = format_token_bucket_metadata(
+            tokens_remaining=remaining_tokens,
+            tokens_requested=tokens_requested,
+            bucket_size=bucket_size,
+            refill_rate=refill_rate,
+            time_to_refill=time_to_refill,
+        )
+
+        return is_allowed, metadata
+
+
+class BackendHealthMonitor:
+    """
+    Health monitoring utilities for backends.
+
+    Provides standardized health checks and monitoring across different backends.
+    """
+
+    def __init__(self, backend_name: str, cache_timeout: int = 60):
+        """Initialize instance."""
+        self.backend_name = backend_name
+        self.cache_timeout = cache_timeout
+        self._health_cache_key = f"backend_health:{backend_name}"
+
+    def is_healthy(self, force_check: bool = False) -> bool:
+        """
+        Check if the backend is healthy, with caching.
+
+        Args:
+            force_check: Force a fresh health check, bypassing cache
+
+        Returns:
+            True if backend is healthy
+        """
+        if not force_check:
+            cached_status = cache.get(self._health_cache_key)
+            if cached_status is not None:
+                return cached_status
+
+        # Perform actual health check
+        try:
+            health_status = self._perform_health_check()
+            cache.set(self._health_cache_key, health_status, self.cache_timeout)
+            return health_status
+        except Exception as e:
+            logger.error(f"Health check failed for {self.backend_name}: {e}")
+            cache.set(self._health_cache_key, False, self.cache_timeout // 2)
+            return False
+
+    def _perform_health_check(self) -> bool:
+        """
+        Override this method in specific backend implementations.
+
+        Returns:
+            True if backend is healthy
+        """
+        raise NotImplementedError("Subclasses must implement _perform_health_check")
+
+    def mark_unhealthy(self, reason: str = "") -> None:
+        """
+        Mark the backend as unhealthy.
+
+        Args:
+            reason: Reason for marking as unhealthy
+        """
+        logger.warning(f"Marking {self.backend_name} as unhealthy: {reason}")
+        cache.set(self._health_cache_key, False, self.cache_timeout)
+
+    def clear_health_cache(self) -> None:
+        """Clear the health status cache."""
+        cache.delete(self._health_cache_key)
+
+
+class BackendConnectionPool:
+    """
+    Connection pooling utilities for backends that support it.
+
+    Provides standardized connection management patterns.
+    """
+
+    def __init__(self, backend_name: str, max_connections: int = 10):
+        """Initialize instance."""
+        self.backend_name = backend_name
+        self.max_connections = max_connections
+        self._connections: List[Any] = []
+        self._active_connections = 0
+
+    @contextmanager
+    def get_connection(self) -> Any:
+        """
+        Context manager for getting and releasing connections.
+
+        Yields:
+            Connection object
+        """
+        connection = self._acquire_connection()
+        try:
+            yield connection
+        finally:
+            self._release_connection(connection)
+
+    def _acquire_connection(self) -> Any:
+        """Acquire a connection from the pool."""
+        # Implementation would depend on specific backend
+        # This is a placeholder for the pattern
+        self._active_connections += 1
+        return object()  # Placeholder connection
+
+    def _release_connection(self, connection: Any) -> None:
+        """Release a connection back to the pool."""
+        self._active_connections -= 1
+
+    def close_all_connections(self) -> None:
+        """Close all connections in the pool."""
+        self._connections.clear()
+        self._active_connections = 0
+
+
+class BackendMetricsCollector:
+    """
+    Metrics collection utilities for backends.
+
+    Provides standardized metrics collection across different backends.
+    """
+
+    def __init__(self, backend_name: str):
+        """Initialize instance."""
+        self.backend_name = backend_name
+        self._metrics_cache_key = f"backend_metrics:{backend_name}"
+
+    def record_operation(
+        self,
+        operation: str,
+        duration_ms: float,
+        success: bool = True,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """
+        Record an operation for metrics.
+
+        Args:
+            operation: Name of the operation
+            duration_ms: Duration in milliseconds
+            success: Whether the operation succeeded
+            metadata: Additional metadata
+        """
+        metrics = self._get_metrics()
+
+        if operation not in metrics["operations"]:
+            metrics["operations"][operation] = {
+                "count": 0,
+                "success_count": 0,
+                "total_duration_ms": 0,
+                "avg_duration_ms": 0,
+                "last_operation": None,
+            }
+
+        op_metrics = metrics["operations"][operation]
+        op_metrics["count"] += 1
+        if success:
+            op_metrics["success_count"] += 1
+        op_metrics["total_duration_ms"] += duration_ms
+        op_metrics["avg_duration_ms"] = (
+            op_metrics["total_duration_ms"] / op_metrics["count"]
+        )
+        op_metrics["last_operation"] = time.time()
+
+        self._save_metrics(metrics)
+
+    def _get_metrics(self) -> Dict[str, Any]:
+        """Get current metrics from cache."""
+        metrics = cache.get(self._metrics_cache_key)
+        if metrics is None:
+            metrics = {
+                "backend": self.backend_name,
+                "operations": {},
+                "started_at": time.time(),
+            }
+        return metrics
+
+    def _save_metrics(self, metrics: Dict[str, Any]) -> None:
+        """Save metrics to cache."""
+        cache.set(self._metrics_cache_key, metrics, 3600)  # 1 hour
+
+    def get_operation_stats(self, operation: str) -> Dict[str, Any]:
+        """Get statistics for a specific operation."""
+        metrics = self._get_metrics()
+        return metrics["operations"].get(operation, {})
+
+    def get_all_stats(self) -> Dict[str, Any]:
+        """Get all metrics for this backend."""
+        return self._get_metrics()
+
+
+def create_backend_operation_context(backend_name: str, operation: str) -> Any:
+    """
+    Create a context manager for backend operations.
+
+    Includes standardized logging and metrics.
+
+
+    Args:
+        backend_name: Name of the backend
+        operation: Name of the operation
+
+    Returns:
+        Context manager that handles timing, logging, and metrics
+    """
+
+    @contextmanager
+    def operation_context() -> Any:
+        start_time = time.time()
+        success = False
+        error = None
+
+        try:
+            yield
+            success = True
+        except Exception as e:
+            error = e
+            raise
+        finally:
+            duration_ms = (time.time() - start_time) * 1000
+
+            # Log operation
+            if success:
+                log_backend_operation(
+                    operation,
+                    f"{backend_name} operation completed successfully",
+                    duration_ms,
+                )
+            else:
+                log_backend_operation(
+                    operation,
+                    f"{backend_name} operation failed: {error}",
+                    duration_ms,
+                    "error",
+                )
+
+            # Record metrics
+            metrics_collector = BackendMetricsCollector(backend_name)
+            metrics_collector.record_operation(operation, duration_ms, success)
+
+    return operation_context
+
+
+def standardize_backend_error_handling(backend_name: str) -> Callable:
+    """
+    Standardize error handling across backends.
+
+    Args:
+        backend_name: Name of the backend for logging
+    """
+
+    def decorator(func: Callable) -> Callable:
+        def wrapper(*_args: Any, **_kwargs: Any) -> Any:
+            try:
+                return func(*_args, **_kwargs)
+            except Exception as e:
+                # Log the error
+                logger.error(f"{backend_name} operation {func.__name__} failed: {e}")
+
+                # Mark backend as potentially unhealthy if it's a connection issue
+                if "connection" in str(e).lower() or "timeout" in str(e).lower():
+                    health_monitor = BackendHealthMonitor(backend_name)
+                    health_monitor.mark_unhealthy(str(e))
+
+                raise
+
+        return wrapper
+
+    return decorator

@@ -6,6 +6,7 @@ and all its features without duplication. It uses subTests to efficiently
 cover all combinations of decorator parameters.
 """
 
+import unittest
 from unittest.mock import Mock, patch
 
 from django.contrib.auth.models import AnonymousUser
@@ -15,15 +16,13 @@ from django.test import RequestFactory, TestCase
 from django_smart_ratelimit import generate_key, parse_rate, rate_limit
 from tests.utils import BaseBackendTestCase, create_test_user
 
-# Compatibility for Django < 4.2
+# Check if redis is available
 try:
-    from django.http import HttpResponseTooManyRequests
-except ImportError:
-    # Fallback for older Django versions
-    class HttpResponseTooManyRequests(HttpResponse):
-        """HTTP 429 Too Many Requests response."""
+    import redis as redis_module  # noqa: F401
 
-        status_code = 429
+    HAS_REDIS = True
+except ImportError:
+    HAS_REDIS = False
 
 
 class RateLimitDecoratorCoreTests(BaseBackendTestCase):
@@ -45,55 +44,78 @@ class RateLimitDecoratorCoreTests(BaseBackendTestCase):
     # RATE PARSING TESTS
     # =========================================================================
 
-    def test_parse_rate_valid_formats(self):
-        """Test parsing of all valid rate limit formats."""
-        test_cases = [
-            ("10/s", (10, 1)),
-            ("100/m", (100, 60)),
-            ("1000/h", (1000, 3600)),
-            ("10000/d", (10000, 86400)),
-            ("1/s", (1, 1)),  # Edge case: single request
-            ("5000/h", (5000, 3600)),  # High volume
-        ]
+    def test_parse_rate_seconds(self):
+        """Test parsing of seconds rate format."""
+        self.assertEqual(parse_rate("10/s"), (10, 1))
 
-        for rate_str, expected in test_cases:
-            with self.subTest(rate=rate_str):
-                result = parse_rate(rate_str)
-                self.assertEqual(result, expected)
+    def test_parse_rate_minutes(self):
+        """Test parsing of minutes rate format."""
+        self.assertEqual(parse_rate("100/m"), (100, 60))
 
-    def test_parse_rate_invalid_formats(self):
-        """Test parsing of invalid rate limit formats."""
-        invalid_rates = [
-            "10",  # Missing period
-            "10/x",  # Invalid period
-            "abc/m",  # Invalid number
-            "10/m/s",  # Too many parts
-            "",  # Empty string
-        ]
+    def test_parse_rate_hours(self):
+        """Test parsing of hours rate format."""
+        self.assertEqual(parse_rate("1000/h"), (1000, 3600))
 
-        for invalid_rate in invalid_rates:
-            with self.subTest(rate=invalid_rate):
-                with self.assertRaises(Exception):
-                    parse_rate(invalid_rate)
+    def test_parse_rate_days(self):
+        """Test parsing of days rate format."""
+        self.assertEqual(parse_rate("10000/d"), (10000, 86400))
+
+    def test_parse_rate_single_request(self):
+        """Test parsing of single request rate."""
+        self.assertEqual(parse_rate("1/s"), (1, 1))
+
+    def test_parse_rate_high_volume(self):
+        """Test parsing of high volume rate."""
+        self.assertEqual(parse_rate("5000/h"), (5000, 3600))
+
+    def test_parse_rate_invalid_missing_period(self):
+        """Test parsing invalid rate: missing period."""
+        with self.assertRaises(Exception):
+            parse_rate("10")
+
+    def test_parse_rate_invalid_period(self):
+        """Test parsing invalid rate: invalid period char."""
+        with self.assertRaises(Exception):
+            parse_rate("10/x")
+
+    def test_parse_rate_invalid_number(self):
+        """Test parsing invalid rate: non-numeric count."""
+        with self.assertRaises(Exception):
+            parse_rate("abc/m")
+
+    def test_parse_rate_too_many_parts(self):
+        """Test parsing invalid rate: too many parts."""
+        with self.assertRaises(Exception):
+            parse_rate("10/m/s")
+
+    def test_parse_rate_empty(self):
+        """Test parsing invalid rate: empty string."""
+        with self.assertRaises(Exception):
+            parse_rate("")
 
     # =========================================================================
     # KEY GENERATION TESTS
     # =========================================================================
 
-    def test_generate_key_string_literal(self):
-        """Test key generation with string literal keys."""
+    def test_generate_key_simple_string(self):
+        """Test key generation with simple string key."""
         request = self.factory.get("/")
-        test_cases = [
-            ("test_key", "test_key"),
-            ("api:v1", "api:v1"),
-            ("", ""),  # Edge case: empty string
-            ("key with spaces", "key with spaces"),
-        ]
+        self.assertEqual(generate_key("test_key", request), "test_key")
 
-        for key_input, expected in test_cases:
-            with self.subTest(key=key_input):
-                result = generate_key(key_input, request)
-                self.assertEqual(result, expected)
+    def test_generate_key_namespaced(self):
+        """Test key generation with namespaced key."""
+        request = self.factory.get("/")
+        self.assertEqual(generate_key("api:v1", request), "api:v1")
+
+    def test_generate_key_empty(self):
+        """Test key generation with empty key."""
+        request = self.factory.get("/")
+        self.assertEqual(generate_key("", request), "")
+
+    def test_generate_key_with_spaces(self):
+        """Test key generation with spaces in key."""
+        request = self.factory.get("/")
+        self.assertEqual(generate_key("key with spaces", request), "key with spaces")
 
     def test_generate_key_callable_authenticated_user(self):
         """Test key generation with callable keys for authenticated users."""
@@ -139,6 +161,7 @@ class RateLimitDecoratorCoreTests(BaseBackendTestCase):
         """Test decorator allows requests within rate limit."""
         mock_backend = Mock()
         mock_backend.incr.return_value = 5  # Within limit of 10
+        mock_backend.increment.return_value = (5, 5)
         mock_get_backend.return_value = mock_backend
 
         @rate_limit(key="test", rate="10/m")
@@ -156,13 +179,14 @@ class RateLimitDecoratorCoreTests(BaseBackendTestCase):
         self.assertIn("X-RateLimit-Reset", response.headers)
 
         # Verify backend was called correctly
-        mock_backend.incr.assert_called_once()
+        mock_backend.increment.assert_called_once()
 
     @patch("django_smart_ratelimit.decorator.get_backend")
     def test_decorator_exceeds_limit_blocked(self, mock_get_backend):
         """Test decorator blocks requests when limit exceeded (default behavior)."""
         mock_backend = Mock()
         mock_backend.incr.return_value = 11  # Exceeds limit of 10
+        mock_backend.increment.return_value = (11, 0)
         mock_get_backend.return_value = mock_backend
 
         @rate_limit(key="test", rate="10/m", block=True)
@@ -181,6 +205,7 @@ class RateLimitDecoratorCoreTests(BaseBackendTestCase):
         """Test decorator allows requests but adds headers when block=False."""
         mock_backend = Mock()
         mock_backend.incr.return_value = 11  # Exceeds limit of 10
+        mock_backend.increment.return_value = (11, 0)
         mock_get_backend.return_value = mock_backend
 
         @rate_limit(key="test", rate="10/m", block=False)
@@ -221,6 +246,7 @@ class RateLimitDecoratorCoreTests(BaseBackendTestCase):
         """Test decorator with DRF ViewSet-style method signature."""
         mock_backend = Mock()
         mock_backend.incr.return_value = 3
+        mock_backend.increment.return_value = (3, 7)
         mock_get_backend.return_value = mock_backend
 
         class TestViewSet:
@@ -235,9 +261,9 @@ class RateLimitDecoratorCoreTests(BaseBackendTestCase):
 
         # Verify request was found and processed
         self.assertEqual(response.status_code, 200)
-        mock_backend.incr.assert_called_once()
+        mock_backend.increment.assert_called_once()
         # Verify IP key was generated correctly
-        args, _ = mock_backend.incr.call_args
+        args, _ = mock_backend.increment.call_args
         self.assertIn("ip:192.168.1.1", args[0])
 
     # =========================================================================
@@ -248,6 +274,7 @@ class RateLimitDecoratorCoreTests(BaseBackendTestCase):
     def test_decorator_custom_backend_selection(self, mock_get_backend):
         """Test decorator with explicit backend specification."""
         mock_backend = Mock()
+        mock_backend.increment.return_value = (1, 9)
         mock_backend.incr.return_value = 1
         mock_get_backend.return_value = mock_backend
 
@@ -267,6 +294,7 @@ class RateLimitDecoratorCoreTests(BaseBackendTestCase):
         """Test decorator uses default backend when none specified."""
         mock_backend = Mock()
         mock_backend.incr.return_value = 1
+        mock_backend.increment.return_value = (1, 9)
         mock_get_backend.return_value = mock_backend
 
         @rate_limit(key="test", rate="10/m")
@@ -312,6 +340,7 @@ class RateLimitDecoratorCoreTests(BaseBackendTestCase):
         """Test decorator applies rate limiting when skip_if returns False."""
         mock_backend = Mock()
         mock_backend.incr.return_value = 1
+        mock_backend.increment.return_value = (1, 9)
         mock_get_backend.return_value = mock_backend
 
         def skip_for_staff(request):
@@ -329,7 +358,7 @@ class RateLimitDecoratorCoreTests(BaseBackendTestCase):
 
         # Should apply rate limiting
         self.assertEqual(response.status_code, 200)
-        mock_backend.incr.assert_called_once()
+        mock_backend.increment.assert_called_once()
 
     @patch("django_smart_ratelimit.decorator.get_backend")
     def test_decorator_skip_if_exception_continues_with_limiting(
@@ -338,6 +367,7 @@ class RateLimitDecoratorCoreTests(BaseBackendTestCase):
         """Test decorator continues with rate limiting if skip_if raises exception."""
         mock_backend = Mock()
         mock_backend.incr.return_value = 1
+        mock_backend.increment.return_value = (1, 9)
         mock_get_backend.return_value = mock_backend
 
         def failing_skip_if(request):
@@ -353,40 +383,18 @@ class RateLimitDecoratorCoreTests(BaseBackendTestCase):
 
         # Should continue with rate limiting despite skip_if failure
         self.assertEqual(response.status_code, 200)
-        mock_backend.incr.assert_called_once()
+        mock_backend.increment.assert_called_once()
 
     # =========================================================================
     # ALGORITHM SELECTION TESTS
     # =========================================================================
 
     @patch("django_smart_ratelimit.decorator.get_backend")
-    def test_decorator_algorithm_selection(self, mock_get_backend):
-        """Test decorator with different algorithms."""
-        algorithms = ["fixed_window", "sliding_window", "token_bucket"]
-
-        for algorithm in algorithms:
-            with self.subTest(algorithm=algorithm):
-                mock_backend = Mock()
-                mock_backend.incr.return_value = 1
-                mock_backend.config = {}
-                mock_get_backend.return_value = mock_backend
-
-                @rate_limit(key="test", rate="10/m", algorithm=algorithm)
-                def test_view(request):
-                    return HttpResponse("Success")
-
-                request = self.factory.get("/")
-                response = test_view(request)
-
-                self.assertEqual(response.status_code, 200)
-                # Verify algorithm was set on backend config
-                self.assertEqual(mock_backend.config["algorithm"], algorithm)
-
-    @patch("django_smart_ratelimit.decorator.get_backend")
     def test_decorator_token_bucket_with_config(self, mock_get_backend):
         """Test decorator with token bucket algorithm and custom config."""
         mock_backend = Mock()
         mock_backend.incr.return_value = 1
+        mock_backend.increment.return_value = (1, 9)
         mock_backend.config = {}
         mock_get_backend.return_value = mock_backend
 
@@ -411,51 +419,6 @@ class RateLimitDecoratorCoreTests(BaseBackendTestCase):
     # COMPREHENSIVE COMBINATION TESTS
     # =========================================================================
 
-    @patch("django_smart_ratelimit.decorator.get_backend")
-    def test_decorator_parameter_combinations(self, mock_get_backend):
-        """Test various combinations of decorator parameters."""
-        test_combinations = [
-            ("ip", "10/s", True, "fixed_window"),
-            ("user", "100/m", False, "sliding_window"),
-            ("api_key", "1000/h", True, "token_bucket"),
-            ("custom", "50/m", False, "fixed_window"),
-        ]
-
-        for key_type, rate, block, algorithm in test_combinations:
-            with self.subTest(
-                key=key_type, rate=rate, block=block, algorithm=algorithm
-            ):
-                mock_backend = Mock()
-                mock_backend.incr.return_value = 1
-                mock_backend.config = {}
-                mock_get_backend.return_value = mock_backend
-
-                # Create appropriate key function based on type
-                if key_type == "ip":
-                    key = "ip"
-                elif key_type == "user":
-                    key = "user"
-                elif key_type == "api_key":
-                    key = (
-                        lambda req, *args, **kwargs: f"api_key:{getattr(req, 'api_key', 'default')}"
-                    )
-                else:
-                    key = "custom_key"
-
-                @rate_limit(key=key, rate=rate, block=block, algorithm=algorithm)
-                def test_view(request):
-                    return HttpResponse("Success")
-
-                request = self.factory.get("/")
-                if key_type == "api_key":
-                    request.api_key = "test_key_123"
-
-                response = test_view(request)
-
-                self.assertEqual(response.status_code, 200)
-                if hasattr(mock_backend, "config"):
-                    self.assertEqual(mock_backend.config.get("algorithm"), algorithm)
-
 
 class RateLimitDecoratorIntegrationTests(TestCase):
     """Integration tests for decorator with real backend scenarios."""
@@ -463,6 +426,7 @@ class RateLimitDecoratorIntegrationTests(TestCase):
     def setUp(self):
         self.factory = RequestFactory()
 
+    @unittest.skipUnless(HAS_REDIS, "redis package not installed")
     @patch("django_smart_ratelimit.backends.redis_backend.redis")
     def test_decorator_redis_backend_integration(self, mock_redis_module):
         """Test decorator with Redis backend integration."""
@@ -503,6 +467,7 @@ class RateLimitDecoratorErrorHandlingTests(BaseBackendTestCase):
         """Test decorator handles backend failure - verifies exception is raised."""
         mock_backend = Mock()
         mock_backend.incr.side_effect = Exception("Backend connection failed")
+        mock_backend.increment.side_effect = Exception("Backend connection failed")
         mock_get_backend.return_value = mock_backend
 
         @rate_limit(key="test", rate="10/m")
@@ -539,3 +504,119 @@ class RateLimitDecoratorErrorHandlingTests(BaseBackendTestCase):
             test_view(request)
 
         self.assertIn("Key generation failed", str(context.exception))
+
+
+class RateLimitDecoratorEnableSettingTests(BaseBackendTestCase):
+    """Tests for RATELIMIT_ENABLE setting in decorator."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        super().setUp()
+        self.factory = RequestFactory()
+
+    @patch("django_smart_ratelimit.decorator.get_backend")
+    def test_decorator_disabled_when_ratelimit_enable_false(self, mock_get_backend):
+        """Test that decorator is bypassed when RATELIMIT_ENABLE=False."""
+        mock_backend = Mock()
+        mock_backend.incr.return_value = 1
+        mock_get_backend.return_value = mock_backend
+
+        from django_smart_ratelimit.config import RateLimitSettings
+
+        # Create settings with enabled=False
+        disabled_settings = RateLimitSettings(enabled=False)
+
+        @rate_limit(key="test", rate="10/m", settings=disabled_settings)
+        def test_view(request):
+            return HttpResponse("Success")
+
+        request = self.factory.get("/")
+        response = test_view(request)
+
+        # Backend should NOT be called when rate limiting is disabled
+        mock_backend.incr.assert_not_called()
+        self.assertEqual(response.status_code, 200)
+
+    @patch("django_smart_ratelimit.decorator.get_backend")
+    def test_decorator_enabled_when_ratelimit_enable_true(self, mock_get_backend):
+        """Test that decorator applies rate limiting when RATELIMIT_ENABLE=True."""
+        mock_backend = Mock()
+        mock_backend.incr.return_value = 1
+        mock_backend.increment.return_value = (1, 9)  # (current_count, remaining)
+        mock_get_backend.return_value = mock_backend
+
+        from django_smart_ratelimit.config import RateLimitSettings
+
+        # Create settings with enabled=True
+        enabled_settings = RateLimitSettings(enabled=True)
+
+        @rate_limit(key="test", rate="10/m", settings=enabled_settings)
+        def test_view(request):
+            return HttpResponse("Success")
+
+        request = self.factory.get("/")
+        response = test_view(request)
+
+        # Backend should be called when rate limiting is enabled
+        self.assertTrue(
+            mock_backend.incr.called or mock_backend.increment.called,
+            "Backend incr or increment should be called when enabled",
+        )
+        self.assertEqual(response.status_code, 200)
+
+    @patch("django_smart_ratelimit.decorator.get_backend")
+    def test_decorator_disabled_no_429_response(self, mock_get_backend):
+        """Test that disabled decorator never returns 429 even for heavy load."""
+        mock_backend = Mock()
+        # Simulate limit exceeded
+        mock_backend.incr.return_value = 1000
+        mock_get_backend.return_value = mock_backend
+
+        from django_smart_ratelimit.config import RateLimitSettings
+
+        disabled_settings = RateLimitSettings(enabled=False)
+
+        @rate_limit(key="test", rate="1/m", settings=disabled_settings)
+        def test_view(request):
+            return HttpResponse("Success")
+
+        # Make many requests - all should succeed
+        for _ in range(10):
+            request = self.factory.get("/")
+            response = test_view(request)
+            self.assertEqual(response.status_code, 200)
+
+        # Backend should never be called
+        mock_backend.incr.assert_not_called()
+
+    @patch("django_smart_ratelimit.decorator.get_backend")
+    def test_decorator_with_django_settings_ratelimit_enable_false(
+        self, mock_get_backend
+    ):
+        """Test decorator uses RATELIMIT_ENABLE from Django settings."""
+        mock_backend = Mock()
+        mock_backend.incr.return_value = 1
+        mock_backend.increment.return_value = (1, 9)
+        mock_get_backend.return_value = mock_backend
+
+        from django.test import override_settings
+
+        with override_settings(RATELIMIT_ENABLE=False):
+            # Need to reset settings cache for the change to take effect
+            from django_smart_ratelimit.config import reset_settings
+
+            reset_settings()
+
+            # Define the decorated view inside the override_settings block
+            # so it picks up the disabled setting
+            @rate_limit(key="test", rate="10/m")
+            def test_view(request):
+                return HttpResponse("Success")
+
+            request = self.factory.get("/")
+            response = test_view(request)
+
+            # Backend should NOT be called when rate limiting is disabled
+            mock_backend.incr.assert_not_called()
+            mock_backend.increment.assert_not_called()
+            self.assertEqual(response.status_code, 200)

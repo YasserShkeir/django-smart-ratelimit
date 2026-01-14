@@ -1,6 +1,6 @@
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.4.0
+    rev: v6.0.0
     hooks:
       - id: trailing-whitespace
       - id: end-of-file-fixer
@@ -14,13 +14,13 @@ repos:
       - id: detect-private-key
 
   - repo: https://github.com/psf/black
-    rev: 23.9.1
+    rev: 25.12.0
     hooks:
       - id: black
         exclude: ^\.venv/
 
   - repo: https://github.com/pycqa/flake8
-    rev: 6.1.0
+    rev: 7.3.0
     hooks:
       - id: flake8
         additional_dependencies: [flake8-docstrings, flake8-unused-arguments]
@@ -28,25 +28,26 @@ repos:
           [
             "--max-line-length=88",
             "--extend-ignore=E203,W503,U101,D401,U100,D200,D400,E501,D105,D104,D102,D202,D205,E402,F401,E722,F841",
+            "--per-file-ignores=tests/*:D100,D101,D103,D107,F541",
           ]
         exclude: ^\.venv/
 
   - repo: https://github.com/pycqa/isort
-    rev: 5.12.0
+    rev: 7.0.0
     hooks:
       - id: isort
         args: ["--profile", "black", "--line-length", "88"]
         exclude: ^\.venv/
 
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.5.1
+    rev: v1.19.1
     hooks:
       - id: mypy
         additional_dependencies: [django-stubs, types-redis]
         exclude: ^\.venv/
 
   - repo: https://github.com/PyCQA/autoflake
-    rev: v2.2.1
+    rev: v2.3.1
     hooks:
       - id: autoflake
         args:

@@ -8,6 +8,7 @@ memory management, and algorithm correctness.
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 from django.test import TestCase, override_settings
 
@@ -54,6 +55,51 @@ class MemoryBackendTest(
         # After increment
         self.create_test_data(self.test_key, 2)
         self.assert_get_count(self.test_key, 2)
+
+    @patch("django_smart_ratelimit.backends.memory.get_current_timestamp")
+    def test_get_count_with_variable_period(self, mock_time):
+        """Test get_count with variable period."""
+        # Start at time 100
+        mock_time.return_value = 100.0
+
+        # Use sliding window for this test as it's more sensitive to period
+        with override_settings(RATELIMIT_ALGORITHM="sliding_window"):
+            backend = MemoryBackend()
+            key = "variable_period_key"
+
+            backend.incr(key, 60)  # Request at 100
+
+            # Advance time to 130
+            mock_time.return_value = 130.0
+
+            # Period 60: Window is [70, 130]. Request at 100 is IN.
+            self.assertEqual(backend.get_count(key, period=60), 1)
+
+            # Period 20: Window is [110, 130]. Request at 100 is OUT.
+            self.assertEqual(backend.get_count(key, period=20), 0)
+
+    @patch("django_smart_ratelimit.backends.memory.get_current_timestamp")
+    def test_get_reset_time_sliding_window(self, mock_time):
+        """Test get_reset_time with sliding window."""
+        # Start at time 100
+        mock_time.return_value = 100.0
+
+        with override_settings(RATELIMIT_ALGORITHM="sliding_window"):
+            backend = MemoryBackend()
+            key = "reset_time_key"
+
+            backend.incr(key, 60)
+
+            # Request 2 at time 120
+            mock_time.return_value = 120.0
+            backend.incr(key, 60)
+
+            # Reset time should be when the OLDEST request expires.
+            # Oldest request (100) expires at 100 + 60 = 160.
+            # Current expiry stored in backend is 120 + 60 = 180.
+
+            reset_time = backend.get_reset_time(key)
+            self.assertEqual(reset_time, 160)
 
     def test_reset(self):
         """Test reset functionality."""
@@ -349,90 +395,69 @@ class MemoryBackendTest(
         self.assertGreaterEqual(info_after.get("tokens_remaining", 0), 6.0)
         self.assertIn("time_to_refill", info_after)
 
+    def test_sliding_window_exact_boundary(self):
+        """Test behavior at exact window boundary."""
+        backend = MemoryBackend()
+        key = "test:boundary"
+        period = 2  # Short period for testing
+        limit = 5
 
-class MemoryBackendIntegrationTest(TestCase):
-    """Integration tests for the memory backend."""
+        # Fill to limit
+        for _ in range(limit):
+            backend.incr(key, period=period)
 
-    def test_backend_factory_integration(self):
-        """Test that the backend factory returns MemoryBackend."""
-        from django_smart_ratelimit import get_backend
+        # Should be at limit
+        count = backend.incr(key, period=period)
+        self.assertGreater(count, limit)
 
-        with override_settings(RATELIMIT_BACKEND="memory"):
-            backend = get_backend()
-            self.assertIsInstance(backend, MemoryBackend)
+        # Wait for window to expire
+        time.sleep(period + 0.1)
 
-    def test_decorator_integration(self):
-        """Test integration with the rate limit decorator."""
-        from django.http import HttpResponse
-        from django.test import RequestFactory
+        # Should be allowed again (count resets to 1)
+        count = backend.incr(key, period=period)
+        self.assertEqual(count, 1)
 
-        from django_smart_ratelimit import rate_limit
-        from django_smart_ratelimit.backends import clear_backend_cache
+    def test_sliding_window_partial_expiry_precise(self):
+        """Test that old requests slide out of window with precision."""
+        backend = MemoryBackend()
+        key = "test:sliding:precise"
+        period = 2
 
-        with override_settings(RATELIMIT_BACKEND="memory"):
-            # Clear backend cache to ensure fresh instance
-            clear_backend_cache()
+        # Add requests over time
+        backend.incr(key, period=period)  # T=0, expires T=2
+        time.sleep(0.5)
+        backend.incr(key, period=period)  # T=0.5, expires T=2.5
+        time.sleep(0.5)
+        backend.incr(key, period=period)  # T=1.0, expires T=3.0
 
-            @rate_limit(key="ip", rate="5/m", backend="memory")
-            def test_view(_request):
-                return HttpResponse("OK")
+        # Current count is 3
+        self.assertEqual(backend.get_count(key, period=period), 3)
 
-            factory = RequestFactory()
-            _request = factory.get("/")
-            _request.META["REMOTE_ADDR"] = "127.0.0.1"
+        # Wait until T=2.1 (first request expires)
+        time.sleep(1.1)
 
-            # First 5 requests should succeed
-            for i in range(5):
-                response = test_view(_request)
-                self.assertEqual(response.status_code, 200)
-                # Check rate limit headers
-                self.assertIn("X-RateLimit-Limit", response.headers)
-                self.assertEqual(response.headers["X-RateLimit-Limit"], "5")
+        # Count should be reduced to 2
+        count = backend.get_count(key, period=period)
+        self.assertEqual(count, 2)
 
-            # 6th _request should be rate limited
-            response = test_view(_request)
-            self.assertEqual(response.status_code, 429)
+    def test_sliding_window_precision(self):
+        """Test sliding window with millisecond precision."""
+        backend = MemoryBackend()
+        key = "test:precision"
+        period = 1
 
-    def test_middleware_integration(self):
-        """Test integration with the rate limit middleware."""
-        from django.http import HttpResponse
-        from django.test import RequestFactory
+        # Add request at known time
+        backend.incr(key, period=period)
 
-        from django_smart_ratelimit.backends import clear_backend_cache
-        from django_smart_ratelimit.middleware import RateLimitMiddleware
+        # Check just before window expires
+        time.sleep(0.9)
+        count = backend.get_count(key, period=period)
+        self.assertEqual(count, 1)
 
-        with override_settings(
-            RATELIMIT_BACKEND="memory",
-            RATELIMIT_MIDDLEWARE={
-                "DEFAULT_RATE": "3/m",
-                "BACKEND": "memory",
-            },
-        ):
-            # Clear backend cache to ensure fresh instance
-            clear_backend_cache()
-
-            middleware = RateLimitMiddleware(lambda _request: HttpResponse("OK"))
-
-            factory = RequestFactory()
-            _request = factory.get("/")
-            _request.META["REMOTE_ADDR"] = "127.0.0.1"
-
-            # First 3 requests should succeed
-            for i in range(3):
-                response = middleware(_request)
-                self.assertEqual(response.status_code, 200)
-
-            # 4th _request should be rate limited
-            response = middleware(_request)
-            self.assertEqual(response.status_code, 429)
-
-
-class MemoryBackendAdvancedTests(TestCase):
-    """Advanced test scenarios for memory backend addressing coverage gaps."""
-
-    def setUp(self):
-        """Set up test environment."""
-        self.backend = MemoryBackend()
+        # Check just after window expires
+        time.sleep(0.2)
+        count = backend.get_count(key, period=period)
+        self.assertEqual(count, 0)
 
     def test_eviction_under_many_keys_churn(self):
         """Test eviction behavior under high key churn scenarios."""
@@ -635,6 +660,83 @@ class MemoryBackendAdvancedTests(TestCase):
         # Verify final state
         final_count = backend.get_count(key)
         self.assertEqual(final_count, frequency_count)
+
+
+class MemoryBackendIntegrationTest(TestCase):
+    """Integration tests for the memory backend."""
+
+    def test_backend_factory_integration(self):
+        """Test that the backend factory returns MemoryBackend."""
+        from django_smart_ratelimit import get_backend
+
+        with override_settings(RATELIMIT_BACKEND="memory"):
+            backend = get_backend()
+            self.assertIsInstance(backend, MemoryBackend)
+
+    def test_decorator_integration(self):
+        """Test integration with the rate limit decorator."""
+        from django.http import HttpResponse
+        from django.test import RequestFactory
+
+        from django_smart_ratelimit import rate_limit
+        from django_smart_ratelimit.backends import clear_backend_cache
+
+        with override_settings(RATELIMIT_BACKEND="memory"):
+            # Clear backend cache to ensure fresh instance
+            clear_backend_cache()
+
+            @rate_limit(key="ip", rate="5/m", backend="memory")
+            def test_view(_request):
+                return HttpResponse("OK")
+
+            factory = RequestFactory()
+            _request = factory.get("/")
+            _request.META["REMOTE_ADDR"] = "127.0.0.1"
+
+            # First 5 requests should succeed
+            for i in range(5):
+                response = test_view(_request)
+                self.assertEqual(response.status_code, 200)
+                # Check rate limit headers
+                self.assertIn("X-RateLimit-Limit", response.headers)
+                self.assertEqual(response.headers["X-RateLimit-Limit"], "5")
+
+            # 6th _request should be rate limited
+            response = test_view(_request)
+            self.assertEqual(response.status_code, 429)
+
+    def test_middleware_integration(self):
+        """Test integration with the rate limit middleware."""
+        from django.http import HttpResponse
+        from django.test import RequestFactory
+
+        from django_smart_ratelimit.backends import clear_backend_cache
+        from django_smart_ratelimit.middleware import RateLimitMiddleware
+
+        with override_settings(
+            RATELIMIT_BACKEND="memory",
+            RATELIMIT_MIDDLEWARE={
+                "DEFAULT_RATE": "3/m",
+                "BACKEND": "memory",
+            },
+        ):
+            # Clear backend cache to ensure fresh instance
+            clear_backend_cache()
+
+            middleware = RateLimitMiddleware(lambda _request: HttpResponse("OK"))
+
+            factory = RequestFactory()
+            _request = factory.get("/")
+            _request.META["REMOTE_ADDR"] = "127.0.0.1"
+
+            # First 3 requests should succeed
+            for i in range(3):
+                response = middleware(_request)
+                self.assertEqual(response.status_code, 200)
+
+            # 4th _request should be rate limited
+            response = middleware(_request)
+            self.assertEqual(response.status_code, 429)
 
 
 if __name__ == "__main__":

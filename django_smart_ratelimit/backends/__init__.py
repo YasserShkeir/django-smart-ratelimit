@@ -6,7 +6,6 @@ This module provides the backend selection and initialization logic.
 
 from typing import Dict, Optional
 
-from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 
 from .base import BaseBackend
@@ -26,12 +25,16 @@ def get_backend(backend_name: Optional[str] = None) -> BaseBackend:
     Returns:
         Configured backend instance (cached for reuse)
     """
+    from django_smart_ratelimit.config import get_settings
+
+    settings = get_settings()
+
     if backend_name is None:
         # Check if multi-backend is configured
-        if hasattr(settings, "RATELIMIT_BACKENDS") and settings.RATELIMIT_BACKENDS:
+        if settings.multi_backends:
             backend_name = "multi"
         else:
-            backend_name = getattr(settings, "RATELIMIT_BACKEND", "redis")
+            backend_name = settings.backend_class
 
     # Return cached instance if available
     if backend_name in _backend_instances:
@@ -39,57 +42,57 @@ def get_backend(backend_name: Optional[str] = None) -> BaseBackend:
 
     # Create new instance based on backend name
     backend: BaseBackend
-    if backend_name == "redis":
-        from .redis_backend import RedisBackend
+    kwargs = {}
 
-        backend = RedisBackend()
-    elif backend_name == "memory":
-        from .memory import MemoryBackend
+    # Special handling for parameter-heavy backends
+    if backend_name == "multi":
+        kwargs = {
+            "backends": settings.multi_backends,
+            "fallback_strategy": settings.multi_backend_strategy,
+            "health_check_interval": settings.health_check_interval,
+        }
 
-        backend = MemoryBackend()
-    elif backend_name == "database":
-        from .database import DatabaseBackend
+    try:
+        backend = BackendFactory.create_backend(backend_name, **kwargs)
 
-        backend = DatabaseBackend()
-    elif backend_name == "mongodb":
-        from .mongodb import MongoDBBackend, pymongo
+        # Validate dependency requirements
+        if backend_name == "mongodb":
+            from .mongodb import pymongo
 
-        if pymongo is None:
-            raise ImproperlyConfigured(
-                "MongoDB backend requires the pymongo package. "
-                "Install it with: pip install pymongo"
-            )
-        backend = MongoDBBackend()
-    elif backend_name == "multi":
-        from .multi import MultiBackend
+            if pymongo is None:
+                raise ImproperlyConfigured(
+                    "MongoDB backend requires the pymongo package. "
+                    "Install it with: pip install pymongo"
+                )
 
-        # Pass Django settings to multi-backend
-        # Support both RATELIMIT_BACKENDS and RATELIMIT_MULTI_BACKENDS
-        backends = getattr(settings, "RATELIMIT_MULTI_BACKENDS", None) or getattr(
-            settings, "RATELIMIT_BACKENDS", []
-        )
-        backend = MultiBackend(
-            backends=backends,
-            fallback_strategy=getattr(
-                settings, "RATELIMIT_MULTI_BACKEND_STRATEGY", "first_healthy"
-            ),
-            health_check_interval=getattr(
-                settings, "RATELIMIT_HEALTH_CHECK_INTERVAL", 30
-            ),
-        )
-    else:
-        # Try to create backend using factory for full path
-        try:
-            # Check if it's a simple name or full path
-            if "." not in backend_name:
-                raise ImproperlyConfigured(f"Unknown backend: {backend_name}")
-            backend = BackendFactory.create_backend(backend_name)
-        except (ImportError, AttributeError, ValueError):
-            raise ImproperlyConfigured(f"Unknown backend: {backend_name}")
+    except (ImportError, AttributeError, ValueError, TypeError) as e:
+        raise ImproperlyConfigured(f"Failed to initialize backend {backend_name}: {e}")
 
     # Cache the instance
     _backend_instances[backend_name] = backend
     return backend
+
+
+def get_async_backend(backend_name: Optional[str] = None) -> BaseBackend:
+    """
+    Get an async-compatible rate limiting backend.
+
+    If backend is 'redis', returns AsyncRedisBackend.
+    Otherwise returns the standard backend which has async wrapper methods.
+    """
+    from django_smart_ratelimit.config import get_settings
+
+    settings = get_settings()
+
+    if backend_name is None:
+        backend_name = settings.backend_class
+
+    if backend_name == "redis":
+        # Force use of AsyncRedisBackend for redis
+        return get_backend("async_redis")
+
+    # For others, use standard backend (wrappers)
+    return get_backend(backend_name)
 
 
 def clear_backend_cache() -> None:
@@ -97,4 +100,4 @@ def clear_backend_cache() -> None:
     _backend_instances.clear()
 
 
-__all__ = ["get_backend", "BaseBackend", "clear_backend_cache"]
+__all__ = ["get_backend", "get_async_backend", "BaseBackend", "clear_backend_cache"]

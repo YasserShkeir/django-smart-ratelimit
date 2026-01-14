@@ -31,6 +31,7 @@ class MiddlewareDecoratorInteractionTests(TestCase):
         # Set up mock backends
         mock_backend = Mock()
         mock_backend.incr.return_value = 1
+        mock_backend.increment.return_value = (1, 99)
         mock_backend.get_count.return_value = 1
 
         mock_middleware_backend.return_value = mock_backend
@@ -65,8 +66,9 @@ class MiddlewareDecoratorInteractionTests(TestCase):
             self.assertEqual(response.status_code, 200)
 
             # Both middleware AND decorator should increment (separate counters)
-            # This is the FIXED behavior - no more double-counting issues
-            self.assertEqual(mock_backend.incr.call_count, 2)
+            # Middleware uses incr, Decorator uses increment
+            self.assertEqual(mock_backend.incr.call_count, 1)
+            self.assertEqual(mock_backend.increment.call_count, 1)
 
             # Decorator should still call get_count for its own key
             self.assertEqual(mock_backend.get_count.call_count, 0)
@@ -82,6 +84,7 @@ class MiddlewareDecoratorInteractionTests(TestCase):
         """Test that decorator works normally when middleware hasn't processed request."""
         mock_backend = Mock()
         mock_backend.incr.return_value = 1
+        mock_backend.increment.return_value = (1, 99)
         mock_get_backend.return_value = mock_backend
 
         @rate_limit(key="user", rate="10/m")
@@ -99,7 +102,7 @@ class MiddlewareDecoratorInteractionTests(TestCase):
         self.assertEqual(response.status_code, 200)
 
         # Decorator should increment normally
-        mock_backend.incr.assert_called_once()
+        mock_backend.increment.assert_called_once()
 
         # Should not call get_count when middleware hasn't processed
         mock_backend.get_count.assert_not_called()
@@ -113,6 +116,8 @@ class MiddlewareDecoratorInteractionTests(TestCase):
         # Set up mock backends
         mock_backend = Mock()
         mock_backend.incr.return_value = 5  # 5 requests made
+        # Count exceeds 3, so block
+        mock_backend.increment.return_value = (5, 0)
         mock_backend.get_count.return_value = 5
 
         mock_middleware_backend.return_value = mock_backend
@@ -145,7 +150,8 @@ class MiddlewareDecoratorInteractionTests(TestCase):
             self.assertEqual(response.status_code, 429)
 
             # Both middleware AND decorator should increment (separate counters)
-            self.assertEqual(mock_backend.incr.call_count, 2)
+            self.assertEqual(mock_backend.incr.call_count, 1)
+            self.assertEqual(mock_backend.increment.call_count, 1)
 
             # No get_count calls needed with new implementation
             self.assertEqual(mock_backend.get_count.call_count, 0)
@@ -159,6 +165,7 @@ class MiddlewareDecoratorInteractionTests(TestCase):
         # Set up mock backends
         mock_backend = Mock()
         mock_backend.incr.return_value = 2  # 2 requests made
+        mock_backend.increment.return_value = (2, 3)
         mock_backend.get_count.return_value = 2
 
         mock_middleware_backend.return_value = mock_backend
@@ -197,8 +204,21 @@ class MiddlewareDecoratorInteractionTests(TestCase):
             self.assertGreaterEqual(remaining, 0)
             self.assertLessEqual(remaining, 5)  # Should not exceed decorator limit
 
-    def test_middleware_skip_paths_not_processed_by_decorator(self):
+    @patch("django_smart_ratelimit.middleware.get_backend")
+    @patch("django_smart_ratelimit.decorator.get_backend")
+    def test_middleware_skip_paths_not_processed_by_decorator(
+        self, mock_decorator_backend, mock_middleware_backend
+    ):
         """Test that skipped paths are properly handled."""
+        # Set up mock backends
+        mock_backend = Mock()
+        mock_backend.incr.return_value = 1
+        mock_backend.increment.return_value = (1, 4)  # (count, remaining)
+        mock_backend.get_count.return_value = 1
+        mock_backend.get_reset_time.return_value = None
+        mock_backend.fail_open = True
+        mock_decorator_backend.return_value = mock_backend
+        mock_middleware_backend.return_value = mock_backend
 
         @rate_limit(key="user", rate="5/m")
         def test_view(request):
@@ -210,6 +230,7 @@ class MiddlewareDecoratorInteractionTests(TestCase):
         with override_settings(
             RATELIMIT_MIDDLEWARE={
                 "SKIP_PATHS": ["/admin/", "/health/"],
+                "BACKEND": "memory",
             }
         ):
             middleware = RateLimitMiddleware(get_response)
@@ -230,7 +251,7 @@ class MiddlewareDecoratorInteractionTests(TestCase):
     def test_browser_secondary_requests_are_skipped(self, mock_get_backend):
         """Test that browser secondary requests don't count towards rate limit."""
         mock_backend = Mock()
-        mock_backend.incr.return_value = 1
+        mock_backend.increment.return_value = (1, 9)
         mock_get_backend.return_value = mock_backend
 
         # Decorator that skips browser secondary requests (like the user's issue)
@@ -250,21 +271,21 @@ class MiddlewareDecoratorInteractionTests(TestCase):
         request = self.factory.get("/api/test")
         response = test_view(request)
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(mock_backend.incr.call_count, 1)
+        self.assertEqual(mock_backend.increment.call_count, 1)
 
         # Test favicon request - should be skipped
         favicon_request = self.factory.get("/favicon.ico")
         response = test_view(favicon_request)
         self.assertEqual(response.status_code, 200)
         # Should still be 1, not incremented
-        self.assertEqual(mock_backend.incr.call_count, 1)
+        self.assertEqual(mock_backend.increment.call_count, 1)
 
         # Test OPTIONS request - should be skipped
         options_request = self.factory.options("/api/test")
         response = test_view(options_request)
         self.assertEqual(response.status_code, 200)
         # Should still be 1, not incremented
-        self.assertEqual(mock_backend.incr.call_count, 1)
+        self.assertEqual(mock_backend.increment.call_count, 1)
 
     @patch("django_smart_ratelimit.decorator.get_backend")
     @patch("django_smart_ratelimit.middleware.get_backend")
@@ -282,7 +303,13 @@ class MiddlewareDecoratorInteractionTests(TestCase):
             call_count += 1
             return call_count
 
+        def mock_increment(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            return call_count, 10
+
         mock_backend.incr.side_effect = mock_incr
+        mock_backend.increment.side_effect = mock_increment
         mock_backend.get_count.return_value = 1
 
         mock_middleware_backend.return_value = mock_backend
@@ -313,9 +340,8 @@ class MiddlewareDecoratorInteractionTests(TestCase):
             self.assertEqual(response.status_code, 200)
 
             # After fix: Both middleware AND decorator increment their own counters
-            self.assertEqual(
-                mock_backend.incr.call_count, 2
-            )  # Both middleware and decorator increment
+            self.assertEqual(mock_backend.incr.call_count, 1)
+            self.assertEqual(mock_backend.increment.call_count, 1)
             self.assertEqual(
                 mock_backend.get_count.call_count, 0
             )  # No get_count calls needed
@@ -329,6 +355,7 @@ class MiddlewareDecoratorInteractionTests(TestCase):
         # Set up mock backends
         mock_backend = Mock()
         mock_backend.incr.return_value = 5  # 5 requests made
+        mock_backend.increment.return_value = (5, 5)
         mock_backend.get_count.return_value = 5
 
         mock_middleware_backend.return_value = mock_backend

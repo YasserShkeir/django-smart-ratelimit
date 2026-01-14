@@ -5,6 +5,7 @@ This module provides standardized authentication-related utilities to reduce
 code duplication and ensure consistent behavior across the package.
 """
 
+import ipaddress
 from typing import Any, Dict, Optional
 
 from django.http import HttpRequest
@@ -183,6 +184,26 @@ def extract_user_identifier(request: HttpRequest) -> str:
     return f"ip:{request.META.get('REMOTE_ADDR', 'unknown')}"
 
 
+def _ip_in_network(ip: str, network: str) -> bool:
+    """
+    Check if an IP address is within a network range.
+
+    Args:
+        ip: IP address string (e.g., "192.168.1.100")
+        network: Network in CIDR notation (e.g., "192.168.0.0/16")
+
+    Returns:
+        True if IP is in the network, False otherwise
+    """
+    try:
+        ip_obj = ipaddress.ip_address(ip)
+        network_obj = ipaddress.ip_network(network, strict=False)
+        return ip_obj in network_obj
+    except ValueError:
+        # Invalid IP or network format
+        return False
+
+
 def is_internal_request(
     request: HttpRequest, internal_ips: Optional[list] = None
 ) -> bool:
@@ -197,20 +218,59 @@ def is_internal_request(
         True if request is from internal IP, False otherwise
     """
     if internal_ips is None:
-        internal_ips = ["127.0.0.1", "::1", "10.0.0.0/8", "192.168.0.0/16"]
+        internal_ips = [
+            "127.0.0.1",
+            "::1",
+            "10.0.0.0/8",
+            "192.168.0.0/16",
+            "172.16.0.0/12",
+            "fc00::/7",
+            "fe80::/10",
+        ]
 
     client_ip = request.META.get("REMOTE_ADDR", "")
 
-    # Simple check for common internal IPs
+    if not client_ip:
+        return False
+
     for internal_ip in internal_ips:
         if "/" in internal_ip:
-            # Network range check would require ipaddress module
-            # For now, do simple prefix check
-            network_prefix = internal_ip.split("/")[0].rsplit(".", 1)[0]
-            if client_ip.startswith(network_prefix):
+            if _ip_in_network(client_ip, internal_ip):
                 return True
-        else:
-            if client_ip == internal_ip:
-                return True
+        elif client_ip == internal_ip:
+            return True
 
     return False
+
+
+def extract_jwt_claim(request: HttpRequest, claim: str) -> Optional[Any]:
+    """
+    Extract a specific claim from JWT in Authorization header.
+
+    Args:
+        request: Django HTTP request object
+        claim: The claim key to extract
+
+    Returns:
+        The claim value or None if not found/invalid
+    """
+    try:
+        import jwt
+
+        auth_header = request.META.get("HTTP_AUTHORIZATION", "")
+        if not auth_header.startswith("Bearer "):
+            return None
+
+        parts = auth_header.split(" ")
+        if len(parts) != 2:
+            return None
+
+        token = parts[1]
+        # Decode without verification as we only need the claim for rate limiting/identification # noqa: E501
+        # Verification should be handled by authentication middleware
+        decoded = jwt.decode(token, options={"verify_signature": False})
+
+        return decoded.get(claim)
+
+    except (ImportError, Exception):
+        return None

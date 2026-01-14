@@ -4,29 +4,26 @@ Tests for the rate limiting middleware.
 This module contains tests for the RateLimitMiddleware functionality.
 """
 
+import unittest
 from unittest.mock import Mock, patch
 
 from django.http import HttpResponse
 from django.test import RequestFactory, TestCase, override_settings
-
-from tests.utils import BaseBackendTestCase, create_test_user
-
-# Compatibility for Django < 4.2
-try:
-    from django.http import HttpResponseTooManyRequests
-except ImportError:
-
-    class HttpResponseTooManyRequests(HttpResponse):
-        """HttpResponseTooManyRequests implementation."""
-
-        status_code = 429
-
 
 from django_smart_ratelimit.middleware import (
     RateLimitMiddleware,
     default_key_function,
     user_key_function,
 )
+from tests.utils import BaseBackendTestCase, create_test_user
+
+# Check if redis is available
+try:
+    import redis as redis_module  # noqa: F401
+
+    HAS_REDIS = True
+except ImportError:
+    HAS_REDIS = False
 
 
 class RateLimitMiddlewareTests(BaseBackendTestCase):
@@ -269,6 +266,7 @@ class RateLimitMiddlewareIntegrationTests(TestCase):
     def setUp(self):
         self.factory = RequestFactory()
 
+    @unittest.skipUnless(HAS_REDIS, "redis package not installed")
     @patch("django_smart_ratelimit.backends.redis_backend.redis")
     def test_middleware_with_redis_backend(self, mock_redis_module):
         """Test middleware with Redis backend integration."""
@@ -293,3 +291,221 @@ class RateLimitMiddlewareIntegrationTests(TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertIn("X-RateLimit-Limit", response.headers)
             self.assertEqual(response.headers["X-RateLimit-Limit"], "5")
+
+
+class RateLimitMiddlewareStaticMediaSecurityTests(TestCase):
+    """
+    Security tests for static/media URL handling.
+
+    These tests verify that the middleware correctly respects Django's
+    STATIC_URL and MEDIA_URL settings instead of hardcoding paths.
+
+    Security Note: This prevents rate limit bypass when custom prefixes
+    are configured for static and media files.
+    """
+
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    @patch("django_smart_ratelimit.middleware.get_backend")
+    def test_middleware_skips_default_static_url(self, mock_get_backend):
+        """Test middleware skips default /static/ path."""
+        mock_backend = Mock()
+        mock_get_backend.return_value = mock_backend
+
+        def get_response(_request):
+            return HttpResponse("OK")
+
+        with override_settings(STATIC_URL="/static/", RATELIMIT_MIDDLEWARE={}):
+            middleware = RateLimitMiddleware(get_response)
+            _request = self.factory.get("/static/css/main.css")
+            response = middleware(_request)
+
+            # Static files should be skipped - backend should NOT be called
+            mock_backend.incr.assert_not_called()
+            self.assertEqual(response.status_code, 200)
+
+    @patch("django_smart_ratelimit.middleware.get_backend")
+    def test_middleware_skips_custom_static_url(self, mock_get_backend):
+        """
+        Test middleware skips custom STATIC_URL.
+
+        Security: Ensures rate limit bypass is prevented when
+        STATIC_URL is customized (e.g., /assets/, /cdn/).
+        """
+        mock_backend = Mock()
+        mock_get_backend.return_value = mock_backend
+
+        def get_response(_request):
+            return HttpResponse("OK")
+
+        with override_settings(STATIC_URL="/assets/", RATELIMIT_MIDDLEWARE={}):
+            middleware = RateLimitMiddleware(get_response)
+            _request = self.factory.get("/assets/js/app.js")
+            response = middleware(_request)
+
+            # Custom static URL should be skipped
+            mock_backend.incr.assert_not_called()
+            self.assertEqual(response.status_code, 200)
+
+    @patch("django_smart_ratelimit.middleware.get_backend")
+    def test_middleware_skips_default_media_url(self, mock_get_backend):
+        """Test middleware skips default /media/ path."""
+        mock_backend = Mock()
+        mock_get_backend.return_value = mock_backend
+
+        def get_response(_request):
+            return HttpResponse("OK")
+
+        with override_settings(MEDIA_URL="/media/", RATELIMIT_MIDDLEWARE={}):
+            middleware = RateLimitMiddleware(get_response)
+            _request = self.factory.get("/media/uploads/image.png")
+            response = middleware(_request)
+
+            # Media files should be skipped
+            mock_backend.incr.assert_not_called()
+            self.assertEqual(response.status_code, 200)
+
+    @patch("django_smart_ratelimit.middleware.get_backend")
+    def test_middleware_skips_custom_media_url(self, mock_get_backend):
+        """
+        Test middleware skips custom MEDIA_URL.
+
+        Security: Ensures rate limit bypass is prevented when
+        MEDIA_URL is customized (e.g., /uploads/, /files/).
+        """
+        mock_backend = Mock()
+        mock_get_backend.return_value = mock_backend
+
+        def get_response(_request):
+            return HttpResponse("OK")
+
+        with override_settings(MEDIA_URL="/uploads/", RATELIMIT_MIDDLEWARE={}):
+            middleware = RateLimitMiddleware(get_response)
+            _request = self.factory.get("/uploads/documents/report.pdf")
+            response = middleware(_request)
+
+            # Custom media URL should be skipped
+            mock_backend.incr.assert_not_called()
+            self.assertEqual(response.status_code, 200)
+
+    @patch("django_smart_ratelimit.middleware.get_backend")
+    def test_middleware_does_not_skip_non_static_paths(self, mock_get_backend):
+        """Test middleware applies rate limiting to non-static paths."""
+        mock_backend = Mock()
+        mock_backend.incr.return_value = 1
+        mock_get_backend.return_value = mock_backend
+
+        def get_response(_request):
+            return HttpResponse("OK")
+
+        with override_settings(
+            STATIC_URL="/static/", MEDIA_URL="/media/", RATELIMIT_MIDDLEWARE={}
+        ):
+            middleware = RateLimitMiddleware(get_response)
+            _request = self.factory.get("/api/users/")
+            response = middleware(_request)
+
+            # Non-static paths should be rate limited
+            mock_backend.incr.assert_called_once()
+            self.assertEqual(response.status_code, 200)
+
+    @patch("django_smart_ratelimit.middleware.get_backend")
+    def test_middleware_security_custom_prefix_bypass_prevention(
+        self, mock_get_backend
+    ):
+        """
+        Security test: Verify attacker cannot bypass rate limits
+        by exploiting custom static/media prefixes.
+
+        Scenario: STATIC_URL is /cdn/, attacker tries /static/ hoping
+        it's hardcoded and skipped.
+        """
+        mock_backend = Mock()
+        mock_backend.incr.return_value = 1
+        mock_get_backend.return_value = mock_backend
+
+        def get_response(_request):
+            return HttpResponse("OK")
+
+        # Configure custom STATIC_URL
+        with override_settings(STATIC_URL="/cdn/", RATELIMIT_MIDDLEWARE={}):
+            middleware = RateLimitMiddleware(get_response)
+
+            # Attacker tries default /static/ path (should be rate limited)
+            _request = self.factory.get("/static/exploit.js")
+            response = middleware(_request)
+
+            # Path should NOT be skipped (it's not the configured STATIC_URL)
+            mock_backend.incr.assert_called_once()
+            self.assertEqual(response.status_code, 200)
+
+
+class RateLimitMiddlewareEnableSettingTests(BaseBackendTestCase):
+    """Tests for RATELIMIT_ENABLE setting in middleware."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        super().setUp()
+        self.factory = RequestFactory()
+
+    @patch("django_smart_ratelimit.middleware.get_backend")
+    @override_settings(RATELIMIT_ENABLE=False, RATELIMIT_MIDDLEWARE={})
+    def test_middleware_disabled_when_ratelimit_enable_false(self, mock_get_backend):
+        """Test that middleware is bypassed when RATELIMIT_ENABLE=False."""
+        mock_backend = Mock()
+        mock_backend.incr.return_value = 1
+        mock_get_backend.return_value = mock_backend
+
+        def get_response(_request):
+            return HttpResponse("OK")
+
+        middleware = RateLimitMiddleware(get_response)
+        _request = self.factory.get("/api/test/")
+        response = middleware(_request)
+
+        # Backend should NOT be called when rate limiting is disabled
+        mock_backend.incr.assert_not_called()
+        self.assertEqual(response.status_code, 200)
+
+    @patch("django_smart_ratelimit.middleware.get_backend")
+    @override_settings(RATELIMIT_ENABLE=True, RATELIMIT_MIDDLEWARE={})
+    def test_middleware_enabled_when_ratelimit_enable_true(self, mock_get_backend):
+        """Test that middleware applies rate limiting when RATELIMIT_ENABLE=True."""
+        mock_backend = Mock()
+        mock_backend.incr.return_value = 1
+        mock_get_backend.return_value = mock_backend
+
+        def get_response(_request):
+            return HttpResponse("OK")
+
+        middleware = RateLimitMiddleware(get_response)
+        _request = self.factory.get("/api/test/")
+        response = middleware(_request)
+
+        # Backend should be called when rate limiting is enabled
+        mock_backend.incr.assert_called_once()
+        self.assertEqual(response.status_code, 200)
+
+    @patch("django_smart_ratelimit.middleware.get_backend")
+    @override_settings(RATELIMIT_ENABLE=False, RATELIMIT_MIDDLEWARE={})
+    def test_middleware_disabled_no_429_response(self, mock_get_backend):
+        """Test that disabled middleware never returns 429 even for heavy load."""
+        mock_backend = Mock()
+        # Simulate limit exceeded
+        mock_backend.incr.return_value = 1000
+        mock_get_backend.return_value = mock_backend
+
+        def get_response(_request):
+            return HttpResponse("OK")
+
+        middleware = RateLimitMiddleware(get_response)
+
+        # Make many requests - all should succeed
+        for _ in range(10):
+            _request = self.factory.get("/api/test/")
+            response = middleware(_request)
+            self.assertEqual(response.status_code, 200)
+
+        # Backend should never be called
+        mock_backend.incr.assert_not_called()
