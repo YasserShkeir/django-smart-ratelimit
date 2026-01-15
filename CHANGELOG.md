@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-01-15
+
+### Added
+
+- 🧪 **Comprehensive Test Suite**: Added tox.ini for multi-version testing (Python 3.9-3.13, Django 3.2-5.1)
+- 🚀 **Parallel Test Runner**: Added `run_parallel_tests.py` for parallel tox/docker test execution with live status display
+- 📚 **Documentation Hosting**: Added ReadTheDocs and MkDocs configuration for hosted documentation
+- 🔧 **CI Improvements**: Added GitHub Actions workflow for integration tests across backend matrix
+
+### Fixed
+
+- 🐛 **MongoDB Backend**: Fixed `w="majority"` write concern issue for standalone MongoDB instances
+
 ## [1.0.1] - 2026-01-14
 
 ### Added
