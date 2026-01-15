@@ -2,3 +2,4 @@
 Django>=3.2
 redis>=4.0
 pymongo>=4.0  # Optional: for MongoDB backend
+mkdocs-material>=9.0.0

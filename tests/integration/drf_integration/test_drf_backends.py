@@ -8,6 +8,8 @@ with Django REST Framework views.
 import unittest
 from unittest.mock import Mock, patch
 
+import pytest
+
 from django.core.cache import cache
 from django.test import RequestFactory, TestCase, override_settings
 
@@ -169,31 +171,39 @@ class TestDRFRedisBackend(TestCase):
         self.assertLess(success_count, 10, "Token bucket should block after exhaustion")
 
 
+@pytest.mark.xdist_group(name="mongodb")
 @unittest.skipUnless(DRF_AVAILABLE, "DRF not available")
 @unittest.skipUnless(MONGODB_AVAILABLE, "MongoDB not available")
 @override_settings(
     RATELIMIT_BACKEND="mongodb",
     RATELIMIT_MONGODB_URI="mongodb://localhost:27017",
     RATELIMIT_MONGODB_DATABASE="ratelimit_test",
+    RATELIMIT_MONGODB={"write_concern": 1},
 )
 class TestDRFMongoDBBackend(TestCase):
     """Tests for MongoDB backend with DRF views."""
 
     def setUp(self):
+        import uuid
+
         clear_backend_cache()
         cache.clear()
         self.factory = RequestFactory()
         self.user = create_test_user()
+        # Generate unique IP prefix for this test run to avoid parallel test interference
+        self.test_ip_prefix = f"10.{uuid.uuid4().int % 256}.{uuid.uuid4().int % 256}"
         # Clear MongoDB test keys
         try:
             backend = MongoDBBackend()
-            # Delete test documents to ensure clean state
-            backend._collection.delete_many({"key": {"$regex": "^.*10\\.0\\.2\\..*"}})
+            # Delete ALL test documents to ensure clean state
+            backend._collection.delete_many({})
+            backend._counter_collection.delete_many({})
         except Exception:
             pass
 
     def test_drf_view_with_mongodb_backend(self):
         """Test basic DRF view rate limiting with MongoDB backend."""
+        test_ip = f"{self.test_ip_prefix}.100"
 
         class MongoView(APIView):
             @rate_limit(key="ip", rate="5/m", block=True, backend="mongodb")
@@ -205,18 +215,19 @@ class TestDRFMongoDBBackend(TestCase):
         # Make requests up to limit
         for i in range(5):
             request = self.factory.get("/api/test/")
-            request.META["REMOTE_ADDR"] = "10.0.2.100"
+            request.META["REMOTE_ADDR"] = test_ip
             response = view(request)
             self.assertEqual(response.status_code, 200, f"Request {i+1} should succeed")
 
         # Next request should be blocked
         request = self.factory.get("/api/test/")
-        request.META["REMOTE_ADDR"] = "10.0.2.100"
+        request.META["REMOTE_ADDR"] = test_ip
         response = view(request)
         self.assertEqual(response.status_code, 429, "6th request should be blocked")
 
     def test_mongodb_backend_sliding_window(self):
         """Test MongoDB backend with sliding window algorithm."""
+        test_ip = f"{self.test_ip_prefix}.101"
 
         class SlidingMongoView(APIView):
             @rate_limit(
@@ -234,13 +245,13 @@ class TestDRFMongoDBBackend(TestCase):
         # Make 3 requests - all should succeed
         for i in range(3):
             request = self.factory.get("/api/test/")
-            request.META["REMOTE_ADDR"] = "10.0.2.101"
+            request.META["REMOTE_ADDR"] = test_ip
             response = view(request)
             self.assertEqual(response.status_code, 200, f"Request {i+1} should succeed")
 
         # 4th should be blocked
         request = self.factory.get("/api/test/")
-        request.META["REMOTE_ADDR"] = "10.0.2.101"
+        request.META["REMOTE_ADDR"] = test_ip
         response = view(request)
         self.assertEqual(response.status_code, 429)
 

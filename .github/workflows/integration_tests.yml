@@ -1,0 +1,79 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  integration-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+        django-version: ["4.2", "5.0"]
+        backend: [memory, redis, redis-async, multi]
+        exclude:
+          # Django 5.0 requires Python >= 3.10
+          - python-version: "3.9"
+            django-version: "5.0"
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Install the test project dependencies
+          pip install -r tests/test_project/requirements.txt
+          # Force install specific Django version from matrix
+          pip install "Django==${{ matrix.django-version }}.*"
+          # Install the library in editable mode
+          pip install -e .
+
+      - name: "Run Integration Tests (Backend: ${{ matrix.backend }})"
+        env:
+          SECRET_KEY: "test-secret-key"
+          DEBUG: "True"
+          # Enable multi-backend only when testing the multi backend (true=disabled, false=enabled)
+          RATELIMIT_DISABLE_MULTI_BACKEND: ${{ matrix.backend == 'multi' && 'false' || 'true' }}
+          REDIS_HOST: localhost
+          REDIS_PORT: 6379
+          DJANGO_SETTINGS_MODULE: app.settings
+          PYTHONPATH: ${{ github.workspace }}/tests/test_project
+        run: |
+          # Start the Django server in the background
+          cd tests/test_project
+          python manage.py migrate
+          python setup_test_data.py
+
+          # We start the server on a specific port.
+          # Since we are in a matrix, jobs run in parallel containers, so port 8000 is fine.
+          python manage.py runserver 0.0.0.0:8000 &
+          SERVER_PID=$!
+
+          # Wait for server to start
+          echo "Waiting for server start..."
+          sleep 5
+
+          # Run verification script against the local server
+          python verify_scenarios.py --url http://localhost:8000

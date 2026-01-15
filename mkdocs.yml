@@ -1,0 +1,36 @@
+site_name: Django Smart Ratelimit
+site_description: A modern, high-performance rate limiting library for Django.
+repo_url: https://github.com/YasserShkeir/django-smart-ratelimit
+repo_name: YasserShkeir/django-smart-ratelimit
+edit_uri: blob/main/docs/
+
+theme:
+  name: material
+  features:
+    - content.code.copy
+    - navigation.expand
+    - navigation.indexes
+
+nav:
+  - Home: index.md
+  - Guide:
+      - Installation: installation.md
+      - Configuration: configuration.md
+      - Migration: migration.md
+      - Backends: backends.md
+      - Algorithms: algorithms.md
+      - Decorator: decorator.md
+      - Utilities: utilities.md
+      - Error Handling: error_handling.md
+      - Deployment: deployment.md
+  - Design: design.md
+
+markdown_extensions:
+  - admonition
+  - codehilite
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - toc:
+      permalink: true

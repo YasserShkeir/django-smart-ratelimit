@@ -1,0 +1,6 @@
+Django>=4.2
+djangorestframework
+redis
+pymongo
+# django-smart-ratelimit is installed separately via `pip install -e .` from repo root
+requests
