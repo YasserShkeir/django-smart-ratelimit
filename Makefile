@@ -1,29 +1,48 @@
-.PHONY: help install test lint format clean build upload docs current-version check-versions release release-patch release-minor release-major ci-check
+.PHONY: help install test test-fast test-quick test-parallel lint format clean build upload docs current-version check-versions release release-patch release-minor release-major ci-check ci-check-fast tox tox-fast tox-parallel tox-full test-docker test-docker-parallel
 
 # Python environment
 PYTHON := ./run_with_venv.sh python
 PIP := ./run_with_venv.sh pip
 PYTEST := ./run_with_venv.sh pytest
+TOX := ./run_with_venv.sh tox
 MYPY := ./run_with_venv.sh mypy
 PRECOMMIT := ./run_with_venv.sh pre-commit
 BANDIT := ./run_with_venv.sh bandit
 
 help:
 	@echo "Available commands:"
-	@echo "  install         Install package and development dependencies"
-	@echo "  test            Run tests with coverage"
-	@echo "  test-quick      Run tests without HTML coverage report"
-	@echo "  lint            Run linting checks (pre-commit hooks)"
-	@echo "  format          Format code with black and isort"
-	@echo "  ci-check        Run all CI checks locally (tests, lint, type-check, security)"
-	@echo "  clean           Remove build artifacts"
-	@echo "  build           Build package"
-	@echo "  upload          Upload package to PyPI"
-	@echo "  docs            Build documentation"
-	@echo "  dev             Setup development environment"
-	@echo "  current-version Show current version"
-	@echo "  check-versions  Check all version references across files"
-	@echo "  release         Release new version (Usage: make release VERSION=0.7.4)"
+	@echo ""
+	@echo "  ${CYAN}Testing Commands:${NC}"
+	@echo "    test              Run tests with coverage"
+	@echo "    test-quick        Run tests without HTML coverage report"
+	@echo "    test-fast         Run tests skipping benchmarks and slow tests (fastest)"
+	@echo "    test-parallel     Run tests in parallel using all CPU cores"
+	@echo ""
+	@echo "  ${CYAN}Multi-Version Testing:${NC}"
+	@echo "    tox               Run tox sequentially (all Python/Django versions)"
+	@echo "    tox-fast          Run tox in parallel, skip slow tests (RECOMMENDED)"
+	@echo "    tox-parallel      Run tox with live table display (prettified output)"
+	@echo "    tox-full          Run ALL tests including benchmarks (slowest)"
+	@echo ""
+	@echo "  ${CYAN}Docker Matrix Testing:${NC}"
+	@echo "    test-docker           Run Docker matrix sequentially"
+	@echo "    test-docker-parallel  Run Docker matrix with live table display"
+	@echo ""
+	@echo "  ${CYAN}Quality & CI:${NC}"
+	@echo "    lint            Run linting checks (pre-commit hooks)"
+	@echo "    format          Format code with black and isort"
+	@echo "    ci-check        Run all CI checks locally"
+	@echo "    ci-check-fast   Run CI checks skipping slow tests (faster)"
+	@echo ""
+	@echo "  ${CYAN}Build & Release:${NC}"
+	@echo "    install         Install package and dev dependencies"
+	@echo "    build           Build package"
+	@echo "    upload          Upload to PyPI"
+	@echo "    release         Release new version"
+	@echo "    clean           Remove build artifacts"
+
+CYAN := \033[0;36m
+NC := \033[0m
 
 install:
 	$(PIP) install -e ".[dev]"
@@ -34,12 +53,46 @@ test:
 test-quick:
 	$(PYTEST) --cov=django_smart_ratelimit --cov-report=term-missing
 
+# Parallel test execution (faster, uses all CPU cores)
+test-parallel:
+	$(PYTEST) -n auto --dist loadgroup --cov=django_smart_ratelimit --cov-report=term-missing
+
+# Fast tests - skip benchmarks and slow tests
+test-fast:
+	$(PYTEST) -n auto -m "not benchmark and not slow" --ignore=tests/performance --cov=django_smart_ratelimit --cov-report=term-missing -q
+
+test-docker:
+	./run_local_matrix.sh
+
+# Parallel docker matrix with live table display
+test-docker-parallel:
+	$(PYTHON) run_parallel_tests.py docker
+
+tox:
+	$(TOX)
+
+# Fast parallel tox (RECOMMENDED) - skips slow tests, parallel execution
+tox-fast:
+	$(TOX) --parallel auto --parallel-live
+
+# Parallel tox with prettified live table display
+tox-parallel:
+	$(PYTHON) run_parallel_tests.py tox --fast
+
+# Full tox run including all benchmarks (slowest)
+tox-full:
+	$(TOX) --parallel auto --parallel-live -- -m ""
+
 lint:
 	$(PRECOMMIT) run --all-files
 
 format:
-	$(PYTHON) -m black django_smart_ratelimit tests examples
-	$(PYTHON) -m isort django_smart_ratelimit tests examples
+	@echo "Formatting Python files with black and isort..."
+	$(PYTHON) -m black .
+	$(PYTHON) -m isort .
+	@echo "Fixing whitespace and line endings in all files..."
+	$(PRECOMMIT) run trailing-whitespace --all-files || true
+	$(PRECOMMIT) run end-of-file-fixer --all-files || true
 
 clean:
 	rm -rf build/
@@ -121,6 +174,32 @@ ci-check:
 	@echo ""
 	@echo "=========================================="
 	@echo "✅ All CI checks passed!"
+	@echo "=========================================="
+
+# Fast CI check - skips slow tests and benchmarks (much faster for development)
+ci-check-fast:
+	@echo "=========================================="
+	@echo "Running FAST CI checks (skipping slow tests)..."
+	@echo "=========================================="
+	@echo ""
+	@echo "1️⃣  Running pre-commit hooks (lint)..."
+	@echo "------------------------------------------"
+	$(PRECOMMIT) run --all-files
+	@echo ""
+	@echo "2️⃣  Running type checks (mypy)..."
+	@echo "------------------------------------------"
+	$(MYPY) django_smart_ratelimit
+	@echo ""
+	@echo "3️⃣  Running security checks (bandit)..."
+	@echo "------------------------------------------"
+	$(BANDIT) -r django_smart_ratelimit/
+	@echo ""
+	@echo "4️⃣  Running FAST tests (no benchmarks)..."
+	@echo "------------------------------------------"
+	$(PYTEST) -n auto -m "not benchmark and not slow" --ignore=tests/performance --cov=django_smart_ratelimit --cov-report=term-missing -q
+	@echo ""
+	@echo "=========================================="
+	@echo "✅ All fast CI checks passed!"
 	@echo "=========================================="
 
 # Get current version

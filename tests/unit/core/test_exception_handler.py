@@ -36,7 +36,7 @@ class TestExceptionHandler(TestCase):
         self.assertEqual(response.content.decode(), ERROR_RATE_LIMIT_EXCEEDED)
 
     @override_settings(
-        RATELIMIT_EXCEPTION_HANDLER="tests.core.test_exception_handler.custom_exception_handler"
+        RATELIMIT_EXCEPTION_HANDLER="tests.unit.core.test_exception_handler.custom_exception_handler"
     )
     @patch("django_smart_ratelimit.decorator.get_backend")
     def test_custom_exception_handler(self, mock_get_backend):

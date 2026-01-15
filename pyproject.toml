@@ -15,7 +15,7 @@ authors = [
     {name = "Yasser Shkeir", email = "shkeiryasser@gmail.com"},
 ]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Framework :: Django",
     "Framework :: Django :: 3.2",
     "Framework :: Django :: 4.0",
@@ -65,6 +65,7 @@ dev = [
     "pytest-django>=4.5",
     "pytest-asyncio>=0.21",
     "pytest-cov>=4.0",
+    "pytest-xdist>=3.0",
     "black>=22.0",
     "flake8>=5.0",
     "flake8-docstrings>=1.7",
@@ -79,6 +80,7 @@ dev = [
     "twine>=4.0",
     "PyJWT>=2.0",
     "bump2version>=1.0",
+    "tox>=4.0",
 ]
 
 [project.urls]
@@ -113,6 +115,7 @@ addopts = [
     "--disable-warnings",
 ]
 testpaths = ["tests"]
+norecursedirs = ["tests/test_project/scripts"]
 python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]

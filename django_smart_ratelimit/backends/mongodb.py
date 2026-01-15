@@ -155,6 +155,9 @@ class MongoDBBackend(BaseBackend):
             uri = "".join(uri_parts)
 
             # Create client with connection options
+            # Use w=1 for standalone MongoDB, w="majority" for replica sets
+            # This is configurable via write_concern setting
+            write_concern = self.config.get("write_concern", 1)
             self._client = MongoClient(
                 uri,
                 serverSelectionTimeoutMS=self.config["server_selection_timeout"],
@@ -163,9 +166,8 @@ class MongoDBBackend(BaseBackend):
                 maxPoolSize=self.config["max_pool_size"],
                 minPoolSize=self.config["min_pool_size"],
                 maxIdleTimeMS=self.config["max_idle_time"],
-                # Security: Ensure writes are durable and replicated
-                w="majority",
-                journal=True,
+                w=write_concern,
+                journal=self.config.get("journal", True),
             )
 
             # Test connection
@@ -506,8 +508,8 @@ class MongoDBBackend(BaseBackend):
         """Ensure connection is closed when backend is destroyed."""
         try:
             self.close()
-        except AttributeError:
-            # Object may not be fully initialized
+        except (AttributeError, ImportError):
+            # Object may not be fully initialized or Python is shutting down
             pass
 
     def _ensure_utc_aware(self, dt: datetime) -> datetime:

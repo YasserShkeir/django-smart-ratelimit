@@ -15,9 +15,9 @@ def my_view(request):
     return HttpResponse('Hello')
 
 # NEW: django-smart-ratelimit
-from django_smart_ratelimit import rate_limit
+from django_smart_ratelimit import ratelimit
 
-@rate_limit(key='ip', rate='10/m', block=True)
+@ratelimit(key='ip', rate='10/m', block=True)
 def my_view(request):
     return HttpResponse('Hello')
 ```
@@ -26,18 +26,18 @@ def my_view(request):
 
 ```python
 # NEW: Add algorithm choice
-@rate_limit(key='ip', rate='10/m', algorithm='token_bucket')
+@ratelimit(key='ip', rate='10/m', algorithm='token_bucket')
 
 # NEW: Add backend failover
-@rate_limit(key='ip', rate='10/m', backend='redis')
+@ratelimit(key='ip', rate='10/m', backend='redis')
 
 # NEW: Add skip conditions
-@rate_limit(key='ip', rate='10/m', skip_if=lambda req: req.user.is_staff)
+@ratelimit(key='ip', rate='10/m', skip_if=lambda req: req.user.is_staff)
 ```
 
 ### Key Migration Benefits
 
-- **Drop-in replacement**: Same decorator syntax (ratelimit vs. rate_limit)
+- **Drop-in replacement**: Same decorator syntax (`@ratelimit` vs `@ratelimit`)
 - **Enhanced reliability**: Circuit breaker protection
 - **Better performance**: Atomic Redis operations
 - **More flexibility**: Multiple algorithms and backends

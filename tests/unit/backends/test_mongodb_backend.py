@@ -29,18 +29,27 @@ except Exception:
     pass
 
 
+# Use xdist_group to ensure MongoDB tests run in the same worker (sequentially)
+# to avoid race conditions with shared MongoDB state
+@pytest.mark.xdist_group(name="mongodb")
 @pytest.mark.skipif(not mongodb_available, reason="MongoDB not available")
 class MongoDBBackendRealTest(BaseBackendTestCase):
     """Test MongoDB backend with real MongoDB instance."""
 
     def setUp(self):
         """Set up test fixtures."""
+        import uuid
+
+        # Use unique collection names per test to avoid parallel test interference
+        test_id = uuid.uuid4().hex[:8]
         self.config = {
             "host": "localhost",
             "port": 27017,
             "database": "test_ratelimit",
-            "collection": "rate_limits",
+            "collection": f"rate_limits_{test_id}",
+            "counter_collection": f"rate_limit_counters_{test_id}",
             "algorithm": "sliding_window",
+            "write_concern": 1,  # Use w=1 for standalone MongoDB
         }
         super().setUp()
 
@@ -55,8 +64,9 @@ class MongoDBBackendRealTest(BaseBackendTestCase):
     def tearDown(self):
         """Clean up after tests."""
         if hasattr(self, "backend") and self.backend._collection is not None:
-            self.backend._collection.delete_many({})
-            self.backend._counter_collection.delete_many({})
+            # Drop the test-specific collections
+            self.backend._collection.drop()
+            self.backend._counter_collection.drop()
         super().tearDown()
 
     def test_mongodb_connection(self):
@@ -261,6 +271,7 @@ class MongoDBBackendRealTest(BaseBackendTestCase):
         self.assertEqual(new_count, 3)
 
 
+@pytest.mark.xdist_group(name="mongodb")
 @pytest.mark.skipif(not mongodb_available, reason="MongoDB not available")
 @override_settings(
     RATELIMIT_BACKEND="django_smart_ratelimit.backends.mongodb.MongoDBBackend",
@@ -270,6 +281,7 @@ class MongoDBBackendRealTest(BaseBackendTestCase):
         "database": "test_ratelimit",
         "collection": "rate_limits",
         "algorithm": "sliding_window",
+        "write_concern": 1,
     },
 )
 class MongoDBBackendIntegrationRealTest(TestCase):
@@ -375,6 +387,7 @@ class TestMongoDBConnectionFailure(TestCase):
             # If it fails, I might need to fix the code too.
 
 
+@pytest.mark.xdist_group(name="mongodb")
 @pytest.mark.skipif(not mongodb_available, reason="MongoDB not available")
 class MongoDBBackendExtendedTest(MongoDBBackendRealTest):
     """Extended tests for MongoDB backend."""

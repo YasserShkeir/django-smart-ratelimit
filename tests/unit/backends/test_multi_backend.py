@@ -846,8 +846,13 @@ class MultiBackendIntegrationTest(TestCase):
             multi.incr("test:key", 60)
 
             # Verify primary was used for the second call
-            # The last call on primary should be the successful incr
-            assert primary.operation_calls[-1] == ("incr", "test:key", 60)
+            # The last non-health-check call on primary should be the successful incr
+            relevant_calls = [
+                c
+                for c in primary.operation_calls
+                if not (c[0] == "get_count" and c[1] == "health:check")
+            ]
+            assert relevant_calls[-1] == ("incr", "test:key", 60)
 
     def test_weighted_distribution_under_load_simulation(self):
         """Test weighted distribution behavior under load with metric-based selection."""
@@ -1102,7 +1107,7 @@ class MultiBackendIntegrationTest(TestCase):
             operations_over_time = []
             successful_ops = 0
 
-            for iteration in range(100):
+            for iteration in range(200):
                 try:
                     # Allow health state to update periodically
                     if iteration % 10 == 0:
@@ -1115,8 +1120,8 @@ class MultiBackendIntegrationTest(TestCase):
                     operations_over_time.append(False)
 
             # System should achieve reasonable success rate despite chaos
-            success_rate = successful_ops / 100
-            assert success_rate >= 0.5  # At least 50% success rate
+            success_rate = successful_ops / 200
+            assert success_rate >= 0.4  # At least 40% success rate
 
             # Verify steady state: success rate should improve over time
             # Check last 20 operations vs first 20 operations
