@@ -102,6 +102,7 @@ from .middleware import RateLimitMiddleware
 from .performance import RateLimitCache
 
 # Utilities
+from .utils import is_ratelimited  # noqa: F401
 from .utils import (
     add_rate_limit_headers,
     add_token_bucket_headers,
