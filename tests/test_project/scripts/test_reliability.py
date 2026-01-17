@@ -161,7 +161,7 @@ def test_circuit_breaker_states(base_url):
     for i in range(15):  # Increased count to ensure threshold is met
         try:
             requests.get(check_url, timeout=0.5)
-        except:
+        except Exception:
             pass
 
     # 3. Verify OPEN State
@@ -204,7 +204,7 @@ def test_circuit_breaker_states(base_url):
         print("  Triggering Half-Open check...")
         try:
             requests.get(check_url, timeout=1)
-        except:
+        except Exception:
             pass
 
         # Check State
@@ -221,7 +221,7 @@ def test_circuit_breaker_states(base_url):
                 print(
                     "  [WARN] Circuit Breaker not yet CLOSED (might need more successes)"
                 )
-        except:
+        except Exception:
             pass
 
     # Ensure Redis is up for next tests
@@ -238,11 +238,7 @@ def run_suite(base_url):
 
     # Reliability tests only meaningful for backends that can fail (Redis, Multi)
     # Skip for Memory, MongoDB (no easy way to stop MongoDB in tests), and others
-    if ":8002" in base_url or ":8003" in base_url:
-        target = "redis"
-    elif ":8005" in base_url:
-        target = "multi"  # Multi backend uses Redis as primary
-    else:
+    if not (":8002" in base_url or ":8003" in base_url or ":8005" in base_url):
         print("Skipping reliability tests for this backend")
         return True
 

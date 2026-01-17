@@ -85,7 +85,6 @@ class TestGetWindowTimesFirstRequestAligned(TestCase):
         # For first-request aligned, the start time preserves the current second
         # (unless we happen to call at exactly :00, which is unlikely)
         # Just verify the window end is correct relative to start
-        window_end = window_start + timedelta(minutes=1)
         actual_start, actual_end = get_window_times(60, align_to_clock=False)
         self.assertEqual(actual_end - actual_start, timedelta(minutes=1))
 

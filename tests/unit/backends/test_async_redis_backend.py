@@ -37,7 +37,7 @@ class AsyncRedisBackendTest(SimpleTestCase):
         self.assertEqual(client, mock_client)
 
         # Test aincr
-        config = {"key": "test_key", "period": 60}
+        # config = {"key": "test_key", "period": 60}
         count = await backend.aincr("test_key", 60)
         self.assertEqual(count, 1)
         mock_client.evalsha.assert_called_once()

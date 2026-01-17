@@ -14,7 +14,7 @@ def measure_endpoint(url, count=20):
     headers = {"X-API-KEY": "benchmark"}
     for _ in range(count):
         start = time.perf_counter()
-        resp = requests.get(url, headers=headers)
+        requests.get(url, headers=headers)
         duration = (time.perf_counter() - start) * 1000  # ms
         latencies.append(duration)
     return latencies
