@@ -84,7 +84,7 @@ class BatchCheckTests(SimpleTestCase):
         from django_smart_ratelimit.backends.redis_backend import RedisBackend
 
         mock_client = MockRedis.return_value
-        mock_pipeline = mock_client.pipeline.side_effect = Exception("Connection lost")
+        mock_client.pipeline.side_effect = Exception("Connection lost")
 
         backend = RedisBackend()
 

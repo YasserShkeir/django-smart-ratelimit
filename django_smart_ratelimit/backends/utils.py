@@ -809,7 +809,7 @@ def log_backend_operation(
     operation: str,
     message: str,
     duration: Optional[float] = None,
-    level: str = "info",
+    level: str = "debug",
     **kwargs: Any,
 ) -> None:
     """

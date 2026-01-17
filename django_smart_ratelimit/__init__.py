@@ -118,7 +118,6 @@ from .utils import (
     get_tenant_key,
     get_user_key,
     is_exempt_request,
-    is_ratelimited,
     load_function_from_string,
     parse_rate,
     should_skip_path,

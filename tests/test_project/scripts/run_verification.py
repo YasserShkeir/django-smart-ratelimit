@@ -45,7 +45,7 @@ def run_test(name, endpoint, limit, headers=None, reset_sleep=None, expect_block
                 if data.get("limited") is True:
                     print("  [PASS] Not blocked but marked as limited")
                     return True
-            except:
+            except Exception:
                 pass
             print("  [PASS] Exempt/Fail-Open (200 OK)")
             return True

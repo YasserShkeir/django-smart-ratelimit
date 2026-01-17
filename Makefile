@@ -119,7 +119,9 @@ docs:
 	@echo "README.md contains the main documentation"
 
 dev: install
-	pre-commit install
+	@echo "Installing pre-commit hooks..."
+	$(PRECOMMIT) install
+	$(PRECOMMIT) install --hook-type commit-msg
 	@echo "Development environment setup complete!"
 	@echo "Run 'make test' to run tests"
 	@echo "Run 'make lint' to check code quality"

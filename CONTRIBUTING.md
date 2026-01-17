@@ -40,6 +40,7 @@ By participating in this project, you agree to maintain a respectful and inclusi
    source venv/bin/activate
    pip install -e ".[dev]"
    pre-commit install
+   pre-commit install --hook-type commit-msg
    ```
 
 3. **Verify Installation**:
@@ -75,13 +76,39 @@ Our test suite is comprehensive (340+ tests). All contributions **must** pass te
 
 ### Running Tests
 
-```bash
-# Run all tests
-make test
+We support different test tiers to balance speed and coverage during development.
 
-# Run a specific test file
-./run_with_venv.sh pytest tests/core/test_decorator.py
+```bash
+# ------------------------------------------------------------------
+# 1. Fast Feedback (Unit Tests Only)
+# Duration: ~30 seconds
+# Use for: Rapid TDD cycles
+# ------------------------------------------------------------------
+pytest -m unit
+
+# ------------------------------------------------------------------
+# 2. Standard Suite (Skip Slow Benchmarks)
+# Duration: ~3 minutes
+# Use for: Pre-commit check / PR validation
+# ------------------------------------------------------------------
+make test-fast
+# Or directly:
+pytest -m "not benchmark and not slow"
+
+# ------------------------------------------------------------------
+# 3. Full Regression (Everything)
+# Duration: ~10 minutes
+# Use for: Final check before release
+# ------------------------------------------------------------------
+make test
 ```
+
+### Test Markers
+
+- `unit`: Fast, isolated tests mocking external dependencies.
+- `integration`: Tests requiring real Redis/DB services.
+- `slow`: Long-running tests.
+- `benchmark`: Performance tests (excluded from CI by default).
 
 ## 📝 Coding Standards
 

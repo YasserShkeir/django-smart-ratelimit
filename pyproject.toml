@@ -227,3 +227,13 @@ sections = ["FUTURE", "STDLIB", "THIRDPARTY", "DJANGO", "FIRSTPARTY", "LOCALFOLD
 
 [tool.djlint]
 ignore = "H025,H014"
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+tag_format = "v$version"
+version_scheme = "semver"
+version_provider = "pep621"
+version_files = [
+    "django_smart_ratelimit/__init__.py:__version__",
+    "pyproject.toml:version"
+]
