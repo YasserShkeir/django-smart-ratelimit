@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.3] - 2026-01-18
+
+### Fixed
+
+- 🐛 **Public API Export**: Added `is_ratelimited` to `__all__` to ensure it is properly exported as part of the public API
+
+### Changed
+
+- 🔧 **CI Improvements**: Benchmark tests now skip on PRs for faster feedback; full benchmarks run on main branch only
+- 📝 **Tooling**: Added Release Drafter for automated release notes, TestPyPI publishing step, and conventional commit enforcement
+- 🔇 **Logging**: Changed default backend operation log level from INFO to DEBUG to reduce console noise
+- 💰 **Funding**: Update links
+
 ## [1.0.2] - 2026-01-15
 
 ### Added
