@@ -16,7 +16,7 @@ Support the ongoing development of Django Smart Ratelimit!
 
 <div align="center">
   <!-- Platinum and Gold Sponsors will appear here -->
-  <p><em><a href="https://github.com/sponsors/yassershkeir">Become a sponsor</a> to see your logo here!</em></p>
+  <p><em><a href="https://www.yasser-shkeir.com/donate">Become a sponsor</a> to see your logo here!</em></p>
 </div>
 
 ## Key Features
