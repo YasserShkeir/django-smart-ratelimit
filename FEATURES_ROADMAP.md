@@ -1,10 +1,9 @@
-# Django Smart Ratelimit - Core Features Roadmap
+# Django Smart Ratelimit - Features Roadmap
 
 **Last Updated:** 2026-01-19
 **Current Version:** 1.0.3
 
-This document tracks the feature status for **Django Smart Ratelimit (Core)**.
-For database-backed features, analytics, and enterprise capabilities, see the [Pro Roadmap](../django-smart-ratelimit-pro/FEATURES_ROADMAP.md).
+This document tracks all features for **Django Smart Ratelimit**.
 
 ---
 
@@ -12,7 +11,7 @@ For database-backed features, analytics, and enterprise capabilities, see the [P
 
 ### ✅ Complete (v1.0.x)
 
-The Core library is **feature-complete** for production use. All essential rate limiting capabilities are implemented.
+All essential rate limiting capabilities are implemented and production-ready.
 
 | Category                 | Features                                                           |
 | ------------------------ | ------------------------------------------------------------------ |
@@ -24,7 +23,7 @@ The Core library is **feature-complete** for production use. All essential rate 
 
 ---
 
-## Core Feature Details
+## Current Features (v1.0.x)
 
 ### 🧠 Algorithms
 
@@ -34,7 +33,7 @@ The Core library is **feature-complete** for production use. All essential rate 
 | Sliding Window | ✅ Complete | Precise time-window tracking                 |
 | Fixed Window   | ✅ Complete | Clock-aligned rate limiting windows          |
 
-### 🏭 Backends (Stateless)
+### 🏭 Backends
 
 | Backend      | Status      | Description                                    |
 | ------------ | ----------- | ---------------------------------------------- |
@@ -72,51 +71,130 @@ The Core library is **feature-complete** for production use. All essential rate 
 
 ---
 
-## Future Enhancements (v2.x+)
+## Planned Features (v2.0)
 
-These features are **nice-to-have** and may be implemented in future major versions. They are not blockers for current use.
+The following features are planned for v2.0, providing database persistence, dynamic configuration, and enterprise capabilities.
 
-### Low Priority
+### 💾 Database Backend
+
+| Feature              | Priority | Description                                   |
+| -------------------- | -------- | --------------------------------------------- |
+| Database Backend     | High     | SQL-based storage (PostgreSQL, MySQL, SQLite) |
+| RateLimitEntry Model | High     | Per-request rate limit tracking               |
+| RateLimitCounter     | High     | Fixed window counter storage                  |
+| Django Migrations    | High     | Database schema management                    |
+| Cleanup Command      | Medium   | Management command for expired entries        |
+
+### 🎛️ Dynamic Configuration
+
+| Feature           | Priority | Description                       |
+| ----------------- | -------- | --------------------------------- |
+| RateLimitRule     | High     | Database-backed dynamic rules     |
+| Admin Interface   | High     | Manage rules via Django Admin     |
+| Hot Reloading     | Medium   | Live rule updates without restart |
+| Environment Rules | Low      | Separate rules for staging/prod   |
+
+### 👤 User Integration
+
+| Feature               | Priority | Description                   |
+| --------------------- | -------- | ----------------------------- |
+| User Tiers            | High     | Premium/Free tier rate limits |
+| Django Groups Support | High     | Group-based rate limiting     |
+| API Key Integration   | Medium   | Native API key rate limiting  |
+| Custom Overrides      | Medium   | Per-user temporary overrides  |
+
+### 📈 Analytics & Visibility
+
+| Feature              | Priority | Description                 |
+| -------------------- | -------- | --------------------------- |
+| Traffic Dashboard    | Medium   | Admin view for monitoring   |
+| Historical Reporting | Medium   | Daily/weekly blocking stats |
+| Offender Analysis    | Low      | Identify abusive IPs/users  |
+
+### 🏢 Enterprise Features
+
+| Feature              | Priority | Description                       |
+| -------------------- | -------- | --------------------------------- |
+| Batch Operations     | Medium   | High-performance multi-key checks |
+| Adaptive Limiting    | Low      | Load-based rate adjustment        |
+| Multi-Tenant Support | Low      | Tenant-aware rate limiting        |
+| GraphQL Support      | Low      | Graphene/Strawberry adapters      |
+
+---
+
+## Low Priority / Future (v3.0+)
 
 | Feature                 | Description                   | Rationale                              |
 | ----------------------- | ----------------------------- | -------------------------------------- |
 | Leaky Bucket Algorithm  | Queue-based request smoothing | Token Bucket covers most use cases     |
 | Memcached Backend       | Simple key-value adapter      | Redis/Memory cover most deployments    |
+| DynamoDB Backend        | AWS serverless storage        | Complex, niche use case                |
+| Cassandra Backend       | High-write distributed store  | Complex, niche use case                |
 | Prometheus Metrics      | Stateless `/metrics` endpoint | Can be added via middleware externally |
 | Structured JSON Logging | ELK-compatible log format     | Standard Python logging works          |
 
-### Moved to Pro
+---
 
-The following features were originally planned for Core but are better suited for **Pro** due to their enterprise/stateful nature:
+## Definition of Done
 
-| Feature                     | Reason for Pro                                 |
-| --------------------------- | ---------------------------------------------- |
-| Batch Operations            | Complex use case, enterprise performance needs |
-| Adaptive Rate Limiting      | Requires state/analytics to adjust rates       |
-| Advanced Connection Pooling | Enterprise-scale configuration                 |
+**A feature is NOT complete until all of the following are done:**
+
+1. ✅ **Unit Tests** - Tests in `tests/` covering the feature with 80%+ coverage
+2. ✅ **Integration Tests** - End-to-end tests verifying the feature works in a real Django project
+3. ✅ **Documentation** - Updated docs in `docs/` explaining usage, configuration, and examples
+4. ✅ **CHANGELOG Entry** - Added entry to `CHANGELOG.md` describing the change
+5. ✅ **FEATURES_ROADMAP Update** - Feature marked as complete in this file
+6. ✅ **Code Review** - PR approved and merged to main
 
 ---
 
-## Architecture Decisions
+## Development Phases
 
-### Core vs Pro Separation
+### Phase 1: Foundation (v2.0.0) - High Priority
 
-**Core (Open Source):**
+- [ ] Database Backend implementation
+  - [ ] Unit tests for DatabaseBackend
+  - [ ] Integration tests with real database
+- [ ] RateLimitEntry, RateLimitCounter models
+  - [ ] Model tests
+  - [ ] Migration tests
+- [ ] Django migrations
+- [ ] Admin interface for rules
+  - [ ] Admin tests
+- [ ] Cleanup management command
+  - [ ] Command tests
+- [ ] Documentation for all v2.0 features
+- [ ] Overall test coverage 80%+
 
-- Stateless rate limiting
-- In-memory and cache-based backends
-- Algorithm implementations
-- Basic reliability (circuit breaker, fail-open)
+### Phase 2: User Integration (v2.1.0)
 
-**Pro (Enterprise):**
+- [ ] User tier rate limits (`RATELIMIT_USER_TIERS`)
+  - [ ] Unit tests for tier logic
+  - [ ] Integration tests with Django auth
+- [ ] Integration with Django Groups
+  - [ ] Tests for group-based limits
+- [ ] Per-user overrides
+  - [ ] Override tests
+- [ ] Documentation for user integration
 
-- Database-backed persistence
-- Dynamic configuration via Admin
-- User tier integration
-- Analytics and dashboards
-- Multi-tenant support
+### Phase 3: Monitoring (v2.2.0)
 
-> **Principle**: Core should have zero database dependencies and work purely with cache/memory backends.
+- [ ] Traffic dashboard admin view
+  - [ ] Dashboard tests
+- [ ] Historical reporting
+  - [ ] Reporting tests
+- [ ] Batch operations for high-volume sites
+  - [ ] Batch operation tests
+- [ ] Documentation for monitoring features
+
+### Phase 4: Enterprise (v3.0+)
+
+- [ ] Multi-tenant support
+  - [ ] Multi-tenant tests
+- [ ] GraphQL integration
+  - [ ] GraphQL adapter tests
+- [ ] Adaptive rate limiting
+  - [ ] Adaptive algorithm tests
 
 ---
 
@@ -124,10 +202,9 @@ The following features were originally planned for Core but are better suited fo
 
 We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for setup.
 
-For Core contributions:
+**How to contribute:**
 
 - Bug fixes and performance improvements
 - Documentation improvements
 - Test coverage expansion
-
-For new features, please open a discussion first to determine if it belongs in Core or Pro.
+- New features (please open a discussion first)

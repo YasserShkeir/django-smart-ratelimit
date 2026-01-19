@@ -48,14 +48,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 This is a **MAJOR RE-ARCHITECTURE** of the library.
 **DO NOT UPDATE** unless you have read this guide. This version is **NOT** backward compatible with 0.x.
 
-- **REMOVED Database Models**: `RateLimitRule` and `RateLimitEntry` models have been removed from the core package.
-- **REMOVED Database Backend**: The `DatabaseBackend` has been moved to the `django-smart-ratelimit-pro` package.
-- **REMOVED Django Admin Integration**: You can no longer configure rate limits via Django Admin in the core package.
+- **REMOVED Database Models**: `RateLimitRule` and `RateLimitEntry` models have been removed.
+- **REMOVED Database Backend**: SQL database storage removed (will return in v2.0).
+- **REMOVED Django Admin Integration**: Admin-based rate limit configuration removed.
 - **REMOVED Management Commands**: `cleanup_ratelimit` command has been removed.
 
 **Migration Path**:
 
-- If you rely on **Database-backed Rate Limits**, **Dynamic Configuration**, or **Dashboards**, you MUST install [django-smart-ratelimit-pro](https://github.com/YasserShkeir/django-smart-ratelimit-pro).
+- If you need **Database-backed Rate Limits**, **Dynamic Configuration**, or **Dashboards**, these features are planned for v2.0. See [FEATURES_ROADMAP.md](FEATURES_ROADMAP.md).
 - If you only use **Decorators** (`@rate_limit`), **Redis**, **Memory**, or **MongoDB** backends defined in code/settings, you can upgrade safely but check your settings.
 
 ## [Beta] - Pre-1.0.0
@@ -79,7 +79,6 @@ The following features were introduced during the beta development phase leading
 - ⚡ **Async Support**: Full support for asynchronous views and middleware via `@aratelimit` and `AsyncRedisBackend` (using `redis.asyncio`).
 - 📦 **Batch Operations**: Added `check_batch` backend method and `@ratelimit_batch` decorator for high-performance multi-key checks.
 - 💾 **Memory Optimization**: Optimized `MemoryBackend` using `__slots__` and efficient structure interactions to reduce overhead.
-- 🚀 **Database Optimizations** (Moved to Pro): Implemented bulk deletes, atomic increments, and caching for the database backend before it was moved to the Pro package.
 
 ### Security & Reliability
 

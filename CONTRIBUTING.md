@@ -1,8 +1,6 @@
-# Contributing to Django Smart Ratelimit (Core)
+# Contributing to Django Smart Ratelimit
 
-Thank you for your interest in contributing to **Django Smart Ratelimit**! This core library allows us to provide a high-performance, stateless rate-limiting solution for the Django ecosystem.
-
-> **Note on Architecture**: This repository contains the **Core** library (`django-ratelimit/`). Database-backed features (Models, Admin, DB Backend) are part of the **Pro** package (`django-smart-ratelimit-pro`). This guide focuses on contributing to the Core.
+Thank you for your interest in contributing to **Django Smart Ratelimit**! This library provides a high-performance rate-limiting solution for the Django ecosystem.
 
 ## 🤝 Code of Conduct
 
