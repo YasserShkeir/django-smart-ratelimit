@@ -8,8 +8,12 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 
 from django_smart_ratelimit import ratelimit
+from django_smart_ratelimit.adaptive import (
+    AdaptiveRateLimiter,
+    CustomLoadIndicator,
+)
 from django_smart_ratelimit.backends import get_backend
-from django_smart_ratelimit.decorator import aratelimit, ratelimit_batch
+from django_smart_ratelimit.decorator import aratelimit, rate_limit, ratelimit_batch
 from django_smart_ratelimit.utils import get_ip_key
 
 
@@ -388,3 +392,68 @@ def db_cleanup(request):
         return JsonResponse(
             {"status": "error", "backend": "database", "error": str(e)}, status=500
         )
+
+
+# --- I. Adaptive Rate Limiting (v2.0) ---
+
+# Global simulated load value for testing
+_simulated_load = 0.0
+
+
+def _get_simulated_load():
+    """Get the simulated load value."""
+    return _simulated_load
+
+
+# Create adaptive limiter with custom load indicator for testing
+_adaptive_test_indicator = CustomLoadIndicator(_get_simulated_load, name="simulated")
+_adaptive_test_limiter = AdaptiveRateLimiter(
+    base_limit=10,
+    min_limit=2,
+    max_limit=20,
+    indicators=[_adaptive_test_indicator],
+    load_threshold_low=0.3,
+    load_threshold_high=0.7,
+    smoothing_factor=1.0,  # No smoothing for predictable tests
+    update_interval=0,  # Always update
+)
+
+
+@rate_limit(key=mk_key("adaptive_test"), rate="10/m", adaptive=_adaptive_test_limiter)
+def adaptive_rate_limit(request):
+    """Test endpoint for adaptive rate limiting."""
+    metrics = _adaptive_test_limiter.get_metrics()
+    return JsonResponse(
+        {
+            "status": "ok",
+            "feature": "adaptive_rate_limiting",
+            "current_load": metrics["current_load"],
+            "effective_limit": metrics["effective_limit"],
+            "base_limit": metrics["base_limit"],
+            "min_limit": metrics["min_limit"],
+            "max_limit": metrics["max_limit"],
+        }
+    )
+
+
+def adaptive_set_load(request):
+    """Set the simulated load for testing adaptive rate limiting."""
+    global _simulated_load
+    try:
+        load = float(request.GET.get("load", 0.0))
+        _simulated_load = max(0.0, min(1.0, load))
+        return JsonResponse(
+            {
+                "status": "ok",
+                "simulated_load": _simulated_load,
+                "effective_limit": _adaptive_test_limiter.get_effective_limit(),
+            }
+        )
+    except (ValueError, TypeError) as e:
+        return JsonResponse({"status": "error", "error": str(e)}, status=400)
+
+
+def adaptive_metrics(request):
+    """Get current adaptive rate limiter metrics."""
+    metrics = _adaptive_test_limiter.get_metrics()
+    return JsonResponse({"status": "ok", "metrics": metrics})

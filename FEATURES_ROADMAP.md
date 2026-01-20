@@ -16,13 +16,14 @@ For database-backed features, analytics, and advanced enterprise capabilities, s
 - ✅ Configuration Validation
 - ✅ Async Support (Views & Decorators)
 - ✅ Fail-Open Mechanism
+- ✅ Leaky Bucket Algorithm
+- ✅ Database Backend (Django ORM)
 
 **High Priority - Next to Implement**
 
 1. [Adaptive Rate Limiting](#adaptive-rate-limiting) (Load-based)
 2. [Batch Operations](#batch-operations) (Performance)
 3. [Prometheus Metrics](#prometheus-metrics) (Stateless Monitoring)
-4. [Leaky Bucket Algorithm](#leaky-bucket-algorithm)
 
 ## Core Feature Categories
 
@@ -30,7 +31,7 @@ For database-backed features, analytics, and advanced enterprise capabilities, s
 
 - [x] **Token Bucket**: Standard burst-handling algorithm.
 - [x] **Sliding Window**: Precise time-window tracking.
-- [ ] **Leaky Bucket**: Queue-based smoothing (Planned).
+- [x] **Leaky Bucket**: Queue-based smoothing.
 
 ### 🏭 Backends (Stateless)
 

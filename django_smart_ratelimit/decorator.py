@@ -15,6 +15,7 @@ from asgiref.sync import iscoroutinefunction, sync_to_async
 
 from django.http import HttpResponse
 
+from .adaptive import AdaptiveRateLimiter, get_adaptive_limiter
 from .algorithms import TokenBucketAlgorithm
 from .backends import get_async_backend, get_backend
 from .backends.utils import parse_rate, validate_rate_config
@@ -166,6 +167,56 @@ def _handle_rate_limit_exceeded(
     return None
 
 
+def _apply_adaptive_limit(
+    adaptive: Optional[Union[str, AdaptiveRateLimiter]], base_limit: int
+) -> int:
+    """
+    Apply adaptive rate limiting to get the effective limit.
+
+    Args:
+        adaptive: Name of registered AdaptiveRateLimiter, an instance, or None.
+        base_limit: The base limit from the rate string.
+
+    Returns:
+        The effective limit (adjusted by adaptive limiter if provided).
+    """
+    if adaptive is None:
+        return base_limit
+
+    limiter: Optional[AdaptiveRateLimiter] = None
+
+    if isinstance(adaptive, str):
+        # Look up registered limiter by name
+        limiter = get_adaptive_limiter(adaptive)
+        if limiter is None:
+            logger.warning(
+                f"Adaptive rate limiter '{adaptive}' not found. "
+                f"Using base limit {base_limit}."
+            )
+            return base_limit
+    elif isinstance(adaptive, AdaptiveRateLimiter):
+        limiter = adaptive
+    else:
+        logger.warning(
+            f"Invalid adaptive parameter type: {type(adaptive)}. "
+            f"Expected str or AdaptiveRateLimiter. Using base limit {base_limit}."
+        )
+        return base_limit
+
+    try:
+        effective_limit = limiter.get_effective_limit()
+        logger.debug(
+            f"Adaptive rate limit: base={base_limit}, "
+            f"effective={effective_limit}, load={limiter.get_current_load():.2f}"
+        )
+        return effective_limit
+    except Exception as e:
+        logger.warning(
+            f"Failed to get adaptive limit: {e}. Using base limit {base_limit}."
+        )
+        return base_limit
+
+
 def rate_limit(
     key: Union[str, Callable],
     rate: Optional[str] = None,
@@ -175,19 +226,26 @@ def rate_limit(
     algorithm: Optional[str] = None,
     algorithm_config: Optional[Dict[str, Any]] = None,
     settings: Optional[Any] = None,
+    adaptive: Optional[Union[str, AdaptiveRateLimiter]] = None,
 ) -> Callable:
     """Apply rate limiting to a view or function.
 
     Args:
         key: Rate limit key or callable that returns a key
         rate: Rate limit in format "10/m" (10 requests per minute).
-              If None, uses default.
+              If None, uses default. Note: When using adaptive rate limiting,
+              this value is used as the period only; the limit is determined
+              by the AdaptiveRateLimiter.
         block: If True, block requests that exceed the limit
         backend: Backend to use for rate limiting storage
         skip_if: Callable that returns True if rate limiting requests should be skipped
         algorithm: Algorithm to use ('sliding_window', 'fixed_window', 'token_bucket')
         algorithm_config: Configuration dict for the algorithm
         settings: Optional settings object (for dependency injection/testing)
+        adaptive: Name of registered AdaptiveRateLimiter or an instance.
+                  When provided, the rate limit is dynamically adjusted based
+                  on system load. The 'rate' parameter's limit is ignored and
+                  replaced with the adaptive limiter's effective limit.
 
     Returns:
         Decorated function with rate limiting applied
@@ -205,6 +263,14 @@ def rate_limit(
             algorithm='token_bucket',
             algorithm_config={'bucket_size': 20}
         )
+        def api_view(_request):
+            return JsonResponse({'status': 'ok'})
+
+        # Adaptive rate limiting based on system load
+        from django_smart_ratelimit.adaptive import create_adaptive_limiter
+        create_adaptive_limiter("api", base_limit=100, min_limit=10, max_limit=200)
+
+        @rate_limit(key='ip', rate='100/m', adaptive='api')
         def api_view(_request):
             return JsonResponse({'status': 'ok'})
     """
@@ -282,6 +348,9 @@ def rate_limit(
                             resolved_rate = await resolved_rate
 
                 limit, period = parse_rate(resolved_rate)
+
+                # Apply adaptive rate limiting if configured
+                limit = _apply_adaptive_limit(adaptive, limit)
 
                 # Check limit
                 try:
@@ -393,6 +462,9 @@ def rate_limit(
                             resolved_rate = resolved_rate()
 
                 limit, period = parse_rate(resolved_rate)
+
+                # Apply adaptive rate limiting if configured
+                limit = _apply_adaptive_limit(adaptive, limit)
 
                 # Handle middleware vs decorator scenarios
                 if middleware_processed:

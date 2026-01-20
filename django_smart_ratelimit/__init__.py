@@ -11,8 +11,24 @@ __author__ = "Yasser Shkeir"
 # Optional backend imports (may not be available)
 from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, Union
 
+# Adaptive Rate Limiting
+from .adaptive import (
+    AdaptiveRateLimiter,
+    ConnectionCountIndicator,
+    CPULoadIndicator,
+    CustomLoadIndicator,
+    LatencyLoadIndicator,
+    LoadIndicator,
+    LoadMetrics,
+    MemoryLoadIndicator,
+    create_adaptive_limiter,
+    get_adaptive_limiter,
+    register_adaptive_limiter,
+    unregister_adaptive_limiter,
+)
+
 # Algorithms
-from .algorithms import TokenBucketAlgorithm
+from .algorithms import LeakyBucketAlgorithm, TokenBucketAlgorithm
 from .algorithms.base import RateLimitAlgorithm
 
 # Authentication utilities
@@ -60,6 +76,7 @@ def ratelimit(
     algorithm: Optional[str] = None,
     algorithm_config: Optional[Dict[str, Any]] = None,
     settings: Optional[Any] = None,
+    adaptive: Optional[Union[str, "AdaptiveRateLimiter"]] = None,
 ) -> Callable:
     """Alias for rate_limit decorator.
 
@@ -75,6 +92,7 @@ def ratelimit(
         algorithm=algorithm,
         algorithm_config=algorithm_config,
         settings=settings,
+        adaptive=adaptive,
     )
 
 
@@ -181,8 +199,22 @@ __all__ = [
     "CircuitBreakerError",
     "CircuitBreakerOpen",
     "KeyGenerationError",
+    # Adaptive Rate Limiting
+    "AdaptiveRateLimiter",
+    "LoadIndicator",
+    "LoadMetrics",
+    "CPULoadIndicator",
+    "MemoryLoadIndicator",
+    "LatencyLoadIndicator",
+    "ConnectionCountIndicator",
+    "CustomLoadIndicator",
+    "create_adaptive_limiter",
+    "get_adaptive_limiter",
+    "register_adaptive_limiter",
+    "unregister_adaptive_limiter",
     # Algorithms
     "TokenBucketAlgorithm",
+    "LeakyBucketAlgorithm",
     "RateLimitAlgorithm",
     # Backends
     "get_backend",

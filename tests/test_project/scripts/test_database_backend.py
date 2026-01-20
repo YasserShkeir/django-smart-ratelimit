@@ -220,6 +220,69 @@ def test_concurrent_requests(base_url):
         return False
 
 
+def test_adaptive_rate_limiting(base_url):
+    """Test adaptive rate limiting functionality."""
+    tester = Tester(base_url)
+    print("\n--- Test: Adaptive Rate Limiting ---")
+
+    # Step 1: Set load to 0 (low load -> high limit)
+    print("  Setting simulated load to 0.0 (low load)...")
+    resp = tester.session.get(f"{base_url}/adaptive/set-load/?load=0.0")
+    if resp.status_code != 200:
+        print(f"  [FAIL] Could not set load: {resp.status_code}")
+        return False
+
+    data = resp.json()
+    low_load_limit = data.get("effective_limit", 0)
+    print(f"  [INFO] Low load effective limit: {low_load_limit}")
+
+    # Step 2: Set load to 1.0 (high load -> low limit)
+    print("  Setting simulated load to 1.0 (high load)...")
+    resp = tester.session.get(f"{base_url}/adaptive/set-load/?load=1.0")
+    if resp.status_code != 200:
+        print(f"  [FAIL] Could not set load: {resp.status_code}")
+        return False
+
+    data = resp.json()
+    high_load_limit = data.get("effective_limit", 0)
+    print(f"  [INFO] High load effective limit: {high_load_limit}")
+
+    # Verify adaptive behavior: high load should have lower limit
+    if high_load_limit >= low_load_limit:
+        print(
+            f"  [FAIL] Adaptive not working: high_load_limit ({high_load_limit}) "
+            f">= low_load_limit ({low_load_limit})"
+        )
+        return False
+
+    # Step 3: Test the rate-limited endpoint
+    print("  Testing adaptive endpoint...")
+    resp = tester.session.get(f"{base_url}/adaptive/test/")
+    if resp.status_code != 200:
+        print(f"  [WARN] First request status: {resp.status_code}")
+
+    # Step 4: Get metrics
+    print("  Fetching adaptive metrics...")
+    resp = tester.session.get(f"{base_url}/adaptive/metrics/")
+    if resp.status_code == 200:
+        metrics = resp.json().get("metrics", {})
+        print(
+            f"  [INFO] Metrics: load={metrics.get('current_load', '?')}, "
+            f"effective={metrics.get('effective_limit', '?')}"
+        )
+    else:
+        print(f"  [WARN] Could not fetch metrics: {resp.status_code}")
+
+    # Step 5: Reset load to normal
+    tester.session.get(f"{base_url}/adaptive/set-load/?load=0.5")
+
+    print(f"  [PASS] Adaptive rate limiting working correctly")
+    print(
+        f"         Low load limit: {low_load_limit}, High load limit: {high_load_limit}"
+    )
+    return True
+
+
 def run_suite(base_url):
     """Run all database backend tests."""
     print(f"\n{'='*60}")
@@ -233,6 +296,7 @@ def run_suite(base_url):
         ("Sliding Window", test_sliding_window(base_url)),
         ("Token Bucket", test_token_bucket(base_url)),
         ("Leaky Bucket", test_leaky_bucket(base_url)),
+        ("Adaptive Rate Limiting", test_adaptive_rate_limiting(base_url)),
         ("Stats", test_stats(base_url)),
         ("Cleanup", test_cleanup(base_url)),
         ("Persistence", test_rate_limit_persistence(base_url)),

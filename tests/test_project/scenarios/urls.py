@@ -60,4 +60,8 @@ urlpatterns = [
     path("db/health/", views.db_health, name="db_health"),
     path("db/stats/", views.db_stats, name="db_stats"),
     path("db/cleanup/", views.db_cleanup, name="db_cleanup"),
+    # I. Adaptive Rate Limiting (v2.0)
+    path("adaptive/test/", views.adaptive_rate_limit, name="adaptive_rate_limit"),
+    path("adaptive/set-load/", views.adaptive_set_load, name="adaptive_set_load"),
+    path("adaptive/metrics/", views.adaptive_metrics, name="adaptive_metrics"),
 ]
