@@ -68,12 +68,52 @@ WSGI_APPLICATION = "app.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+# Support DATABASE_URL for PostgreSQL/MySQL testing
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+if DATABASE_URL:
+    # Parse DATABASE_URL for PostgreSQL or MySQL
+    # Format: postgres://user:password@host:port/dbname
+    # Format: mysql://user:password@host:port/dbname
+    import re
+
+    match = re.match(
+        r"(?P<engine>postgres|mysql)://(?P<user>[^:]+):(?P<password>[^@]+)@(?P<host>[^:]+):(?P<port>\d+)/(?P<name>.+)",
+        DATABASE_URL,
+    )
+    if match:
+        db_config = match.groupdict()
+        engine = (
+            "django.db.backends.postgresql"
+            if db_config["engine"] == "postgres"
+            else "django.db.backends.mysql"
+        )
+        DATABASES = {
+            "default": {
+                "ENGINE": engine,
+                "NAME": db_config["name"],
+                "USER": db_config["user"],
+                "PASSWORD": db_config["password"],
+                "HOST": db_config["host"],
+                "PORT": db_config["port"],
+            }
+        }
+    else:
+        # Fallback to SQLite if URL parsing fails
+        DATABASES = {
+            "default": {
+                "ENGINE": "django.db.backends.sqlite3",
+                "NAME": BASE_DIR / "db.sqlite3",
+            }
+        }
+else:
+    # Default to SQLite
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+        }
     }
-}
 
 
 # Password validation

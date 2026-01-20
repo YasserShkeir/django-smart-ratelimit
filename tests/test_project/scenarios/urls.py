@@ -52,4 +52,11 @@ urlpatterns = [
     path(
         "window/alignment/", views.window_alignment_test, name="window_alignment_test"
     ),
+    # H. Database Backend (v2.0)
+    path("db/fixed/", views.db_fixed_window, name="db_fixed_window"),
+    path("db/sliding/", views.db_sliding_window, name="db_sliding_window"),
+    path("db/token/", views.db_token_bucket, name="db_token_bucket"),
+    path("db/health/", views.db_health, name="db_health"),
+    path("db/stats/", views.db_stats, name="db_stats"),
+    path("db/cleanup/", views.db_cleanup, name="db_cleanup"),
 ]

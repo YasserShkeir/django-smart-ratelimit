@@ -283,3 +283,69 @@ def window_alignment_test(request):
             "rate": "3/m",
         }
     )
+
+
+# --- H. Database Backend Testing (v2.0) ---
+
+
+@ratelimit(key=mk_key("db_fixed"), rate="5/m", algorithm="fixed_window")
+def db_fixed_window(request):
+    """Test database backend with fixed window algorithm."""
+    return JsonResponse({"status": "ok", "backend": "database", "algo": "fixed_window"})
+
+
+@ratelimit(key=mk_key("db_sliding"), rate="5/m", algorithm="sliding_window")
+def db_sliding_window(request):
+    """Test database backend with sliding window algorithm."""
+    return JsonResponse(
+        {"status": "ok", "backend": "database", "algo": "sliding_window"}
+    )
+
+
+@ratelimit(key=mk_key("db_token"), rate="5/m", algorithm="token_bucket")
+def db_token_bucket(request):
+    """Test database backend with token bucket algorithm."""
+    return JsonResponse({"status": "ok", "backend": "database", "algo": "token_bucket"})
+
+
+def db_health(request):
+    """Check database backend health status."""
+    backend = get_backend()
+    try:
+        health = backend.health_check()
+        return JsonResponse(
+            {
+                "status": health.get("status", "unknown"),
+                "backend": "database",
+                "response_time": health.get("response_time", -1),
+                "database_vendor": health.get("database_vendor", "unknown"),
+            }
+        )
+    except Exception as e:
+        return JsonResponse(
+            {"status": "error", "backend": "database", "error": str(e)}, status=500
+        )
+
+
+def db_stats(request):
+    """Get database backend statistics."""
+    backend = get_backend()
+    try:
+        stats = backend.get_stats()
+        return JsonResponse({"status": "ok", "backend": "database", "stats": stats})
+    except Exception as e:
+        return JsonResponse(
+            {"status": "error", "backend": "database", "error": str(e)}, status=500
+        )
+
+
+def db_cleanup(request):
+    """Trigger database backend cleanup."""
+    backend = get_backend()
+    try:
+        result = backend.cleanup_expired()
+        return JsonResponse({"status": "ok", "backend": "database", "cleanup": result})
+    except Exception as e:
+        return JsonResponse(
+            {"status": "error", "backend": "database", "error": str(e)}, status=500
+        )

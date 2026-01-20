@@ -128,3 +128,98 @@ services:
     volumes:
       - .:/app/django-ratelimit
       - ./tests/test_project:/app/test_project
+
+  # ==========================================================
+  # V2.0 Database Backend Services
+  # ==========================================================
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:16-alpine
+    ports:
+      - "5433:5432"
+    environment:
+      - POSTGRES_USER=ratelimit
+      - POSTGRES_PASSWORD=ratelimit
+      - POSTGRES_DB=ratelimit_test
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ratelimit -d ratelimit_test"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    ports:
+      - "3307:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=root
+      - MYSQL_USER=ratelimit
+      - MYSQL_PASSWORD=ratelimit
+      - MYSQL_DATABASE=ratelimit_test
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "ratelimit", "-pratelimit"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    command: --default-authentication-plugin=mysql_native_password
+
+  # Database Backend with SQLite (default Django test DB)
+  app-database-sqlite:
+    build:
+      context: .
+      dockerfile: QA.Dockerfile
+    container_name: ratelimit-qa-database-sqlite
+    environment:
+      - TEST_BACKEND=django_smart_ratelimit.backends.database.DatabaseBackend
+      - RATELIMIT_DISABLE_MULTI_BACKEND=true
+      - RATELIMIT_DISABLE_MIDDLEWARE=false
+      - DEBUG=True
+    ports:
+      - "8006:8000"
+    volumes:
+      - .:/app/django-ratelimit
+      - ./tests/test_project:/app/test_project
+
+  # Database Backend with PostgreSQL
+  app-database-postgres:
+    build:
+      context: .
+      dockerfile: QA.Dockerfile
+    container_name: ratelimit-qa-database-postgres
+    environment:
+      - TEST_BACKEND=django_smart_ratelimit.backends.database.DatabaseBackend
+      - RATELIMIT_DISABLE_MULTI_BACKEND=true
+      - RATELIMIT_DISABLE_MIDDLEWARE=false
+      - DATABASE_URL=postgres://ratelimit:ratelimit@postgres:5432/ratelimit_test
+      - DEBUG=True
+    ports:
+      - "8007:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - .:/app/django-ratelimit
+      - ./tests/test_project:/app/test_project
+
+  # Database Backend with MySQL
+  app-database-mysql:
+    build:
+      context: .
+      dockerfile: QA.Dockerfile
+    container_name: ratelimit-qa-database-mysql
+    environment:
+      - TEST_BACKEND=django_smart_ratelimit.backends.database.DatabaseBackend
+      - RATELIMIT_DISABLE_MULTI_BACKEND=true
+      - RATELIMIT_DISABLE_MIDDLEWARE=false
+      - DATABASE_URL=mysql://ratelimit:ratelimit@mysql:3306/ratelimit_test
+      - DEBUG=True
+    ports:
+      - "8008:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    volumes:
+      - .:/app/django-ratelimit
+      - ./tests/test_project:/app/test_project
