@@ -14,8 +14,8 @@ class Command(BaseCommand):
     Clean up expired rate limit records from the database.
 
     This command removes expired rate limit counters, sliding window entries,
-    and stale token buckets from the database. It's designed to be run
-    periodically via cron or celery beat.
+    stale token buckets, and stale leaky buckets from the database. It's
+    designed to be run periodically via cron or celery beat.
 
     Examples:
         # Basic cleanup
@@ -27,7 +27,7 @@ class Command(BaseCommand):
         # Custom batch size for large databases
         python manage.py ratelimit_cleanup --batch-size=500
 
-        # Clean up stale token buckets older than 14 days
+        # Clean up stale buckets older than 14 days
         python manage.py ratelimit_cleanup --stale-days=14
 
         # JSON output for monitoring/automation
@@ -56,7 +56,7 @@ class Command(BaseCommand):
             "--stale-days",
             type=int,
             default=7,
-            help="Delete token buckets not updated in this many days (default: 7)",
+            help="Delete token/leaky buckets not updated in this many days (default: 7)",
         )
         parser.add_argument(
             "--json",
@@ -92,6 +92,7 @@ class Command(BaseCommand):
             "counters": {"deleted": 0, "found": 0},
             "entries": {"deleted": 0, "found": 0},
             "token_buckets": {"deleted": 0, "found": 0},
+            "leaky_buckets": {"deleted": 0, "found": 0},
             "errors": [],
         }
 
@@ -128,6 +129,17 @@ class Command(BaseCommand):
             if not json_output:
                 self.stdout.write(self.style.ERROR(f"Token bucket cleanup failed: {e}"))
 
+        # Clean up stale leaky buckets
+        try:
+            leaky_result = self._cleanup_leaky_buckets(
+                batch_size, stale_days, dry_run, verbose, json_output
+            )
+            results["leaky_buckets"] = leaky_result
+        except Exception as e:
+            results["errors"].append(f"Leaky bucket cleanup error: {e}")
+            if not json_output:
+                self.stdout.write(self.style.ERROR(f"Leaky bucket cleanup failed: {e}"))
+
         elapsed_time = time.time() - start_time
         results["elapsed_seconds"] = round(elapsed_time, 3)
 
@@ -136,11 +148,13 @@ class Command(BaseCommand):
             results["counters"]["found"]
             + results["entries"]["found"]
             + results["token_buckets"]["found"]
+            + results["leaky_buckets"]["found"]
         )
         total_deleted = (
             results["counters"]["deleted"]
             + results["entries"]["deleted"]
             + results["token_buckets"]["deleted"]
+            + results["leaky_buckets"]["deleted"]
         )
         results["total_found"] = total_found
         results["total_deleted"] = total_deleted
@@ -264,6 +278,50 @@ class Command(BaseCommand):
 
         return {"found": found, "deleted": deleted}
 
+    def _cleanup_leaky_buckets(
+        self,
+        batch_size: int,
+        stale_days: int,
+        dry_run: bool,
+        verbose: bool,
+        json_output: bool,
+    ) -> Dict[str, int]:
+        """Clean up stale leaky buckets."""
+        from datetime import timedelta
+
+        from django_smart_ratelimit.models import RateLimitLeakyBucket
+
+        cutoff = timezone.now() - timedelta(days=stale_days)
+        stale_query = RateLimitLeakyBucket.objects.filter(last_leak__lt=cutoff)
+        found = stale_query.count()
+
+        if not json_output and verbose:
+            self.stdout.write(
+                f"Leaky Buckets: Found {found} stale records (>{stale_days} days old)"
+            )
+
+        if dry_run:
+            return {"found": found, "deleted": 0}
+
+        deleted = 0
+        while True:
+            stale_ids = list(stale_query.values_list("id", flat=True)[:batch_size])
+            if not stale_ids:
+                break
+
+            batch_deleted, _ = RateLimitLeakyBucket.objects.filter(
+                id__in=stale_ids
+            ).delete()
+            deleted += batch_deleted
+
+            if verbose and not json_output:
+                self.stdout.write(f"  Deleted batch: {batch_deleted} leaky buckets")
+
+            if batch_deleted < batch_size:
+                break
+
+        return {"found": found, "deleted": deleted}
+
     def _print_summary(self, results: Dict[str, Any], dry_run: bool) -> None:
         """Print a summary of the cleanup operation."""
         self.stdout.write("")
@@ -281,6 +339,10 @@ class Command(BaseCommand):
         self.stdout.write(
             f"Token Buckets: {action} {results['token_buckets']['deleted']} "
             f"(found {results['token_buckets']['found']})"
+        )
+        self.stdout.write(
+            f"Leaky Buckets: {action} {results['leaky_buckets']['deleted']} "
+            f"(found {results['leaky_buckets']['found']})"
         )
         self.stdout.write("=" * 50)
         self.stdout.write(

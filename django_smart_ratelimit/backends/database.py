@@ -255,6 +255,7 @@ class DatabaseBackend(BaseBackend):
                 from ..models import (
                     RateLimitCounter,
                     RateLimitEntry,
+                    RateLimitLeakyBucket,
                     RateLimitTokenBucket,
                 )
 
@@ -263,6 +264,7 @@ class DatabaseBackend(BaseBackend):
                     RateLimitCounter.objects.filter(key=normalized_key).delete()
                     RateLimitEntry.objects.filter(key=normalized_key).delete()
                     RateLimitTokenBucket.objects.filter(key=normalized_key).delete()
+                    RateLimitLeakyBucket.objects.filter(key=normalized_key).delete()
 
                 log_backend_operation(
                     "reset",
@@ -593,6 +595,230 @@ class DatabaseBackend(BaseBackend):
                     f"Database backend token bucket info failed: {str(e)}"
                 ) from e
 
+    def leaky_bucket_check(
+        self,
+        key: str,
+        bucket_capacity: int,
+        leak_rate: float,
+        request_cost: int,
+    ) -> Tuple[bool, Dict[str, Any]]:
+        """
+        Leaky bucket rate limit check using database storage.
+
+        The leaky bucket fills with requests and drains at a constant rate.
+        When full, new requests are rejected until space is available.
+
+        Args:
+            key: Rate limit key
+            bucket_capacity: Maximum fill level of the bucket
+            leak_rate: Rate at which bucket drains (requests per second)
+            request_cost: How much this request fills the bucket
+
+        Returns:
+            Tuple of (is_allowed, metadata_dict)
+        """
+        with create_operation_timer() as timer:
+            try:
+                normalized_key = self._normalize_key(key)
+
+                # Handle edge case: zero bucket capacity
+                if bucket_capacity <= 0:
+                    metadata = {
+                        "bucket_level": 0,
+                        "bucket_capacity": bucket_capacity,
+                        "leak_rate": leak_rate,
+                        "request_cost": request_cost,
+                        "space_remaining": 0,
+                        "time_until_space": float("inf"),
+                    }
+                    return False, metadata
+
+                from ..models import RateLimitLeakyBucket
+
+                with transaction.atomic():
+                    # Get or create bucket with lock
+                    (
+                        bucket,
+                        created,
+                    ) = RateLimitLeakyBucket.objects.select_for_update().get_or_create(
+                        key=normalized_key,
+                        defaults={
+                            "level": 0,
+                            "last_leak": timezone.now(),
+                            "bucket_capacity": bucket_capacity,
+                            "leak_rate": leak_rate,
+                        },
+                    )
+
+                    # Calculate current level after leaking
+                    now = timezone.now()
+                    if not created:
+                        elapsed = (now - bucket.last_leak).total_seconds()
+                        leaked = elapsed * leak_rate
+                        current_level = max(0, bucket.level - leaked)
+                    else:
+                        current_level = 0
+
+                    # Check if request can be accepted
+                    new_level = current_level + request_cost
+
+                    if new_level <= bucket_capacity:
+                        # Accept request - add to bucket
+                        bucket.level = new_level
+                        bucket.last_leak = now
+                        bucket.save(update_fields=["level", "last_leak"])
+
+                        space_remaining = bucket_capacity - new_level
+                        time_until_space = (
+                            0.0
+                            if space_remaining > 0
+                            else (
+                                request_cost / leak_rate
+                                if leak_rate > 0
+                                else float("inf")
+                            )
+                        )
+
+                        metadata = {
+                            "bucket_level": new_level,
+                            "bucket_capacity": bucket_capacity,
+                            "leak_rate": leak_rate,
+                            "request_cost": request_cost,
+                            "space_remaining": space_remaining,
+                            "time_until_space": time_until_space,
+                        }
+
+                        log_backend_operation(
+                            "leaky_bucket_check",
+                            f"database backend leaky bucket check success for key {key}",
+                            timer.elapsed_ms,
+                        )
+                        return True, metadata
+                    else:
+                        # Reject request - bucket would overflow
+                        bucket.level = current_level
+                        bucket.last_leak = now
+                        bucket.save(update_fields=["level", "last_leak"])
+
+                        overflow = new_level - bucket_capacity
+                        time_until_space = (
+                            overflow / leak_rate if leak_rate > 0 else float("inf")
+                        )
+
+                        metadata = {
+                            "bucket_level": current_level,
+                            "bucket_capacity": bucket_capacity,
+                            "leak_rate": leak_rate,
+                            "request_cost": request_cost,
+                            "space_remaining": max(0, bucket_capacity - current_level),
+                            "time_until_space": time_until_space,
+                        }
+
+                        log_backend_operation(
+                            "leaky_bucket_check",
+                            f"database backend leaky bucket check rejected for key {key}",
+                            timer.elapsed_ms,
+                        )
+                        return False, metadata
+
+            except DatabaseError as e:
+                log_backend_operation(
+                    "leaky_bucket_check",
+                    f"database backend leaky bucket check failed for key {key}: {str(e)}",
+                    timer.elapsed_ms,
+                    "error",
+                )
+                if self.fail_open:
+                    metadata = {
+                        "bucket_level": 0,
+                        "bucket_capacity": bucket_capacity,
+                        "leak_rate": leak_rate,
+                        "request_cost": request_cost,
+                        "space_remaining": bucket_capacity,
+                        "time_until_space": 0.0,
+                    }
+                    return True, metadata
+                raise BackendError(
+                    f"Database backend leaky bucket check failed: {str(e)}"
+                ) from e
+
+    def leaky_bucket_info(
+        self, key: str, bucket_capacity: int, leak_rate: float
+    ) -> Dict[str, Any]:
+        """
+        Get leaky bucket information without adding to the bucket.
+
+        Args:
+            key: Rate limit key
+            bucket_capacity: Maximum fill level of the bucket
+            leak_rate: Rate at which bucket drains (requests per second)
+
+        Returns:
+            Dictionary with current bucket state
+        """
+        with create_operation_timer() as timer:
+            try:
+                normalized_key = self._normalize_key(key)
+
+                from ..models import RateLimitLeakyBucket
+
+                bucket = RateLimitLeakyBucket.objects.filter(key=normalized_key).first()
+
+                now = timezone.now()
+
+                if not bucket:
+                    return {
+                        "bucket_level": 0,
+                        "bucket_capacity": bucket_capacity,
+                        "leak_rate": leak_rate,
+                        "space_remaining": bucket_capacity,
+                        "time_to_empty": 0.0,
+                        "last_leak": now.timestamp(),
+                    }
+
+                # Calculate current level after leaking
+                elapsed = (now - bucket.last_leak).total_seconds()
+                leaked = elapsed * leak_rate
+                current_level = max(0, bucket.level - leaked)
+
+                space_remaining = bucket_capacity - current_level
+                time_to_empty = current_level / leak_rate if leak_rate > 0 else 0
+
+                log_backend_operation(
+                    "leaky_bucket_info",
+                    f"database backend leaky bucket info for key {key}",
+                    timer.elapsed_ms,
+                )
+
+                return {
+                    "bucket_level": current_level,
+                    "bucket_capacity": bucket_capacity,
+                    "leak_rate": leak_rate,
+                    "space_remaining": space_remaining,
+                    "time_to_empty": time_to_empty,
+                    "last_leak": bucket.last_leak.timestamp(),
+                }
+
+            except DatabaseError as e:
+                log_backend_operation(
+                    "leaky_bucket_info",
+                    f"database backend leaky bucket info failed for key {key}: {str(e)}",
+                    timer.elapsed_ms,
+                    "error",
+                )
+                if self.fail_open:
+                    return {
+                        "bucket_level": 0,
+                        "bucket_capacity": bucket_capacity,
+                        "leak_rate": leak_rate,
+                        "space_remaining": bucket_capacity,
+                        "time_to_empty": 0.0,
+                        "last_leak": timezone.now().timestamp(),
+                    }
+                raise BackendError(
+                    f"Database backend leaky bucket info failed: {str(e)}"
+                ) from e
+
     def check_rate_limit(
         self,
         key: str,
@@ -634,6 +860,7 @@ class DatabaseBackend(BaseBackend):
         from ..models import (
             RateLimitCounter,
             RateLimitEntry,
+            RateLimitLeakyBucket,
             RateLimitTokenBucket,
         )
 
@@ -641,7 +868,10 @@ class DatabaseBackend(BaseBackend):
             deleted = {
                 "counters": RateLimitCounter.cleanup_expired(self._batch_cleanup_size),
                 "entries": RateLimitEntry.cleanup_expired(self._batch_cleanup_size),
-                "buckets": RateLimitTokenBucket.cleanup_stale(
+                "token_buckets": RateLimitTokenBucket.cleanup_stale(
+                    days=7, batch_size=self._batch_cleanup_size
+                ),
+                "leaky_buckets": RateLimitLeakyBucket.cleanup_stale(
                     days=7, batch_size=self._batch_cleanup_size
                 ),
             }
@@ -664,6 +894,7 @@ class DatabaseBackend(BaseBackend):
         from ..models import (
             RateLimitCounter,
             RateLimitEntry,
+            RateLimitLeakyBucket,
             RateLimitTokenBucket,
         )
 
@@ -671,6 +902,7 @@ class DatabaseBackend(BaseBackend):
             RateLimitCounter.objects.all().delete()
             RateLimitEntry.objects.all().delete()
             RateLimitTokenBucket.objects.all().delete()
+            RateLimitLeakyBucket.objects.all().delete()
 
     def get_stats(self) -> Dict[str, Any]:
         """
@@ -682,6 +914,7 @@ class DatabaseBackend(BaseBackend):
         from ..models import (
             RateLimitCounter,
             RateLimitEntry,
+            RateLimitLeakyBucket,
             RateLimitTokenBucket,
         )
 
@@ -691,12 +924,17 @@ class DatabaseBackend(BaseBackend):
         active_counters = RateLimitCounter.objects.filter(window_end__gt=now).count()
         active_entries = RateLimitEntry.objects.filter(expires_at__gt=now).count()
         token_buckets = RateLimitTokenBucket.objects.count()
+        leaky_buckets = RateLimitLeakyBucket.objects.count()
 
         return {
             "active_counters": active_counters,
             "active_entries": active_entries,
             "token_buckets": token_buckets,
-            "total_records": active_counters + active_entries + token_buckets,
+            "leaky_buckets": leaky_buckets,
+            "total_records": active_counters
+            + active_entries
+            + token_buckets
+            + leaky_buckets,
             "algorithm": self._algorithm,
             "cleanup_interval": self._cleanup_interval,
             "last_cleanup": self._last_cleanup.isoformat(),

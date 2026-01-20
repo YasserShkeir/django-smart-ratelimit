@@ -68,6 +68,13 @@ def test_token_bucket(base_url):
     return tester.check_rate_limit("/db/token/", 5, "minute")
 
 
+def test_leaky_bucket(base_url):
+    """Test leaky bucket rate limiting with database backend."""
+    tester = Tester(base_url)
+    print(f"\n--- Testing Leaky Bucket ({base_url}) ---")
+    return tester.check_rate_limit("/db/leaky/", 5, "minute")
+
+
 def test_stats(base_url):
     """Test database backend statistics endpoint."""
     tester = Tester(base_url)
@@ -89,6 +96,7 @@ def test_stats(base_url):
     print(f"  [PASS] Stats retrieved successfully")
     print(f"         Active counters: {stats.get('active_counters', 0)}")
     print(f"         Token buckets: {stats.get('token_buckets', 0)}")
+    print(f"         Leaky buckets: {stats.get('leaky_buckets', 0)}")
     print(f"         Total records: {stats.get('total_records', 0)}")
     return True
 
@@ -114,7 +122,8 @@ def test_cleanup(base_url):
     print(f"  [PASS] Cleanup completed successfully")
     print(f"         Counters cleaned: {cleanup.get('counters', 0)}")
     print(f"         Entries cleaned: {cleanup.get('entries', 0)}")
-    print(f"         Buckets cleaned: {cleanup.get('token_buckets', 0)}")
+    print(f"         Token buckets cleaned: {cleanup.get('token_buckets', 0)}")
+    print(f"         Leaky buckets cleaned: {cleanup.get('leaky_buckets', 0)}")
     return True
 
 
@@ -145,6 +154,7 @@ def test_rate_limit_persistence(base_url):
         print(f"  [PASS] Database has persisted records: {total_records} total")
         print(f"         Active counters: {active_counters}")
         print(f"         Token buckets: {stats.get('token_buckets', 0)}")
+        print(f"         Leaky buckets: {stats.get('leaky_buckets', 0)}")
         print(f"         Sliding entries: {stats.get('sliding_entries', 0)}")
         return True
     else:
@@ -222,6 +232,7 @@ def run_suite(base_url):
         ("Fixed Window", test_fixed_window(base_url)),
         ("Sliding Window", test_sliding_window(base_url)),
         ("Token Bucket", test_token_bucket(base_url)),
+        ("Leaky Bucket", test_leaky_bucket(base_url)),
         ("Stats", test_stats(base_url)),
         ("Cleanup", test_cleanup(base_url)),
         ("Persistence", test_rate_limit_persistence(base_url)),

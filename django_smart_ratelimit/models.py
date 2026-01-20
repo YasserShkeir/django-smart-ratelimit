@@ -1,7 +1,8 @@
 """Django models for database-backed rate limiting (v2.0).
 
 This module provides Django models for storing rate limit state in SQL databases.
-These models support fixed window, sliding window, and token bucket algorithms.
+These models support fixed window, sliding window, token bucket, and leaky bucket
+algorithms.
 
 Supported databases:
 - PostgreSQL (recommended for production)
@@ -334,6 +335,162 @@ class RateLimitTokenBucket(models.Model):
         while True:
             stale_ids = list(
                 cls.objects.filter(last_update__lt=cutoff).values_list("id", flat=True)[
+                    :batch_size
+                ]
+            )
+            if not stale_ids:
+                break
+            deleted, _ = cls.objects.filter(id__in=stale_ids).delete()
+            total_deleted += deleted
+            if deleted < batch_size:
+                break
+        return total_deleted
+
+
+class RateLimitLeakyBucket(models.Model):
+    """Stores leaky bucket state for leaky bucket algorithm.
+
+    The leaky bucket algorithm models requests filling a bucket that
+    "leaks" at a constant rate. When the bucket is full, requests
+    are rejected. This provides smooth, consistent rate limiting.
+
+    Attributes:
+        key: The rate limit key (unique)
+        level: Current fill level of the bucket
+        last_leak: When the bucket was last updated (for calculating leaked amount)
+        bucket_capacity: Maximum capacity of the bucket
+        leak_rate: Rate at which the bucket leaks (requests per second)
+
+    Example:
+        >>> bucket = RateLimitLeakyBucket.objects.create(
+        ...     key="api:client_123",
+        ...     level=5.0,
+        ...     last_leak=timezone.now(),
+        ...     bucket_capacity=100,
+        ...     leak_rate=10.0,  # 10 requests leak per second
+        ... )
+    """
+
+    key: "models.CharField[str, str]" = models.CharField(
+        max_length=255,
+        unique=True,
+        help_text="Rate limit key (unique per bucket)",
+    )
+    level: "models.FloatField[float, float]" = models.FloatField(
+        default=0,
+        help_text="Current fill level of the bucket",
+    )
+    last_leak: "models.DateTimeField[datetime, datetime]" = models.DateTimeField(
+        help_text="When the bucket was last updated",
+    )
+    bucket_capacity: "models.PositiveIntegerField[int, int]" = (
+        models.PositiveIntegerField(
+            help_text="Maximum capacity of the bucket",
+        )
+    )
+    leak_rate: "models.FloatField[float, float]" = models.FloatField(
+        help_text="Rate at which the bucket leaks (requests per second)",
+    )
+    created_at: "models.DateTimeField[datetime, datetime]" = models.DateTimeField(
+        auto_now_add=True,
+        help_text="When this bucket was created",
+    )
+
+    class Meta:
+        """Meta options for RateLimitLeakyBucket."""
+
+        db_table = "ratelimit_leaky_bucket"
+        verbose_name = "Rate Limit Leaky Bucket"
+        verbose_name_plural = "Rate Limit Leaky Buckets"
+        indexes = [
+            models.Index(fields=["key"], name="ratelimit_leaky_key"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.key}: {self.level:.1f}/{self.bucket_capacity} level"
+
+    def calculate_current_level(self) -> float:
+        """Calculate current bucket level after leaking.
+
+        Returns:
+            Current level (minimum 0)
+        """
+        now = timezone.now()
+        elapsed_seconds = (now - self.last_leak).total_seconds()
+        leaked_amount = elapsed_seconds * self.leak_rate
+        return max(0, self.level - leaked_amount)
+
+    def add_request(self, request_cost: int = 1) -> bool:
+        """Attempt to add a request to the bucket.
+
+        This method calculates the current level after leaking,
+        checks if there's space for the request, and updates the state.
+
+        Args:
+            request_cost: How much this request fills the bucket
+
+        Returns:
+            True if request was accepted, False if bucket would overflow
+
+        Note:
+            This method saves the model. For atomic operations in
+            concurrent environments, use the DatabaseBackend methods.
+        """
+        current_level = self.calculate_current_level()
+        new_level = current_level + request_cost
+
+        if new_level <= self.bucket_capacity:
+            self.level = new_level
+            self.last_leak = timezone.now()
+            self.save(update_fields=["level", "last_leak"])
+            return True
+        return False
+
+    def space_remaining(self) -> float:
+        """Calculate remaining space in the bucket.
+
+        Returns:
+            Space remaining in the bucket
+        """
+        current_level = self.calculate_current_level()
+        return max(0, self.bucket_capacity - current_level)
+
+    def time_until_space(self, space_needed: int = 1) -> float:
+        """Calculate time until enough space is available.
+
+        Args:
+            space_needed: Space needed in the bucket
+
+        Returns:
+            Seconds until space is available (0 if already available)
+        """
+        current_level = self.calculate_current_level()
+        available_space = self.bucket_capacity - current_level
+
+        if available_space >= space_needed:
+            return 0.0
+
+        overflow = space_needed - available_space
+        return overflow / self.leak_rate if self.leak_rate > 0 else float("inf")
+
+    @classmethod
+    def cleanup_stale(cls, days: int = 7, batch_size: int = 1000) -> int:
+        """Delete leaky buckets that haven't been updated recently.
+
+        Args:
+            days: Delete buckets not updated in this many days
+            batch_size: Maximum records to delete per batch
+
+        Returns:
+            Total number of deleted records
+        """
+        from datetime import timedelta
+
+        cutoff = timezone.now() - timedelta(days=days)
+        total_deleted = 0
+        while True:
+            stale_ids = list(
+                cls.objects.filter(last_leak__lt=cutoff).values_list("id", flat=True)[
                     :batch_size
                 ]
             )

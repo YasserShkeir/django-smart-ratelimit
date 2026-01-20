@@ -308,6 +308,45 @@ def db_token_bucket(request):
     return JsonResponse({"status": "ok", "backend": "database", "algo": "token_bucket"})
 
 
+def db_leaky_bucket(request):
+    """Test database backend with leaky bucket algorithm using direct backend call."""
+    from django_smart_ratelimit.utils import get_ip_key
+
+    backend = get_backend()
+    key = f"db_leaky:{get_ip_key(request)}"
+
+    # Use leaky bucket directly on database backend
+    # 5 requests per minute = bucket_capacity=5, leak_rate=5/60=0.083
+    allowed, metadata = backend.leaky_bucket_check(
+        key=key,
+        bucket_capacity=5,
+        leak_rate=5 / 60,  # 5 requests per minute
+        request_cost=1,
+    )
+
+    if allowed:
+        return JsonResponse(
+            {
+                "status": "ok",
+                "backend": "database",
+                "algo": "leaky_bucket",
+                "bucket_level": metadata.get("bucket_level", 0),
+                "space_remaining": metadata.get("space_remaining", 0),
+            }
+        )
+    else:
+        return JsonResponse(
+            {
+                "status": "rate_limited",
+                "backend": "database",
+                "algo": "leaky_bucket",
+                "bucket_level": metadata.get("bucket_level", 0),
+                "time_until_space": metadata.get("time_until_space", 0),
+            },
+            status=429,
+        )
+
+
 def db_health(request):
     """Check database backend health status."""
     backend = get_backend()
