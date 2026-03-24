@@ -259,8 +259,16 @@ def parse_rate(rate: str) -> Tuple[int, int]:
     """
     Parse rate limit string into (limit, period_seconds).
 
+    Supports both simple and custom time-window formats:
+
+    * Simple:  ``"10/s"``, ``"10/m"``, ``"100/h"``, ``"1000/d"``
+    * Custom:  ``"10/30s"`` (10 requests per 30 seconds),
+               ``"100/5m"`` (100 requests per 5 minutes),
+               ``"500/2h"`` (500 requests per 2 hours),
+               ``"10000/7d"`` (10 000 requests per 7 days)
+
     Args:
-        rate: Rate string like "10/m", "100/h", etc.
+        rate: Rate string in one of the formats described above.
 
     Returns:
         Tuple of (limit, period_in_seconds)
@@ -279,18 +287,30 @@ def parse_rate(rate: str) -> Tuple[int, int]:
             "d": 86400,  # day
         }
 
-        if period_str not in period_map:
-            raise ValueError(f"Unknown period: {period_str}")
+        # Simple format: "10/m"
+        if period_str in period_map:
+            period = period_map[period_str]
+            return limit, period
 
-        period = period_map[period_str]
-        return limit, period
+        # Custom format: "10/30s", "100/5m", etc.
+        import re
+
+        match = re.match(r"^(\d+)([smhd])$", period_str)
+        if match:
+            multiplier = int(match.group(1))
+            if multiplier <= 0:
+                raise ValueError(f"Period multiplier must be positive, got: {multiplier}")
+            unit = match.group(2)
+            period = multiplier * period_map[unit]
+            return limit, period
+
+        raise ValueError(f"Unknown period: {period_str}")
 
     except (ValueError, IndexError) as e:
         raise ImproperlyConfigured(
-            f"Invalid rate format: {rate}. Use format like '10/m'"
+            f"Invalid rate format: {rate}. "
+            f"Use format like '10/m' or '10/30s' (custom windows)"
         ) from e
-
-
 def validate_rate_config(
     rate: str, algorithm: Optional[str] = None, algorithm_config: Optional[dict] = None
 ) -> None:
