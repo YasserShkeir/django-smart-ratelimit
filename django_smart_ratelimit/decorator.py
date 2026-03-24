@@ -147,19 +147,103 @@ def _get_reset_time(backend_instance: Any, limit_key: str, period: int) -> int:
 
 def _create_rate_limit_response(
     message: Optional[str] = None,
+    request: Optional[Any] = None,
+    response_callback: Optional[Callable] = None,
 ) -> HttpResponse:
-    """Create a standard rate limit exceeded response."""
+    """Create a rate limit exceeded response.
+
+    Supports custom responses via:
+    1. A ``response_callback`` callable passed to the decorator
+    2. A global ``RATELIMIT_RESPONSE_HANDLER`` setting (dotted path to
+       a callable or a template name like ``"429.html"``)
+    3. Content-negotiated JSON when the request Accept header is
+       ``application/json``
+    4. The default plain-text 429 response
+
+    Args:
+        message: Optional override message.
+        request: The Django request (used for content negotiation).
+        response_callback: A callable ``(request) -> HttpResponse``.
+    """
+    # 1. Per-decorator callback
+    if response_callback is not None:
+        try:
+            return response_callback(request)
+        except Exception as e:
+            logger.warning("Custom response_callback failed: %s", e)
+
+    # 2. Global handler from settings
+    try:
+        from .config import get_settings
+
+        handler_path = get_settings().ratelimit_response_handler
+        if handler_path:
+            response = _invoke_global_response_handler(handler_path, request)
+            if response is not None:
+                return response
+    except Exception as e:
+        logger.warning("Global RATELIMIT_RESPONSE_HANDLER failed: %s", e)
+
+    # 3. Content negotiation: return JSON for API clients
+    if request is not None:
+        accept = getattr(request, "META", {}).get("HTTP_ACCEPT", "")
+        if "application/json" in accept:
+            from django.http import JsonResponse
+
+            body: Dict[str, Any] = {
+                "detail": "Rate limit exceeded. Please try again later.",
+            }
+            return JsonResponse(body, status=429)
+
+    # 4. Default plain-text
     if message is None:
         message = get_rate_limit_error_message(include_details=True)
     return HttpResponseTooManyRequests(message)
 
 
+def _invoke_global_response_handler(
+    handler_path: str, request: Optional[Any]
+) -> Optional[HttpResponse]:
+    """Invoke the globally configured response handler.
+
+    ``handler_path`` can be either:
+    * A dotted path to a callable (e.g. ``"myapp.views.rate_limited"``)
+    * A template name (e.g. ``"429.html"``) \u2014 rendered with status 429.
+    """
+    # Try as a callable first
+    if "." in handler_path and not handler_path.endswith((".html", ".htm", ".txt")):
+        try:
+            module_path, fn_name = handler_path.rsplit(".", 1)
+            module = importlib.import_module(module_path)
+            handler = getattr(module, fn_name)
+            return handler(request)
+        except (ImportError, AttributeError, TypeError):
+            pass
+
+    # Try as a template name
+    try:
+        from django.template.loader import render_to_string
+
+        html = render_to_string(handler_path, request=request)
+        return HttpResponse(html, status=429, content_type="text/html")
+    except Exception:
+        return None
+
+
 def _handle_rate_limit_exceeded(
-    backend_instance: Any, limit_key: str, limit: int, period: int, block: bool
+    backend_instance: Any,
+    limit_key: str,
+    limit: int,
+    period: int,
+    block: bool,
+    request: Optional[Any] = None,
+    response_callback: Optional[Callable] = None,
 ) -> Optional[HttpResponse]:
     """Handle rate limit exceeded scenario."""
     if block:
-        response = _create_rate_limit_response()
+        response = _create_rate_limit_response(
+            request=request, response_callback=response_callback
+        )
         reset_time = _get_reset_time(backend_instance, limit_key, period)
         add_rate_limit_headers(response, limit, 0, reset_time)
         return response
@@ -175,6 +259,7 @@ def rate_limit(
     algorithm: Optional[str] = None,
     algorithm_config: Optional[Dict[str, Any]] = None,
     settings: Optional[Any] = None,
+    response_callback: Optional[Callable] = None,
 ) -> Callable:
     """Apply rate limiting to a view or function.
 
@@ -188,6 +273,9 @@ def rate_limit(
         algorithm: Algorithm to use ('sliding_window', 'fixed_window', 'token_bucket')
         algorithm_config: Configuration dict for the algorithm
         settings: Optional settings object (for dependency injection/testing)
+        response_callback: Optional callable ``(request) -> HttpResponse`` for
+            custom 429 responses. Overrides the global
+            ``RATELIMIT_RESPONSE_HANDLER`` setting.
 
     Returns:
         Decorated function with rate limiting applied
@@ -300,13 +388,19 @@ def rate_limit(
                             handler = get_exception_handler()
                             return handler(_request, e)
                         else:
-                            return _create_rate_limit_response(str(e))
+                            return _create_rate_limit_response(
+                                str(e), request=_request,
+                                response_callback=response_callback,
+                            )
                     current_count = 0
 
                 # Check if limited
                 if current_count > limit:
                     if block:
-                        response = _create_rate_limit_response()
+                        response = _create_rate_limit_response(
+                            request=_request,
+                            response_callback=response_callback,
+                        )
                         # We need reset time.
                         # backend.get_reset_time might be sync. Safe to call if it's just math/cache lookup?
                         # Ideally use async version if exists, or sync_to_async
@@ -406,6 +500,7 @@ def rate_limit(
                         limit,
                         period,
                         block,
+                        response_callback=response_callback,
                     )
 
                 # Handle algorithm-specific logic
@@ -421,6 +516,7 @@ def rate_limit(
                         period,
                         block,
                         algorithm_config,
+                        response_callback=response_callback,
                     )
 
                 # Standard rate limiting (sliding_window or fixed_window)
@@ -434,6 +530,7 @@ def rate_limit(
                     limit,
                     period,
                     block,
+                    response_callback=response_callback,
                 )
 
         return wrapper
@@ -451,6 +548,7 @@ def _handle_middleware_processed_request(
     limit: int,
     period: int,
     block: bool,
+    response_callback: Optional[Callable] = None,
 ) -> Any:
     """Handle request when middleware has already processed it."""
     # Even though middleware processed the request, the decorator should still
@@ -475,7 +573,8 @@ def _handle_middleware_processed_request(
         if block:
             # Block the request and return 429
             return _handle_rate_limit_exceeded(
-                backend_instance, limit_key, limit, period, block
+                backend_instance, limit_key, limit, period, block,
+                request=_request, response_callback=response_callback,
             )
         else:
             # Non-blocking: execute function but mark as exceeded
@@ -512,6 +611,7 @@ def _handle_token_bucket_algorithm(
     period: int,
     block: bool,
     algorithm_config: Optional[Dict[str, Any]],
+    response_callback: Optional[Callable] = None,
 ) -> Any:
     """Handle token bucket algorithm logic."""
     try:
@@ -522,7 +622,9 @@ def _handle_token_bucket_algorithm(
 
         if not is_allowed:
             if block:
-                return _create_rate_limit_response()
+                return _create_rate_limit_response(
+                    request=_request, response_callback=response_callback,
+                )
             else:
                 # Add rate limit headers but don't block
                 if _request:
@@ -622,6 +724,7 @@ def _handle_standard_rate_limiting(
     limit: int,
     period: int,
     block: bool,
+    response_callback: Optional[Callable] = None,
 ) -> Any:
     """Handle standard rate limiting (sliding_window or fixed_window)."""
     # Create context
@@ -645,7 +748,9 @@ def _handle_standard_rate_limiting(
 
     if not ctx.allowed:
         if block:
-            response = _create_rate_limit_response()
+            response = _create_rate_limit_response(
+                request=_request, response_callback=response_callback,
+            )
             add_rate_limit_headers(response, ctx.limit, ctx.remaining, ctx.reset_time)
             return response
         else:
