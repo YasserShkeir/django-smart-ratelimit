@@ -349,7 +349,7 @@ class TestMongoDBConnectionFailure(TestCase):
         # If not, we should skip.
 
         try:
-            pass
+            import pymongo  # noqa: F401
         except ImportError:
             self.skipTest("pymongo not installed")
 
