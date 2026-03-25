@@ -312,7 +312,6 @@ def rate_limit(
     settings: Optional[Any] = None,
     adaptive: Optional[Union[str, AdaptiveRateLimiter]] = None,
     response_callback: Optional[Callable] = None,
-
 ) -> Callable:
     """Apply rate limiting to a view or function.
 
