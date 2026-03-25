@@ -111,7 +111,9 @@ class TestDecoratorWithAdaptive:
 
         try:
 
-            @rate_limit(key="ip", rate="10/m", adaptive="decorator_test")
+            @rate_limit(
+                key="ip", rate="10/m", adaptive="decorator_test", backend="memory"
+            )
             def test_view(request):
                 return HttpResponse("OK")
 
@@ -138,7 +140,7 @@ class TestDecoratorWithAdaptive:
             update_interval=0,
         )
 
-        @rate_limit(key="ip", rate="10/m", adaptive=limiter)
+        @rate_limit(key="ip", rate="10/m", adaptive=limiter, backend="memory")
         def test_view(request):
             return HttpResponse("OK")
 
@@ -149,7 +151,7 @@ class TestDecoratorWithAdaptive:
     def test_decorator_without_adaptive(self):
         """Test that decorator works normally without adaptive."""
 
-        @rate_limit(key="ip", rate="1000/m")  # High limit
+        @rate_limit(key="ip", rate="1000/m", backend="memory")  # High limit
         def test_view(request):
             return HttpResponse("OK")
 
@@ -178,7 +180,7 @@ class TestDecoratorWithAdaptive:
             update_interval=0,
         )
 
-        @rate_limit(key=unique_key, rate="100/m", adaptive=limiter)
+        @rate_limit(key=unique_key, rate="100/m", adaptive=limiter, backend="memory")
         def test_view(request):
             return HttpResponse("OK")
 
@@ -197,7 +199,7 @@ class TestDecoratorWithAdaptive:
     def test_nonexistent_adaptive_uses_base_rate(self):
         """Test that nonexistent adaptive limiter uses base rate."""
 
-        @rate_limit(key="ip", rate="1000/m", adaptive="nonexistent")
+        @rate_limit(key="ip", rate="1000/m", adaptive="nonexistent", backend="memory")
         def test_view(request):
             return HttpResponse("OK")
 
