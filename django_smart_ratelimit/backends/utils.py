@@ -313,6 +313,8 @@ def parse_rate(rate: str) -> Tuple[int, int]:
             f"Invalid rate format: {rate}. "
             f"Use format like '10/m' or '10/30s' (custom windows)"
         ) from e
+
+
 def validate_rate_config(
     rate: str, algorithm: Optional[str] = None, algorithm_config: Optional[dict] = None
 ) -> None:
