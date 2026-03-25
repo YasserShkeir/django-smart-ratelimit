@@ -299,7 +299,9 @@ def parse_rate(rate: str) -> Tuple[int, int]:
         if match:
             multiplier = int(match.group(1))
             if multiplier <= 0:
-                raise ValueError(f"Period multiplier must be positive, got: {multiplier}")
+                raise ValueError(
+                    f"Period multiplier must be positive, got: {multiplier}"
+                )
             unit = match.group(2)
             period = multiplier * period_map[unit]
             return limit, period
