@@ -44,7 +44,7 @@ class Algorithm(StrEnum):
 
     SLIDING_WINDOW = "sliding_window"
     FIXED_WINDOW = "fixed_window"
-    TOKEN_BUCKET = "token_bucket"
+    TOKEN_BUCKET = "token_bucket"  # nosec B105
 
 
 class RateLimitKey(StrEnum):
