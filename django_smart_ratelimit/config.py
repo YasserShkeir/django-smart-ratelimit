@@ -43,6 +43,11 @@ class RateLimitSettings:
     log_exceptions: bool = True
     exception_handler: Optional[str] = None
 
+    # Custom response for rate limit exceeded (429)
+    # Can be a dotted path to a callable: (request) -> HttpResponse
+    # or a template name string to render (e.g. "429.html")
+    ratelimit_response_handler: Optional[str] = None
+
     # Circuit breaker
     circuit_breaker_config: Dict[str, Any] = field(default_factory=dict)
     circuit_breaker_storage: str = "memory"
@@ -110,6 +115,9 @@ class RateLimitSettings:
             ),
             exception_handler=getattr(
                 django_settings, "RATELIMIT_EXCEPTION_HANDLER", None
+            ),
+            ratelimit_response_handler=getattr(
+                django_settings, "RATELIMIT_RESPONSE_HANDLER", None
             ),
             circuit_breaker_config=getattr(
                 django_settings, "RATELIMIT_CIRCUIT_BREAKER", {}

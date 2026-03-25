@@ -66,6 +66,9 @@ from .configuration import RateLimitConfigManager
 # Core functionality
 from .decorator import rate_limit
 
+# Enums for type-safe configuration
+from .enums import Algorithm, RateLimitKey
+
 
 def ratelimit(
     key: Union[str, Callable],
@@ -76,6 +79,7 @@ def ratelimit(
     algorithm: Optional[str] = None,
     algorithm_config: Optional[Dict[str, Any]] = None,
     settings: Optional[Any] = None,
+    response_callback: Optional[Callable] = None,
     adaptive: Optional[Union[str, "AdaptiveRateLimiter"]] = None,
 ) -> Callable:
     """Alias for rate_limit decorator.
@@ -92,6 +96,7 @@ def ratelimit(
         algorithm=algorithm,
         algorithm_config=algorithm_config,
         settings=settings,
+        response_callback=response_callback,
         adaptive=adaptive,
     )
 
@@ -264,6 +269,9 @@ __all__ = [
     "time_aware_key",
     "user_or_ip_key",
     "user_role_key",
+    # Enums
+    "Algorithm",
+    "RateLimitKey",
     # Authentication utilities
     "extract_user_identifier",
     "get_client_info",
