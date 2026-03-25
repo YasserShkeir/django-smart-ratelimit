@@ -79,8 +79,8 @@ def ratelimit(
     algorithm: Optional[str] = None,
     algorithm_config: Optional[Dict[str, Any]] = None,
     settings: Optional[Any] = None,
-    response_callback: Optional[Callable] = None,
     adaptive: Optional[Union[str, "AdaptiveRateLimiter"]] = None,
+    response_callback: Optional[Callable] = None,
 ) -> Callable:
     """Alias for rate_limit decorator.
 
@@ -96,8 +96,8 @@ def ratelimit(
         algorithm=algorithm,
         algorithm_config=algorithm_config,
         settings=settings,
-        response_callback=response_callback,
         adaptive=adaptive,
+        response_callback=response_callback,
     )
 
 
