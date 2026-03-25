@@ -15,6 +15,7 @@ BUILTIN_BACKENDS: Dict[str, str] = {
     "async_redis": "django_smart_ratelimit.backends.redis_backend.AsyncRedisBackend",
     "mongodb": "django_smart_ratelimit.backends.mongodb.MongoDBBackend",
     "multi": "django_smart_ratelimit.backends.multi.MultiBackend",
+    "database": "django_smart_ratelimit.backends.database.DatabaseBackend",
 }
 
 # Custom backend registry

@@ -8,8 +8,12 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 
 from django_smart_ratelimit import ratelimit
+from django_smart_ratelimit.adaptive import (
+    AdaptiveRateLimiter,
+    CustomLoadIndicator,
+)
 from django_smart_ratelimit.backends import get_backend
-from django_smart_ratelimit.decorator import aratelimit, ratelimit_batch
+from django_smart_ratelimit.decorator import aratelimit, rate_limit, ratelimit_batch
 from django_smart_ratelimit.utils import get_ip_key
 
 
@@ -283,3 +287,173 @@ def window_alignment_test(request):
             "rate": "3/m",
         }
     )
+
+
+# --- H. Database Backend Testing (v2.0) ---
+
+
+@ratelimit(key=mk_key("db_fixed"), rate="5/m", algorithm="fixed_window")
+def db_fixed_window(request):
+    """Test database backend with fixed window algorithm."""
+    return JsonResponse({"status": "ok", "backend": "database", "algo": "fixed_window"})
+
+
+@ratelimit(key=mk_key("db_sliding"), rate="5/m", algorithm="sliding_window")
+def db_sliding_window(request):
+    """Test database backend with sliding window algorithm."""
+    return JsonResponse(
+        {"status": "ok", "backend": "database", "algo": "sliding_window"}
+    )
+
+
+@ratelimit(key=mk_key("db_token"), rate="5/m", algorithm="token_bucket")
+def db_token_bucket(request):
+    """Test database backend with token bucket algorithm."""
+    return JsonResponse({"status": "ok", "backend": "database", "algo": "token_bucket"})
+
+
+def db_leaky_bucket(request):
+    """Test database backend with leaky bucket algorithm using direct backend call."""
+    from django_smart_ratelimit.utils import get_ip_key
+
+    backend = get_backend()
+    key = f"db_leaky:{get_ip_key(request)}"
+
+    # Use leaky bucket directly on database backend
+    # 5 requests per minute = bucket_capacity=5, leak_rate=5/60=0.083
+    allowed, metadata = backend.leaky_bucket_check(
+        key=key,
+        bucket_capacity=5,
+        leak_rate=5 / 60,  # 5 requests per minute
+        request_cost=1,
+    )
+
+    if allowed:
+        return JsonResponse(
+            {
+                "status": "ok",
+                "backend": "database",
+                "algo": "leaky_bucket",
+                "bucket_level": metadata.get("bucket_level", 0),
+                "space_remaining": metadata.get("space_remaining", 0),
+            }
+        )
+    else:
+        return JsonResponse(
+            {
+                "status": "rate_limited",
+                "backend": "database",
+                "algo": "leaky_bucket",
+                "bucket_level": metadata.get("bucket_level", 0),
+                "time_until_space": metadata.get("time_until_space", 0),
+            },
+            status=429,
+        )
+
+
+def db_health(request):
+    """Check database backend health status."""
+    backend = get_backend()
+    try:
+        health = backend.health_check()
+        return JsonResponse(
+            {
+                "status": health.get("status", "unknown"),
+                "backend": "database",
+                "response_time": health.get("response_time", -1),
+                "database_vendor": health.get("database_vendor", "unknown"),
+            }
+        )
+    except Exception as e:
+        return JsonResponse(
+            {"status": "error", "backend": "database", "error": str(e)}, status=500
+        )
+
+
+def db_stats(request):
+    """Get database backend statistics."""
+    backend = get_backend()
+    try:
+        stats = backend.get_stats()
+        return JsonResponse({"status": "ok", "backend": "database", "stats": stats})
+    except Exception as e:
+        return JsonResponse(
+            {"status": "error", "backend": "database", "error": str(e)}, status=500
+        )
+
+
+def db_cleanup(request):
+    """Trigger database backend cleanup."""
+    backend = get_backend()
+    try:
+        result = backend.cleanup_expired()
+        return JsonResponse({"status": "ok", "backend": "database", "cleanup": result})
+    except Exception as e:
+        return JsonResponse(
+            {"status": "error", "backend": "database", "error": str(e)}, status=500
+        )
+
+
+# --- I. Adaptive Rate Limiting (v2.0) ---
+
+# Global simulated load value for testing
+_simulated_load = 0.0
+
+
+def _get_simulated_load():
+    """Get the simulated load value."""
+    return _simulated_load
+
+
+# Create adaptive limiter with custom load indicator for testing
+_adaptive_test_indicator = CustomLoadIndicator(_get_simulated_load, name="simulated")
+_adaptive_test_limiter = AdaptiveRateLimiter(
+    base_limit=10,
+    min_limit=2,
+    max_limit=20,
+    indicators=[_adaptive_test_indicator],
+    load_threshold_low=0.3,
+    load_threshold_high=0.7,
+    smoothing_factor=1.0,  # No smoothing for predictable tests
+    update_interval=0,  # Always update
+)
+
+
+@rate_limit(key=mk_key("adaptive_test"), rate="10/m", adaptive=_adaptive_test_limiter)
+def adaptive_rate_limit(request):
+    """Test endpoint for adaptive rate limiting."""
+    metrics = _adaptive_test_limiter.get_metrics()
+    return JsonResponse(
+        {
+            "status": "ok",
+            "feature": "adaptive_rate_limiting",
+            "current_load": metrics["current_load"],
+            "effective_limit": metrics["effective_limit"],
+            "base_limit": metrics["base_limit"],
+            "min_limit": metrics["min_limit"],
+            "max_limit": metrics["max_limit"],
+        }
+    )
+
+
+def adaptive_set_load(request):
+    """Set the simulated load for testing adaptive rate limiting."""
+    global _simulated_load
+    try:
+        load = float(request.GET.get("load", 0.0))
+        _simulated_load = max(0.0, min(1.0, load))
+        return JsonResponse(
+            {
+                "status": "ok",
+                "simulated_load": _simulated_load,
+                "effective_limit": _adaptive_test_limiter.get_effective_limit(),
+            }
+        )
+    except (ValueError, TypeError) as e:
+        return JsonResponse({"status": "error", "error": str(e)}, status=400)
+
+
+def adaptive_metrics(request):
+    """Get current adaptive rate limiter metrics."""
+    metrics = _adaptive_test_limiter.get_metrics()
+    return JsonResponse({"status": "ok", "metrics": metrics})

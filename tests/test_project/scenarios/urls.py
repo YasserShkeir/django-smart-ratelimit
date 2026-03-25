@@ -52,4 +52,16 @@ urlpatterns = [
     path(
         "window/alignment/", views.window_alignment_test, name="window_alignment_test"
     ),
+    # H. Database Backend (v2.0)
+    path("db/fixed/", views.db_fixed_window, name="db_fixed_window"),
+    path("db/sliding/", views.db_sliding_window, name="db_sliding_window"),
+    path("db/token/", views.db_token_bucket, name="db_token_bucket"),
+    path("db/leaky/", views.db_leaky_bucket, name="db_leaky_bucket"),
+    path("db/health/", views.db_health, name="db_health"),
+    path("db/stats/", views.db_stats, name="db_stats"),
+    path("db/cleanup/", views.db_cleanup, name="db_cleanup"),
+    # I. Adaptive Rate Limiting (v2.0)
+    path("adaptive/test/", views.adaptive_rate_limit, name="adaptive_rate_limit"),
+    path("adaptive/set-load/", views.adaptive_set_load, name="adaptive_set_load"),
+    path("adaptive/metrics/", views.adaptive_metrics, name="adaptive_metrics"),
 ]

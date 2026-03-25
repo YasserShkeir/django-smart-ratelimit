@@ -4,3 +4,6 @@ redis
 pymongo
 # django-smart-ratelimit is installed separately via `pip install -e .` from repo root
 requests
+# Database drivers for v2.0 database backend
+psycopg2-binary  # PostgreSQL
+mysqlclient  # MySQL (requires libmysqlclient-dev on Linux)

@@ -6,11 +6,83 @@
 This document tracks the feature status for **Django Smart Ratelimit (Core)**.
 For database-backed features, analytics, and enterprise capabilities, see the [Pro Roadmap](../django-smart-ratelimit-pro/FEATURES_ROADMAP.md).
 
+## Quick Status Overview
+
+**Completed Features** (Core)
+
+- â In-Memory Backend
+- â Multi-Backend Support
+- â MongoDB Backend
+- â Token Bucket Algorithm
+- â Circuit Breaker Pattern
+- â Health Checks
+- â Configuration Validation
+- â Async Support (Views & Decorators)
+- â Fail-Open Mechanism
+- â Leaky Bucket Algorithm
+- â Database Backend (Django ORM)
+- â Adaptive Rate Limiting (Load-based)
+- â Type-Safe Enums
+- â Custom Response Handlers
+- â Custom Time Windows
+
+**High Priority - Next to Implement**
+
+1. [Batch Operations](#batch-operations) (Performance)
+2. [Prometheus Metrics](#prometheus-metrics) (Stateless Monitoring)
+
+## Core Feature Categories
+
+### ð§  Algorithms
+
+- [x] **Token Bucket**: Standard burst-handling algorithm.
+- [x] **Sliding Window**: Precise time-window tracking.
+- [x] **Leaky Bucket**: Queue-based smoothing.
+
+### ð­ Backends (Stateless)
+
+- [x] **Memory**: High-speed, local instance.
+- [x] **Redis**: Distributed, atomic (Lua scripts).
+- [x] **MongoDB**: NoSQL distributed storage.
+- [x] **MultiBackend**: Failover chaining.
+- [x] **Database Backend**: Django ORM for persistence.
+- [ ] **Memcached**: Simple key-value store adapter (Planned).
+
+### â¡ Performance & Async
+
+- [x] **Async Views**: Native `@aratelimit` decorator.
+- [x] **Async Redis**: `redis.asyncio` support.
+- [ ] **Batch Operations**: Pipelined checks for multiple keys.
+- [ ] **Connection Pooling**: Advanced Redis pool management options.
+
+### ð¡ï¸ Reliability
+
+- [x] **Circuit Breaker**: Auto-disable backends on failure.
+- [x] **Fail Open**: Configurable pass-through on error.
+- [x] **Health Checks**: `manage.py ratelimit_health`.
+
+### ð Stateless Monitoring
+
+- [ ] **Prometheus Metrics**: Expose `/metrics` endpoint for scraper (no database req).
+- [ ] **Standard Logging**: Structured JSON logging for ELK stacks.
+
+### ð¯ Adaptive Rate Limiting
+
+- [x] **Load Indicators**: CPU, Memory, Latency, Connection Count.
+- [x] **Adaptive Adjustment**: Dynamic rate limiting based on system metrics.
+- [x] **Custom Indicators**: Support for user-defined load metrics.
+
+### ð Configuration & Developer Experience
+
+- [x] **Type-Safe Enums**: Algorithm and RateLimitKey enums.
+- [x] **Custom Response Handlers**: Per-decorator response callbacks.
+- [x] **Custom Time Windows**: Flexible window configuration.
+
 ---
 
 ## Feature Status Overview
 
-### ✅ Complete (v1.0.x)
+### â Complete (v1.0.x)
 
 The Core library is **feature-complete** for production use. All essential rate limiting capabilities are implemented.
 
@@ -26,49 +98,49 @@ The Core library is **feature-complete** for production use. All essential rate 
 
 ## Core Feature Details
 
-### 🧠 Algorithms
+### ð§  Algorithms
 
 | Algorithm      | Status      | Description                                  |
 | -------------- | ----------- | -------------------------------------------- |
-| Token Bucket   | ✅ Complete | Burst-handling with configurable refill rate |
-| Sliding Window | ✅ Complete | Precise time-window tracking                 |
-| Fixed Window   | ✅ Complete | Clock-aligned rate limiting windows          |
+| Token Bucket   | â Complete | Burst-handling with configurable refill rate |
+| Sliding Window | â Complete | Precise time-window tracking                 |
+| Fixed Window   | â Complete | Clock-aligned rate limiting windows          |
 
-### 🏭 Backends (Stateless)
+### ð­ Backends (Stateless)
 
 | Backend      | Status      | Description                                    |
 | ------------ | ----------- | ---------------------------------------------- |
-| Memory       | ✅ Complete | High-speed local instance with cleanup threads |
-| Redis        | ✅ Complete | Distributed, atomic Lua scripts, async support |
-| MongoDB      | ✅ Complete | NoSQL distributed storage with TTL indexes     |
-| MultiBackend | ✅ Complete | Failover chaining with health monitoring       |
+| Memory       | â Complete | High-speed local instance with cleanup threads |
+| Redis        | â Complete | Distributed, atomic Lua scripts, async support |
+| MongoDB      | â Complete | NoSQL distributed storage with TTL indexes     |
+| MultiBackend | â Complete | Failover chaining with health monitoring       |
 
-### 🛡️ Reliability
+### ð¡ï¸ Reliability
 
 | Feature         | Status      | Description                          |
 | --------------- | ----------- | ------------------------------------ |
-| Circuit Breaker | ✅ Complete | Auto-disable failing backends        |
-| Fail-Open       | ✅ Complete | Configurable pass-through on errors  |
-| Health Checks   | ✅ Complete | `manage.py ratelimit_health` command |
+| Circuit Breaker | â Complete | Auto-disable failing backends        |
+| Fail-Open       | â Complete | Configurable pass-through on errors  |
+| Health Checks   | â Complete | `manage.py ratelimit_health` command |
 
-### ⚡ Performance & Async
+### â¡ Performance & Async
 
 | Feature          | Status      | Description                             |
 | ---------------- | ----------- | --------------------------------------- |
-| Async Views      | ✅ Complete | `@aratelimit` decorator for async views |
-| Async Middleware | ✅ Complete | Full ASGI support                       |
-| Async Redis      | ✅ Complete | `redis.asyncio` integration             |
+| Async Views      | â Complete | `@aratelimit` decorator for async views |
+| Async Middleware | â Complete | Full ASGI support                       |
+| Async Redis      | â Complete | `redis.asyncio` integration             |
 
-### 🔧 Developer Experience
+### ð§ Developer Experience
 
 | Feature          | Status      | Description                      |
 | ---------------- | ----------- | -------------------------------- |
-| Decorator API    | ✅ Complete | `@rate_limit` / `@ratelimit`     |
-| Middleware       | ✅ Complete | Global rate limiting             |
-| Request Context  | ✅ Complete | `request.ratelimit` object       |
-| Key Functions    | ✅ Complete | 10+ built-in key generators      |
-| Response Headers | ✅ Complete | `X-RateLimit-*` standard headers |
-| Configuration    | ✅ Complete | Django settings integration      |
+| Decorator API    | â Complete | `@rate_limit` / `@ratelimit`     |
+| Middleware       | â Complete | Global rate limiting             |
+| Request Context  | â Complete | `request.ratelimit` object       |
+| Key Functions    | â Complete | 10+ built-in key generators      |
+| Response Headers | â Complete | `X-RateLimit-*` standard headers |
+| Configuration    | â Complete | Django settings integration      |
 
 ---
 

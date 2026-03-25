@@ -6,6 +6,8 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     build-essential \
     curl \
+    default-libmysqlclient-dev \
+    pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the library source
@@ -24,6 +26,11 @@ RUN pip install --upgrade pip
 RUN pip install -r requirements.txt
 # Install the library in editable mode so changes in the volume mount are reflected
 RUN pip install -e /app/django-ratelimit
+
+# Create entrypoint script that runs migrations before starting server
+RUN echo '#!/bin/bash\nset -e\npython manage.py migrate --noinput\nexec "$@"' > /entrypoint.sh && chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
 
 # Default command
 CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
