@@ -389,7 +389,8 @@ def rate_limit(
                             return handler(_request, e)
                         else:
                             return _create_rate_limit_response(
-                                str(e), request=_request,
+                                str(e),
+                                request=_request,
                                 response_callback=response_callback,
                             )
                     current_count = 0
@@ -573,8 +574,13 @@ def _handle_middleware_processed_request(
         if block:
             # Block the request and return 429
             return _handle_rate_limit_exceeded(
-                backend_instance, limit_key, limit, period, block,
-                request=_request, response_callback=response_callback,
+                backend_instance,
+                limit_key,
+                limit,
+                period,
+                block,
+                request=_request,
+                response_callback=response_callback,
             )
         else:
             # Non-blocking: execute function but mark as exceeded
@@ -623,7 +629,8 @@ def _handle_token_bucket_algorithm(
         if not is_allowed:
             if block:
                 return _create_rate_limit_response(
-                    request=_request, response_callback=response_callback,
+                    request=_request,
+                    response_callback=response_callback,
                 )
             else:
                 # Add rate limit headers but don't block
@@ -749,7 +756,8 @@ def _handle_standard_rate_limiting(
     if not ctx.allowed:
         if block:
             response = _create_rate_limit_response(
-                request=_request, response_callback=response_callback,
+                request=_request,
+                response_callback=response_callback,
             )
             add_rate_limit_headers(response, ctx.limit, ctx.remaining, ctx.reset_time)
             return response
