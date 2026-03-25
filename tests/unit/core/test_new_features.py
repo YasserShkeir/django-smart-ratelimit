@@ -8,19 +8,15 @@ Covers issues:
 - #7 / #22: Custom time windows
 """
 
-import sys
-import time
-import unittest
 import uuid
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock
 
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse
 from django.test import RequestFactory, TestCase, override_settings
 
-from django_smart_ratelimit import rate_limit, ratelimit, parse_rate
-from django_smart_ratelimit.backends.memory import MemoryBackend
+from django_smart_ratelimit import parse_rate, rate_limit, ratelimit
 from django_smart_ratelimit.enums import Algorithm, RateLimitKey
-from tests.utils import BaseBackendTestCase, create_test_user
+from tests.utils import BaseBackendTestCase
 
 
 def _unique_key():
@@ -79,7 +75,7 @@ class RateLimitKeyEnumTests(TestCase):
     """Test the RateLimitKey enum for type-safe key selection."""
 
     def test_key_values(self):
-        """RateLimitKey enum has all expected key values."""
+        """Verify RateLimitKey enum has all expected key values."""
         self.assertEqual(RateLimitKey.IP, "ip")
         self.assertEqual(RateLimitKey.USER, "user")
         self.assertEqual(RateLimitKey.USER_OR_IP, "user_or_ip")
@@ -87,12 +83,12 @@ class RateLimitKeyEnumTests(TestCase):
         self.assertEqual(RateLimitKey.PARAM, "param")
 
     def test_key_is_str(self):
-        """RateLimitKey enum values are strings (StrEnum behavior)."""
+        """Verify RateLimitKey enum values are strings (StrEnum behavior)."""
         for key in RateLimitKey:
             self.assertIsInstance(key, str)
 
     def test_key_string_comparison(self):
-        """RateLimitKey enum compares equal to its string value."""
+        """Verify RateLimitKey enum compares equal to its string value."""
         self.assertEqual(RateLimitKey.IP, "ip")
         self.assertEqual(RateLimitKey.USER, "user")
 
@@ -118,7 +114,7 @@ class EnumDecoratorIntegrationTests(BaseBackendTestCase):
         self.assertEqual(response.status_code, 200)
 
     def test_key_enum_in_decorator(self):
-        """RateLimitKey enum can be used as key parameter."""
+        """Verify RateLimitKey enum can be used as key parameter."""
 
         @rate_limit(key=RateLimitKey.IP, rate="100/m")
         def view(request):
@@ -129,7 +125,7 @@ class EnumDecoratorIntegrationTests(BaseBackendTestCase):
         self.assertEqual(response.status_code, 200)
 
     def test_ratelimit_alias_with_enums(self):
-        """ratelimit alias also works with enums."""
+        """Verify ratelimit alias also works with enums."""
 
         @ratelimit(key=RateLimitKey.IP, rate="100/m", block=False)
         def view(request):
@@ -234,7 +230,7 @@ class CustomResponseCallbackTests(BaseBackendTestCase):
         self.assertEqual(response.status_code, 429)
 
     def test_ratelimit_alias_passes_response_callback(self):
-        """ratelimit alias correctly passes response_callback."""
+        """Verify ratelimit alias correctly passes response_callback."""
         custom_response = HttpResponse("Alias callback", status=429)
         callback = Mock(return_value=custom_response)
         key = _unique_key()
@@ -412,11 +408,13 @@ class ResponseHandlerSettingsTests(TestCase):
 
     @override_settings(RATELIMIT_RESPONSE_HANDLER="myapp.views.rate_limited")
     def test_handler_loaded_from_django_settings(self):
-        """ratelimit_response_handler loaded from Django settings."""
+        """Verify ratelimit_response_handler loaded from Django settings."""
         from django_smart_ratelimit.config import RateLimitSettings
 
         settings = RateLimitSettings.from_django_settings()
-        self.assertEqual(settings.ratelimit_response_handler, "myapp.views.rate_limited")
+        self.assertEqual(
+            settings.ratelimit_response_handler, "myapp.views.rate_limited"
+        )
 
 
 # =============================================================================
@@ -601,7 +599,7 @@ class PublicAPIExportTests(TestCase):
         self.assertIsNotNone(Algorithm)
 
     def test_ratelimit_key_importable_from_package(self):
-        """RateLimitKey can be imported from the main package."""
+        """Verify RateLimitKey can be imported from the main package."""
         from django_smart_ratelimit import RateLimitKey
 
         self.assertIsNotNone(RateLimitKey)
@@ -613,7 +611,7 @@ class PublicAPIExportTests(TestCase):
         self.assertIn("Algorithm", django_smart_ratelimit.__all__)
 
     def test_ratelimit_key_in_all(self):
-        """RateLimitKey is listed in __all__."""
+        """Verify RateLimitKey is listed in __all__."""
         import django_smart_ratelimit
 
         self.assertIn("RateLimitKey", django_smart_ratelimit.__all__)
