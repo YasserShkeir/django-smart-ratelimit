@@ -80,7 +80,7 @@ class MongoDBBackend(BaseBackend):
             "collection": "rate_limit_entries",
             "counter_collection": "rate_limit_counters",
             "username": None,
-            "password": None,
+            "password": None,  # nosec B105
             "auth_source": None,
             "replica_set": None,
             "tls": False,
