@@ -596,4 +596,3 @@ class PrometheusMetricsMiddleware:
             )
 
         return response
-
