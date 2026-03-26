@@ -52,9 +52,8 @@ import datetime
 import json
 import logging
 import threading
-import traceback
 import uuid
-from typing import Any, Callable, Dict, List, Optional, Sequence, Union
+from typing import Any, Callable, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -248,7 +247,9 @@ class RateLimitLogEvent:
         self._data["duration_ms"] = round(duration_seconds * 1000, 3)
         return self
 
-    def set_error(self, error: str, exc_type: Optional[str] = None) -> "RateLimitLogEvent":
+    def set_error(
+        self, error: str, exc_type: Optional[str] = None
+    ) -> "RateLimitLogEvent":
         """
         Set error information.
 
@@ -301,9 +302,7 @@ class RateLimitLogEvent:
         # Add request context
         ctx = get_request_context()
         if ctx:
-            request_fields = {
-                k: v for k, v in ctx.items() if v is not None
-            }
+            request_fields = {k: v for k, v in ctx.items() if v is not None}
             if request_fields:
                 result["request"] = request_fields
 
@@ -344,13 +343,34 @@ class JSONFormatter(logging.Formatter):
     """
 
     # Fields to always exclude from extra data
-    _RESERVED_ATTRS = frozenset({
-        "args", "asctime", "created", "exc_info", "exc_text",
-        "filename", "funcName", "levelname", "levelno", "lineno",
-        "message", "module", "msecs", "msg", "name", "pathname",
-        "process", "processName", "relativeCreated", "stack_info",
-        "taskName", "thread", "threadName", "structured",
-    })
+    _RESERVED_ATTRS = frozenset(
+        {
+            "args",
+            "asctime",
+            "created",
+            "exc_info",
+            "exc_text",
+            "filename",
+            "funcName",
+            "levelname",
+            "levelno",
+            "lineno",
+            "message",
+            "module",
+            "msecs",
+            "msg",
+            "name",
+            "pathname",
+            "process",
+            "processName",
+            "relativeCreated",
+            "stack_info",
+            "taskName",
+            "thread",
+            "threadName",
+            "structured",
+        }
+    )
 
     def __init__(
         self,
@@ -423,7 +443,9 @@ class JSONFormatter(logging.Formatter):
         # Add exception info
         if record.exc_info and record.exc_info[1]:
             output["exception"] = {
-                "type": record.exc_info[0].__name__ if record.exc_info[0] else "Unknown",
+                "type": (
+                    record.exc_info[0].__name__ if record.exc_info[0] else "Unknown"
+                ),
                 "message": str(record.exc_info[1]),
                 "traceback": self.formatException(record.exc_info),
             }
@@ -698,10 +720,9 @@ class StructuredLoggingMiddleware:
         )
 
         # Extract client IP
-        ip = (
-            request.META.get("HTTP_X_FORWARDED_FOR", "").split(",")[0].strip()
-            or request.META.get("REMOTE_ADDR", "")
-        )
+        ip = request.META.get("HTTP_X_FORWARDED_FOR", "").split(",")[
+            0
+        ].strip() or request.META.get("REMOTE_ADDR", "")
 
         # Extract user identifier
         user = None
@@ -709,7 +730,7 @@ class StructuredLoggingMiddleware:
             try:
                 if request.user.is_authenticated:
                     user = str(getattr(request.user, "pk", request.user))
-            except Exception:
+            except Exception:  # nosec B110 - intentional: resilient error handling
                 pass
 
         # Set thread-local context

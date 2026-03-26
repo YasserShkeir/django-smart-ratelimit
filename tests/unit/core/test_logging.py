@@ -6,6 +6,7 @@ import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from django.http import HttpResponse
 from django.test import RequestFactory, TestCase, override_settings
 
@@ -21,7 +22,6 @@ from django_smart_ratelimit.logging import (
     log_rate_limit_check,
     set_request_context,
 )
-
 
 # ============================================================================
 # Request Context Tests
@@ -118,9 +118,7 @@ class TestRateLimitLogEvent(TestCase):
 
     def test_set_result(self):
         event = RateLimitLogEvent(event="test")
-        event.set_result(
-            allowed=True, remaining=8, limit=10, window=60, reset=45.5
-        )
+        event.set_result(allowed=True, remaining=8, limit=10, window=60, reset=45.5)
         data = event.as_dict()
         assert data["allowed"] is True
         assert data["remaining"] == 8
@@ -151,9 +149,7 @@ class TestRateLimitLogEvent(TestCase):
     def test_method_chaining(self):
         event = RateLimitLogEvent(event="test")
         result = (
-            event.set_result(allowed=True)
-            .set_duration(0.01)
-            .add_fields(extra="data")
+            event.set_result(allowed=True).set_duration(0.01).add_fields(extra="data")
         )
         assert result is event
         data = event.as_dict()
@@ -231,9 +227,7 @@ class TestRateLimitLogEvent(TestCase):
         assert "ip" not in data.get("request", {})
 
     def test_algorithm_field(self):
-        event = RateLimitLogEvent(
-            event="test", algorithm="token_bucket"
-        )
+        event = RateLimitLogEvent(event="test", algorithm="token_bucket")
         data = event.as_dict()
         assert data["algorithm"] == "token_bucket"
 
@@ -305,9 +299,7 @@ class TestJSONFormatter(TestCase):
 
     def test_extra_fields_from_record(self):
         formatter = JSONFormatter()
-        record = self._make_record(
-            "Test", backend="redis", operation="incr"
-        )
+        record = self._make_record("Test", backend="redis", operation="incr")
         output = formatter.format(record)
         data = json.loads(output)
         assert data["backend"] == "redis"
@@ -329,7 +321,7 @@ class TestJSONFormatter(TestCase):
 
     def test_valid_json(self):
         formatter = JSONFormatter()
-        record = self._make_record("Test with special chars: \"quotes\" & <angles>")
+        record = self._make_record('Test with special chars: "quotes" & <angles>')
         output = formatter.format(record)
         data = json.loads(output)
         assert "quotes" in data["message"]
@@ -374,9 +366,7 @@ class TestJSONFormatter(TestCase):
 class TestLogRateLimitCheck(TestCase):
     """Test log_rate_limit_check convenience function."""
 
-    @override_settings(
-        RATELIMIT_LOGGING={"ENABLED": True, "FORMAT": "json"}
-    )
+    @override_settings(RATELIMIT_LOGGING={"ENABLED": True, "FORMAT": "json"})
     @patch("django_smart_ratelimit.logging.logging")
     def test_log_allowed(self, mock_logging):
         mock_logger = MagicMock()
@@ -403,9 +393,7 @@ class TestLogRateLimitCheck(TestCase):
         assert structured["allowed"] is True
         assert structured["remaining"] == 8
 
-    @override_settings(
-        RATELIMIT_LOGGING={"ENABLED": True, "FORMAT": "json"}
-    )
+    @override_settings(RATELIMIT_LOGGING={"ENABLED": True, "FORMAT": "json"})
     @patch("django_smart_ratelimit.logging.logging")
     def test_log_denied(self, mock_logging):
         mock_logger = MagicMock()
@@ -421,31 +409,23 @@ class TestLogRateLimitCheck(TestCase):
         call_args = mock_logger.log.call_args
         assert call_args[0][0] == logging.WARNING
 
-    @override_settings(
-        RATELIMIT_LOGGING={"ENABLED": False}
-    )
+    @override_settings(RATELIMIT_LOGGING={"ENABLED": False})
     @patch("django_smart_ratelimit.logging.logging")
     def test_disabled_skips_logging(self, mock_logging):
         mock_logger = MagicMock()
         mock_logging.getLogger.return_value = mock_logger
 
-        log_rate_limit_check(
-            key="test", backend="memory", allowed=True
-        )
+        log_rate_limit_check(key="test", backend="memory", allowed=True)
 
         mock_logger.log.assert_not_called()
 
-    @override_settings(
-        RATELIMIT_LOGGING={"ENABLED": True, "FORMAT": "text"}
-    )
+    @override_settings(RATELIMIT_LOGGING={"ENABLED": True, "FORMAT": "text"})
     @patch("django_smart_ratelimit.logging.logging")
     def test_text_format_skips_json(self, mock_logging):
         mock_logger = MagicMock()
         mock_logging.getLogger.return_value = mock_logger
 
-        log_rate_limit_check(
-            key="test", backend="memory", allowed=True
-        )
+        log_rate_limit_check(key="test", backend="memory", allowed=True)
 
         mock_logger.log.assert_not_called()
 
@@ -453,9 +433,7 @@ class TestLogRateLimitCheck(TestCase):
 class TestLogBackendEvent(TestCase):
     """Test log_backend_event convenience function."""
 
-    @override_settings(
-        RATELIMIT_LOGGING={"ENABLED": True, "FORMAT": "json"}
-    )
+    @override_settings(RATELIMIT_LOGGING={"ENABLED": True, "FORMAT": "json"})
     @patch("django_smart_ratelimit.logging.logging")
     def test_log_success(self, mock_logging):
         mock_logger = MagicMock()
@@ -477,9 +455,7 @@ class TestLogBackendEvent(TestCase):
         assert structured["success"] is True
         assert structured["operation"] == "incr"
 
-    @override_settings(
-        RATELIMIT_LOGGING={"ENABLED": True, "FORMAT": "json"}
-    )
+    @override_settings(RATELIMIT_LOGGING={"ENABLED": True, "FORMAT": "json"})
     @patch("django_smart_ratelimit.logging.logging")
     def test_log_failure(self, mock_logging):
         mock_logger = MagicMock()
@@ -505,9 +481,7 @@ class TestLogBackendEvent(TestCase):
 class TestLogCircuitBreakerEvent(TestCase):
     """Test log_circuit_breaker_event convenience function."""
 
-    @override_settings(
-        RATELIMIT_LOGGING={"ENABLED": True, "FORMAT": "json"}
-    )
+    @override_settings(RATELIMIT_LOGGING={"ENABLED": True, "FORMAT": "json"})
     @patch("django_smart_ratelimit.logging.logging")
     def test_log_state_change(self, mock_logging):
         mock_logger = MagicMock()
@@ -530,9 +504,7 @@ class TestLogCircuitBreakerEvent(TestCase):
         assert structured["new_state"] == "open"
         assert structured["failure_count"] == 5
 
-    @override_settings(
-        RATELIMIT_LOGGING={"ENABLED": True, "FORMAT": "json"}
-    )
+    @override_settings(RATELIMIT_LOGGING={"ENABLED": True, "FORMAT": "json"})
     @patch("django_smart_ratelimit.logging.logging")
     def test_log_recovery(self, mock_logging):
         mock_logger = MagicMock()
@@ -553,9 +525,7 @@ class TestLogCircuitBreakerEvent(TestCase):
 class TestLogAdaptiveEvent(TestCase):
     """Test log_adaptive_event convenience function."""
 
-    @override_settings(
-        RATELIMIT_LOGGING={"ENABLED": True, "FORMAT": "json"}
-    )
+    @override_settings(RATELIMIT_LOGGING={"ENABLED": True, "FORMAT": "json"})
     @patch("django_smart_ratelimit.logging.logging")
     def test_log_adjustment(self, mock_logging):
         mock_logger = MagicMock()
@@ -592,9 +562,7 @@ class TestStructuredLoggingMiddleware(TestCase):
     def tearDown(self):
         clear_request_context()
 
-    @override_settings(
-        RATELIMIT_LOGGING={"ENABLED": True, "FORMAT": "json"}
-    )
+    @override_settings(RATELIMIT_LOGGING={"ENABLED": True, "FORMAT": "json"})
     def test_sets_request_context(self):
         captured_context = {}
 
@@ -612,9 +580,7 @@ class TestStructuredLoggingMiddleware(TestCase):
         assert captured_context["ip"] == "192.168.1.1"
         assert "request_id" in captured_context
 
-    @override_settings(
-        RATELIMIT_LOGGING={"ENABLED": True, "FORMAT": "json"}
-    )
+    @override_settings(RATELIMIT_LOGGING={"ENABLED": True, "FORMAT": "json"})
     def test_clears_context_after_response(self):
         def get_response(request):
             return HttpResponse("OK")
@@ -626,9 +592,7 @@ class TestStructuredLoggingMiddleware(TestCase):
         ctx = get_request_context()
         assert ctx == {}
 
-    @override_settings(
-        RATELIMIT_LOGGING={"ENABLED": True, "FORMAT": "json"}
-    )
+    @override_settings(RATELIMIT_LOGGING={"ENABLED": True, "FORMAT": "json"})
     def test_clears_context_on_exception(self):
         def get_response(request):
             raise ValueError("Test error")
@@ -642,9 +606,7 @@ class TestStructuredLoggingMiddleware(TestCase):
         ctx = get_request_context()
         assert ctx == {}
 
-    @override_settings(
-        RATELIMIT_LOGGING={"ENABLED": False}
-    )
+    @override_settings(RATELIMIT_LOGGING={"ENABLED": False})
     def test_disabled_skips_context(self):
         captured_context = {}
 
@@ -658,9 +620,7 @@ class TestStructuredLoggingMiddleware(TestCase):
 
         assert captured_context == {}
 
-    @override_settings(
-        RATELIMIT_LOGGING={"ENABLED": True, "FORMAT": "json"}
-    )
+    @override_settings(RATELIMIT_LOGGING={"ENABLED": True, "FORMAT": "json"})
     def test_uses_x_request_id(self):
         captured_context = {}
 
@@ -675,9 +635,7 @@ class TestStructuredLoggingMiddleware(TestCase):
 
         assert captured_context["request_id"] == "custom-req-id-123"
 
-    @override_settings(
-        RATELIMIT_LOGGING={"ENABLED": True, "FORMAT": "json"}
-    )
+    @override_settings(RATELIMIT_LOGGING={"ENABLED": True, "FORMAT": "json"})
     def test_uses_x_forwarded_for(self):
         captured_context = {}
 
@@ -692,9 +650,7 @@ class TestStructuredLoggingMiddleware(TestCase):
 
         assert captured_context["ip"] == "10.0.0.1"
 
-    @override_settings(
-        RATELIMIT_LOGGING={"ENABLED": True, "FORMAT": "json"}
-    )
+    @override_settings(RATELIMIT_LOGGING={"ENABLED": True, "FORMAT": "json"})
     def test_stores_request_id_on_request(self):
         def get_response(request):
             return HttpResponse("OK")
@@ -706,9 +662,7 @@ class TestStructuredLoggingMiddleware(TestCase):
 
         assert request.ratelimit_request_id == "test-id"
 
-    @override_settings(
-        RATELIMIT_LOGGING={"ENABLED": True, "FORMAT": "json"}
-    )
+    @override_settings(RATELIMIT_LOGGING={"ENABLED": True, "FORMAT": "json"})
     def test_authenticated_user_context(self):
         captured_context = {}
 
