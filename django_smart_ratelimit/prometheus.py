@@ -33,8 +33,6 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from django.http import HttpRequest, HttpResponse
 
-from .config import get_settings
-
 # Try to import prometheus_client for native integration
 try:
     import prometheus_client
@@ -55,6 +53,13 @@ class SimpleCounter:
     """Simple counter for Prometheus text format output (no prometheus_client)."""
 
     def __init__(self, name: str, help_text: str, labels: Optional[List[str]] = None):
+        """Initialize a SimpleCounter.
+
+        Args:
+            name: The metric name.
+            help_text: Help text for the metric.
+            labels: Optional list of label names.
+        """
         self.name = name
         self.help_text = help_text
         self._label_names = labels or []
@@ -93,6 +98,13 @@ class SimpleGauge:
     """Simple gauge for Prometheus text format output."""
 
     def __init__(self, name: str, help_text: str, labels: Optional[List[str]] = None):
+        """Initialize a SimpleGauge.
+
+        Args:
+            name: The metric name.
+            help_text: Help text for the metric.
+            labels: Optional list of label names.
+        """
         self.name = name
         self.help_text = help_text
         self._label_names = labels or []
@@ -170,6 +182,14 @@ class SimpleHistogram:
         labels: Optional[List[str]] = None,
         buckets: Optional[Tuple[float, ...]] = None,
     ):
+        """Initialize a SimpleHistogram.
+
+        Args:
+            name: The metric name.
+            help_text: Help text for the metric.
+            labels: Optional list of label names.
+            buckets: Optional tuple of bucket boundaries.
+        """
         self.name = name
         self.help_text = help_text
         self._label_names = labels or []
@@ -233,6 +253,12 @@ class _LabeledSimpleMetric:
     """Helper for labeled metric operations on simple metrics."""
 
     def __init__(self, parent: Any, key: Tuple[str, ...]):
+        """Initialize a labeled metric helper.
+
+        Args:
+            parent: The parent metric instance.
+            key: The label values tuple.
+        """
         self._parent = parent
         self._key = key
 
@@ -271,8 +297,10 @@ class PrometheusMetrics:
 
     _instance: Optional["PrometheusMetrics"] = None
     _lock = threading.Lock()
+    _initialized: bool = False
 
     def __new__(cls) -> "PrometheusMetrics":
+        """Create or return the singleton PrometheusMetrics instance."""
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
@@ -531,6 +559,11 @@ class PrometheusMetricsMiddleware:
     """
 
     def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]):
+        """Initialize the PrometheusMetricsMiddleware.
+
+        Args:
+            get_response: The next middleware or view in the chain.
+        """
         self.get_response = get_response
         self.metrics = get_prometheus_metrics()
 
