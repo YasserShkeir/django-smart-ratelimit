@@ -35,7 +35,6 @@ from django.http import HttpRequest, HttpResponse
 
 # Try to import prometheus_client for native integration
 try:
-    import prometheus_client
     from prometheus_client import (
         CollectorRegistry,
         Counter,
@@ -597,3 +596,4 @@ class PrometheusMetricsMiddleware:
             )
 
         return response
+
