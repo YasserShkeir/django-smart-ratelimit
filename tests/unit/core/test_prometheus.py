@@ -1,9 +1,7 @@
 """Tests for Prometheus metrics integration."""
 
-import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import pytest
 from django.http import HttpResponse
 from django.test import RequestFactory, TestCase, override_settings
 
