@@ -54,11 +54,15 @@ mongodb = [
 jwt = [
     "PyJWT>=2.0",
 ]
+prometheus = [
+    "prometheus-client>=0.14.0",
+]
 all = [
     "redis>=4.0",
     "hiredis>=2.0",
     "pymongo>=4.0",
     "PyJWT>=2.0",
+    "prometheus-client>=0.14.0",
 ]
 dev = [
     "pytest>=7.0",
