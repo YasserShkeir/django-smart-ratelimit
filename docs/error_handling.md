@@ -27,9 +27,9 @@ Automatic failure detection and recovery for backend operations to ensure system
 
 ### Circuit Breaker States
 
-- **🟢 CLOSED**: Normal operation, requests pass through
-- **🔴 OPEN**: Too many failures, requests fail fast (no backend calls)
-- **🟡 HALF_OPEN**: Testing recovery with limited requests
+- **CLOSED**: Normal operation, requests pass through
+- **OPEN**: Too many failures, requests fail fast (no backend calls)
+- **HALF_OPEN**: Testing recovery with limited requests
 
 ### Known Limitations
 
