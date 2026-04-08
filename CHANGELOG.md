@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.1] - 2026-04-08
+
+### Fixed
+
+- **NoScriptError Handling**: Fixed exception hierarchy bug in sync and async Redis backends where generic `RedisError` catch masked the specific `NoScriptError` handler (#62)
+
+### Added
+
+- **PEP 561 Support**: Added `py.typed` marker file for mypy and other type checkers (#63)
+
+### Changed
+
+- **CI**: Bumped `actions/checkout` from 4 to 6, `release-drafter` from 6 to 7, `actions/upload-artifact` from 6 to 7 (#59, #60, #61)
+- **Documentation**: Comprehensive documentation cleanup, removed all emojis, updated to reflect v2.2.0 features (#58)
+
 ## [2.2.0] - 2026-03-26
 
 ### Added
