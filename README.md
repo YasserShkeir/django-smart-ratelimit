@@ -1,31 +1,24 @@
 # Django Smart Ratelimit
 
 [![CI](https://github.com/YasserShkeir/django-smart-ratelimit/workflows/CI/badge.svg)](https://github.com/YasserShkeir/django-smart-ratelimit/actions)
-[![Coverage](https://img.shields.io/badge/coverage-73%25-yellow.svg)](https://github.com/YasserShkeir/django-smart-ratelimit)
 [![PyPI version](https://img.shields.io/pypi/v/django-smart-ratelimit.svg)](https://pypi.org/project/django-smart-ratelimit/)
 [![Downloads](https://img.shields.io/pypi/dm/django-smart-ratelimit.svg)](https://pypi.org/project/django-smart-ratelimit/)
+[![Python Versions](https://img.shields.io/pypi/pyversions/django-smart-ratelimit.svg)](https://pypi.org/project/django-smart-ratelimit/)
+[![Django Versions](https://img.shields.io/badge/django-3.2%20%7C%204.x%20%7C%205.x-blue.svg)](https://pypi.org/project/django-smart-ratelimit/)
 [![License](https://img.shields.io/pypi/l/django-smart-ratelimit.svg)](https://github.com/YasserShkeir/django-smart-ratelimit/blob/main/LICENSE)
 
-> **The checkmate for abusive traffic.**
->
-> A high-performance, stateless rate limiting library for Django that protects your API from abuse, optimized for distributed systems with atomic Redis operations and circuit breaking.
-
-## Sponsors
-
-Support the ongoing development of Django Smart Ratelimit!
-
-<div align="center">
-  <!-- Platinum and Gold Sponsors will appear here -->
-  <p><em><a href="https://www.yasser-shkeir.com/donate">Become a sponsor</a> to see your logo here!</em></p>
-</div>
+A high-performance, stateless rate limiting library for Django. Protects your APIs from abuse with atomic Redis operations, multiple algorithms, circuit breaking, and full async support -- optimized for distributed systems.
 
 ## Key Features
 
-- **🚀 Stateless & Modern**: Dual-mode support (Sync/Async) without database dependencies.
-- **🛡️ Enterprise Reliability**: Built-in **Circuit Breaker** and **Automatic Failover** strategies.
-- **⚡ Multiple Algorithms**: Choose between **Token Bucket**, **Sliding Window**, and **Fixed Window**.
-- **🔌 Flexible Backends**: Redis (recommended), Async Redis, Memory, or Custom backends.
-- **🎯 Precise Control**: Rate limit by IP, User, Header, or any custom callable.
+- **Stateless and Modern** -- Dual-mode support (sync and async) with no database dependencies
+- **Enterprise Reliability** -- Built-in circuit breaker, automatic failover, and fail-open strategies
+- **Multiple Algorithms** -- Token bucket, sliding window, fixed window, and leaky bucket
+- **Flexible Backends** -- Redis (recommended), async Redis, in-memory, MongoDB, or custom backends
+- **Precise Control** -- Rate limit by IP, user, header, or any custom callable
+- **Prometheus Metrics** -- Built-in `/metrics` endpoint for monitoring
+- **Structured JSON Logging** -- ELK/Datadog/Splunk-compatible structured log output
+- **Adaptive Rate Limiting** -- Dynamic limits based on CPU, memory, latency, and custom load indicators
 
 ## Quick Start
 
@@ -35,39 +28,93 @@ Support the ongoing development of Django Smart Ratelimit!
 pip install django-smart-ratelimit[redis]
 ```
 
-### Usage in 30 Seconds
+### Basic Usage
 
 ```python
 from django_smart_ratelimit import ratelimit
 
 @ratelimit(key='ip', rate='5/m', block=True)
 def login_view(request):
-    # If limit is exceeded, this code receives a 429 Too Many Requests
     return authenticate(request)
+```
+
+### Async Support
+
+```python
+from django_smart_ratelimit import aratelimit
+
+@aratelimit(key='user', rate='100/h', block=True)
+async def api_view(request):
+    return await process(request)
+```
+
+### Class-Based Views
+
+```python
+from django_smart_ratelimit import RateLimitMixin
+
+class LoginView(RateLimitMixin, View):
+    ratelimit_key = 'ip'
+    ratelimit_rate = '5/m'
+    ratelimit_block = True
+```
+
+## Configuration
+
+Add to your Django settings:
+
+```python
+RATELIMIT_DEFAULT_BACKEND = 'redis'
+RATELIMIT_REDIS_URL = 'redis://localhost:6379/0'
+
+# Optional: enable structured logging
+RATELIMIT_LOGGING = {
+    'ENABLED': True,
+    'LEVEL': 'INFO',
+    'FORMAT': 'json',
+}
+
+# Optional: enable Prometheus metrics
+RATELIMIT_PROMETHEUS = {
+    'ENABLED': True,
+}
 ```
 
 ## Documentation
 
-We have moved our detailed documentation to the dedicated `docs/` folder:
+Detailed documentation is available in the `docs/` folder:
 
-| Topic                                         | Description                                          |
-| :-------------------------------------------- | :--------------------------------------------------- |
-| **[📚 Full Documentation](docs/index.md)**    | Start here for the complete guide.                   |
-| **[🚀 Migration Guide](docs/migration.md)**   | Upgrading from `django-ratelimit`? clear steps here. |
-| **[🧮 Algorithms](docs/algorithms.md)**       | Deep dive into Token Buckets and Windows.            |
-| **[⚙️ Configuration](docs/configuration.md)** | Advanced settings, Backends, and Circuit Breakers.   |
-| **[🔍 Design Philosophy](docs/design.md)**    | Why we built this and how it compares to others.     |
+| Topic | Description |
+| :--- | :--- |
+| [Full Documentation](docs/index.md) | Start here for the complete guide |
+| [Migration Guide](docs/migration.md) | Steps for upgrading from `django-ratelimit` |
+| [Algorithms](docs/algorithms.md) | Deep dive into token bucket, sliding window, and more |
+| [Configuration](docs/configuration.md) | Advanced settings, backends, and circuit breakers |
+| [Design Philosophy](docs/design.md) | Architecture decisions and comparison with alternatives |
+
+## Compatibility
+
+| | Supported Versions |
+| :--- | :--- |
+| Python | 3.9, 3.10, 3.11, 3.12, 3.13 |
+| Django | 3.2, 4.0, 4.1, 4.2, 5.0, 5.1 |
 
 ## Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to submit pull requests, report issues, and setup your development environment.
+Contributions are welcome. Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to submit pull requests, report issues, and set up your development environment.
 
-## Community & Support
+## Community and Support
 
-- **[GitHub Discussions](https://github.com/YasserShkeir/django-smart-ratelimit/discussions)**: Ask questions and share ideas.
-- **[Issues](https://github.com/YasserShkeir/django-smart-ratelimit/issues)**: Report bugs.
-- **[AI Usage Policy](AI_USAGE.md)**: Our transparency commitment.
+- [GitHub Discussions](https://github.com/YasserShkeir/django-smart-ratelimit/discussions) -- Ask questions and share ideas
+- [Issues](https://github.com/YasserShkeir/django-smart-ratelimit/issues) -- Report bugs
+- [Changelog](CHANGELOG.md) -- Release history
+
+## Sponsors
+
+Support the ongoing development of Django Smart Ratelimit:
+
+[![Sponsor](https://img.shields.io/badge/Sponsor-Support%20Development-blue.svg)](https://www.yasser-shkeir.com/donate)
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
