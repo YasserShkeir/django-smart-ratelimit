@@ -325,6 +325,8 @@ class RedisBackend(BaseBackend):
             except (redis.ConnectionError, redis.TimeoutError) as e:
                 last_error = e
                 self._reconnect()
+            except redis.exceptions.NoScriptError:
+                raise  # Let _eval_lua handle script reload
             except redis.RedisError as e:
                 raise BackendError(f"Redis error: {e}") from e
 
@@ -991,12 +993,28 @@ class AsyncRedisBackend(BaseBackend):
             now = get_current_timestamp()
 
             if self.algorithm == "sliding_window":
-                sha = self.sliding_window_sha
-                # args: normalized_key, period, limit, now
-                res = await client.evalsha(sha, 1, normalized_key, period, 999999, now)
+                sha_attr = "sliding_window_sha"
+                script = RedisBackend.SLIDING_WINDOW_SCRIPT
             else:
-                sha = self.fixed_window_sha
+                sha_attr = "fixed_window_sha"
+                script = RedisBackend.FIXED_WINDOW_SCRIPT
+
+            sha = getattr(self, sha_attr)
+            try:
                 res = await client.evalsha(sha, 1, normalized_key, period, 999999, now)
+            except redis.exceptions.NoScriptError:
+                # Script evicted (Redis restart). Reload and retry.
+                log_backend_operation(
+                    "async_reload_script",
+                    "Reloading Lua script after NoScriptError",
+                    level="warning",
+                    script=sha_attr,
+                )
+                new_sha = await self._load_script(client, script)
+                setattr(self, sha_attr, new_sha)
+                res = await client.evalsha(
+                    new_sha, 1, normalized_key, period, 999999, now
+                )
 
             # Report Success
             if self._circuit_breaker:
