@@ -1,7 +1,7 @@
 # Django Smart Ratelimit - Core Features Roadmap
 
-**Last Updated:** 2026-03-26
-**Current Version:** 2.2.0
+**Last Updated:** 2026-04-08
+**Current Version:** 2.2.1
 
 This document tracks the feature status for Django Smart Ratelimit (Core). For database-backed features, analytics, and enterprise capabilities, see the [Pro Roadmap](../django-smart-ratelimit-pro/FEATURES_ROADMAP.md).
 

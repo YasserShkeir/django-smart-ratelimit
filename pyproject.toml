@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "django-smart-ratelimit"
-version = "2.2.0"
+version = "2.2.1"
 dynamic = []
 description = "A flexible and efficient rate limiting library for Django applications"
 readme = "README.md"
