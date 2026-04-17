@@ -12,11 +12,47 @@ as it allows temporary bursts while maintaining an average rate over time.
 import json
 import logging
 import math
+import threading
 from typing import Any, Dict, Optional, Tuple
 
 from .base import RateLimitAlgorithm
 
 logger = logging.getLogger(__name__)
+
+
+# Per-key locks used by the generic (non-atomic) token bucket fallback.
+#
+# Backend contract:
+#   Backends intended for multi-process production use MUST implement an
+#   atomic ``token_bucket_check`` method. The generic fallback below
+#   read-modifies-writes JSON state and is therefore NOT safe across
+#   concurrent workers even with these locks, which serialize *within-process*
+#   only. They exist so that tests and single-worker deployments don't see
+#   obvious races; they do NOT promise correctness across processes.
+_bucket_locks_guard = threading.Lock()
+_bucket_locks: Dict[str, threading.Lock] = {}
+
+
+def _get_bucket_lock(bucket_key: str) -> threading.Lock:
+    """Return a per-bucket-key lock, creating it on first use.
+
+    A module-level dict under a guard lock is intentionally simple: the working
+    set of keys is bounded by the number of distinct rate-limit buckets in
+    flight, which is small compared to request volume. We don't evict entries
+    because a stale Lock costs a few hundred bytes and evicting during use
+    would reintroduce the race we're trying to avoid.
+    """
+    # Fast path — hit the dict without holding the guard if possible. We only
+    # need the guard to create a new lock safely.
+    lock = _bucket_locks.get(bucket_key)
+    if lock is not None:
+        return lock
+    with _bucket_locks_guard:
+        lock = _bucket_locks.get(bucket_key)
+        if lock is None:
+            lock = threading.Lock()
+            _bucket_locks[bucket_key] = lock
+        return lock
 
 
 class TokenBucketAlgorithm(RateLimitAlgorithm):
@@ -153,93 +189,106 @@ class TokenBucketAlgorithm(RateLimitAlgorithm):
         """
         Implement generic token bucket for backends without native support.
 
-        Note: This implementation is not atomic and should only be used as a fallback.
-        For production use, backends should implement atomic token bucket operations.
+        This implementation performs a read-modify-write of the bucket state.
+        It is serialized WITHIN a single process via a per-key ``threading.Lock``
+        so tests and single-worker deployments are correct, but it is NOT safe
+        across multiple processes or machines. Backends for production use
+        (Redis, MongoDB, etc.) MUST implement an atomic ``token_bucket_check``
+        method that does the compare-and-swap in the backend itself. The
+        algorithm will prefer that implementation when present — see
+        :meth:`is_allowed` above.
         """
         current_time = self.get_current_time()
         bucket_key = f"{key}:token_bucket"
 
-        # Get current bucket state
-        try:
-            bucket_data_str = backend.get(bucket_key)
-            if bucket_data_str:
-                bucket_data = json.loads(bucket_data_str)
-            else:
+        with _get_bucket_lock(bucket_key):
+            # Get current bucket state
+            try:
+                bucket_data_str = backend.get(bucket_key)
+                if bucket_data_str:
+                    bucket_data = json.loads(bucket_data_str)
+                else:
+                    bucket_data = {
+                        "tokens": initial_tokens,
+                        "last_refill": current_time,
+                    }
+            except (json.JSONDecodeError, AttributeError):
                 bucket_data = {"tokens": initial_tokens, "last_refill": current_time}
-        except (json.JSONDecodeError, AttributeError):
-            bucket_data = {"tokens": initial_tokens, "last_refill": current_time}
 
-        # Calculate tokens to add based on time elapsed
-        # Formula: elapsed_time * refill_rate
-        # This implements the "leaky bucket" refill pattern where tokens drip in
-        time_elapsed = current_time - bucket_data["last_refill"]
-        tokens_to_add = time_elapsed * refill_rate
+            # Calculate tokens to add based on time elapsed
+            # Formula: elapsed_time * refill_rate
+            # This implements the "leaky bucket" refill pattern where tokens drip in
+            time_elapsed = current_time - bucket_data["last_refill"]
+            tokens_to_add = time_elapsed * refill_rate
 
-        # Update token count (cannot exceed bucket size)
-        # Cap tokens at bucket size (bucket can't overflow)
-        current_tokens = min(bucket_size, bucket_data["tokens"] + tokens_to_add)
+            # Update token count (cannot exceed bucket size)
+            # Cap tokens at bucket size (bucket can't overflow)
+            current_tokens = min(bucket_size, bucket_data["tokens"] + tokens_to_add)
 
-        # Check if request can be served
-        if current_tokens >= tokens_requested:
-            # Consume tokens
-            remaining_tokens = current_tokens - tokens_requested
+            # Check if request can be served
+            if current_tokens >= tokens_requested:
+                # Consume tokens
+                remaining_tokens = current_tokens - tokens_requested
 
-            # Update bucket state
-            new_bucket_data = {"tokens": remaining_tokens, "last_refill": current_time}
+                # Update bucket state
+                new_bucket_data = {
+                    "tokens": remaining_tokens,
+                    "last_refill": current_time,
+                }
 
-            # Set expiration time (tokens expire after bucket could be
-            # completely refilled + buffer)
-            expiration = (
-                int(math.ceil(bucket_size / refill_rate) + 60)
-                if refill_rate > 0
-                else 3600
-            )
-
-            try:
-                backend.set(bucket_key, json.dumps(new_bucket_data), expiration)
-            except Exception:
-                # If backend doesn't support expiration, try without it
-                backend.set(bucket_key, json.dumps(new_bucket_data))
-
-            return True, {
-                "tokens_remaining": remaining_tokens,
-                "tokens_requested": tokens_requested,
-                "bucket_size": bucket_size,
-                "refill_rate": refill_rate,
-                "time_to_refill": (
-                    (bucket_size - remaining_tokens) / refill_rate
+                # Set expiration time (tokens expire after bucket could be
+                # completely refilled + buffer)
+                expiration = (
+                    int(math.ceil(bucket_size / refill_rate) + 60)
                     if refill_rate > 0
-                    else 0
-                ),
-            }
-        else:
-            # Request cannot be served - update last_refill time but don't
-            # consume tokens
-            bucket_data["tokens"] = current_tokens
-            bucket_data["last_refill"] = current_time
+                    else 3600
+                )
 
-            expiration = (
-                int(math.ceil(bucket_size / refill_rate) + 60)
-                if refill_rate > 0
-                else 3600
-            )
+                try:
+                    backend.set(bucket_key, json.dumps(new_bucket_data), expiration)
+                except Exception:
+                    # If backend doesn't support expiration, try without it
+                    backend.set(bucket_key, json.dumps(new_bucket_data))
 
-            try:
-                backend.set(bucket_key, json.dumps(bucket_data), expiration)
-            except Exception:
-                backend.set(bucket_key, json.dumps(bucket_data))
+                return True, {
+                    "tokens_remaining": remaining_tokens,
+                    "tokens_requested": tokens_requested,
+                    "bucket_size": bucket_size,
+                    "refill_rate": refill_rate,
+                    "time_to_refill": (
+                        (bucket_size - remaining_tokens) / refill_rate
+                        if refill_rate > 0
+                        else 0
+                    ),
+                }
+            else:
+                # Request cannot be served - update last_refill time but don't
+                # consume tokens
+                bucket_data["tokens"] = current_tokens
+                bucket_data["last_refill"] = current_time
 
-            return False, {
-                "tokens_remaining": current_tokens,
-                "tokens_requested": tokens_requested,
-                "bucket_size": bucket_size,
-                "refill_rate": refill_rate,
-                "time_to_refill": (
-                    (tokens_requested - current_tokens) / refill_rate
+                expiration = (
+                    int(math.ceil(bucket_size / refill_rate) + 60)
                     if refill_rate > 0
-                    else 0
-                ),
-            }
+                    else 3600
+                )
+
+                try:
+                    backend.set(bucket_key, json.dumps(bucket_data), expiration)
+                except Exception:
+                    backend.set(bucket_key, json.dumps(bucket_data))
+
+                return False, {
+                    "tokens_remaining": current_tokens,
+                    "tokens_requested": tokens_requested,
+                    "bucket_size": bucket_size,
+                    "refill_rate": refill_rate,
+                    "time_to_refill": (
+                        (tokens_requested - current_tokens) / refill_rate
+                        if refill_rate > 0
+                        else 0
+                    ),
+                }
 
     def _generic_token_bucket_info(
         self, backend: Any, key: str, bucket_size: int, refill_rate: float

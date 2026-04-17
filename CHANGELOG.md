@@ -5,6 +5,91 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - 2026-04-17
+
+This is a major release that consolidates and hardens the v2.x runtime. Existing
+`@rate_limit(...)` and `RateLimitMiddleware` call-sites keep working unchanged;
+new keyword arguments are all optional. See `MIGRATION.md` for upgrade notes.
+
+### Added
+
+- **Shadow mode** (`shadow=True` on the decorator and `SHADOW` in the
+  middleware config). Requests that would have been blocked are allowed
+  through and logged with a `SHADOW_RATE_LIMIT_BLOCK` event plus an
+  OpenTelemetry `ratelimit.shadow.block` attribute. Use this to validate a
+  new limit in production before flipping enforcement on.
+- **Cost-based (weighted) limiting** (`cost=<int | callable>` on the
+  decorator). Expensive operations can consume more than one token per
+  request. The cost may be a constant int or a callable `f(request) -> int`.
+  Values are clamped to a minimum of 1 so `cost=0` cannot be used to bypass
+  the limiter. Backends that don't natively accept a cost fall back to a
+  loop of single-token increments so weighted limits still work end-to-end.
+- **CIDR allow-lists and deny-lists** (`allow_list=` / `deny_list=` on the
+  decorator, `ALLOW_LIST` / `DENY_LIST` in `RATELIMIT_MIDDLEWARE`). Accepts
+  `IPList` instances, iterables of CIDR strings, file paths, or URLs.
+  Deny always takes precedence over allow. Evaluated before any backend
+  work so deny-listed clients never touch the cache.
+- **DRF throttle adapter** at `django_smart_ratelimit.integrations.drf`.
+  Three ready-to-use classes (`UserRateLimitThrottle`,
+  `AnonRateLimitThrottle`, `ScopedRateLimitThrottle`) plus a
+  `SmartRateLimitThrottle` base you can subclass.
+- **pytest fixtures** at `django_smart_ratelimit.testing`, auto-registered
+  via the `pytest11` entry point so your test project picks them up with
+  zero configuration.
+- **OpenTelemetry exporter** at `django_smart_ratelimit.observability`.
+  Emits a span and metrics per rate-limit decision, covering both
+  enforcement and shadow paths.
+- **Shared v3 pipeline** (`django_smart_ratelimit.pipeline`) exposing
+  `resolve_effective_rate`, `apply_policy_lists`, `handle_shadow_decision`,
+  and the `POLICY_ALLOW` / `POLICY_DENY` / `POLICY_CONTINUE` sentinels.
+  Third-party middlewares and adapters can now reuse the same evaluation
+  primitives the built-in decorator uses.
+- **`ratelimit` alias** for the `rate_limit` decorator to match
+  `django-ratelimit` naming conventions, with the full v3 signature.
+- Integration tests for shadow mode, cost limiting, CIDR lists, and key
+  validation; unit tests for the pipeline module.
+
+### Changed
+
+- **Empty keys now raise** `KeyGenerationError` instead of silently
+  collapsing every caller onto the empty-string bucket. Previously a key
+  function that returned `""` or `None` would rate-limit the entire service
+  as if it were a single client — a dangerous footgun. Pass
+  `validate_key=False` to `resolve_effective_rate` if you need the old
+  behavior in custom pipelines.
+- **Generic token-bucket fallback is now serialized within-process** via a
+  per-key `threading.Lock`. Backends intended for multi-process production
+  use must still implement an atomic `token_bucket_check` — documented
+  explicitly in the docstring. This closes the within-process race without
+  pretending to solve the cross-process one.
+- **Reset times for first-request-aligned windows are cached per key** so
+  repeat callers within the same window see a stable `X-RateLimit-Reset`
+  and `Retry-After` instead of a value that drifts forward on each call.
+  Clock-aligned reset times were already stable and are unchanged.
+- DRF throttle callable attributes (`rate`, `cost`, `key_func`) are now
+  accessed through `type(self)` to bypass Python's method-binding so a
+  plain function assigned as a class attribute receives
+  `(throttle, request)` rather than an extra bound `self`.
+
+### Fixed
+
+- DRF throttle `wait()` now returns a non-`None` value on the block path
+  (it previously only cached `_last_reset_time` on the allow path).
+- DRF throttle `allow_request()` tolerates invalid rate strings and
+  backend exceptions instead of blowing up — invalid rate logs a warning
+  and allows the request; backend errors honor `fail_open` via
+  `getattr(backend, "fail_open", True)`.
+- DRF test state no longer leaks across test cases: `setUp`/`tearDown` now
+  clear the backend singleton and its counters.
+
+### Migration
+
+- **If you relied on empty keys being a valid bucket**, pick a concrete
+  placeholder (e.g. `"anonymous"`) or raise from your key function to
+  skip rate limiting explicitly.
+- **Nothing else is required.** All new parameters default to their
+  pre-v3 behavior.
+
 ## [2.2.1] - 2026-04-08
 
 ### Fixed
