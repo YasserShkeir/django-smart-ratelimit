@@ -342,7 +342,9 @@ class URLBackedIPList(IPList):
             request = urllib.request.Request(self.url)
             request.add_header("User-Agent", "django-smart-ratelimit/3.0.0")
 
-            with urllib.request.urlopen(request, timeout=self.http_timeout) as response:
+            with urllib.request.urlopen(  # nosec B310 - URL is opt-in by caller via source=
+                request, timeout=self.http_timeout
+            ) as response:
                 content = response.read().decode("utf-8")
 
             cidrs = []

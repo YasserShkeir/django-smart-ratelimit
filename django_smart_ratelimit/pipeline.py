@@ -288,7 +288,8 @@ def handle_shadow_decision(
             shadow=shadow,
             cost=cost,
         )
-    except Exception:  # pragma: no cover - observability must never break limits
+    except Exception:  # pragma: no cover  # nosec B110
+        # Observability must never break rate-limit enforcement.
         pass
 
     if allowed:

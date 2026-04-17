@@ -258,7 +258,7 @@ def assert_rate_limited(
         response = client.get("/api/endpoint/")
         assert_rate_limited(response, expected_limit=10, expected_remaining=0)
     """
-    assert (
+    assert (  # nosec B101
         response.status_code == 429
     ), f"Expected status 429, got {response.status_code}"
 
@@ -266,13 +266,13 @@ def assert_rate_limited(
 
     if expected_limit is not None:
         actual = headers.get("limit")
-        assert actual == expected_limit, (
+        assert actual == expected_limit, (  # nosec B101
             f"Expected X-RateLimit-Limit={expected_limit}, got {actual}"
         )
 
     if expected_remaining is not None:
         actual = headers.get("remaining")
-        assert actual == expected_remaining, (
+        assert actual == expected_remaining, (  # nosec B101
             f"Expected X-RateLimit-Remaining={expected_remaining}, got {actual}"
         )
 
@@ -293,12 +293,12 @@ def assert_not_rate_limited(response: Any) -> None:
         response = client.get("/api/endpoint/")
         assert_not_rate_limited(response)
     """
-    assert (
+    assert (  # nosec B101
         response.status_code != 429
     ), "Expected status != 429, but got 429 (rate limited)"
 
     headers = read_rate_limit_headers(response)
-    assert headers.get("remaining") is not None, (
+    assert headers.get("remaining") is not None, (  # nosec B101
         "X-RateLimit-Remaining header missing from non-rate-limited response"
     )
 
@@ -320,7 +320,7 @@ def assert_remaining(response: Any, expected: int) -> None:
     """
     headers = read_rate_limit_headers(response)
     actual = headers.get("remaining")
-    assert actual == expected, (
+    assert actual == expected, (  # nosec B101
         f"Expected X-RateLimit-Remaining={expected}, got {actual}"
     )
 
@@ -346,7 +346,7 @@ def assert_retry_after(
         assert_retry_after(response, expected=60, tolerance=5)
     """
     retry_after_header = response.get("Retry-After")
-    assert retry_after_header is not None, "Retry-After header missing"
+    assert retry_after_header is not None, "Retry-After header missing"  # nosec B101
 
     try:
         actual = int(retry_after_header)
@@ -354,7 +354,7 @@ def assert_retry_after(
         raise AssertionError(f"Retry-After header not an integer: {retry_after_header}")
 
     diff = abs(actual - expected)
-    assert diff <= tolerance, (
+    assert diff <= tolerance, (  # nosec B101
         f"Expected Retry-After ~{expected}s (tolerance {tolerance}), "
         f"got {actual}s (diff: {diff}s)"
     )
@@ -399,7 +399,7 @@ def read_rate_limit_headers(response: Any) -> Dict[str, Optional[int]]:
                     result[key] = int_val
                 except (ValueError, TypeError):
                     pass
-    except Exception:
+    except Exception:  # nosec B110
         # Fallback: try response.__getitem__ or response.headers attribute
         pass
 
@@ -537,6 +537,6 @@ def clear_rate_limit_cache(key_pattern: str = "*") -> None:
                 for k in keys_to_delete:
                     backend.reset(k)
 
-    except Exception:
+    except Exception:  # nosec B110
         # If backend isn't available, fail silently (likely wrong test setup)
         pass
