@@ -285,9 +285,17 @@ def parse_rate(rate: str) -> Tuple[int, int]:
             "m": 60,  # minute
             "h": 3600,  # hour
             "d": 86400,  # day
+            # v3: long-form aliases for DRF/API-Gateway compatibility
+            "sec": 1,
+            "second": 1,
+            "min": 60,
+            "minute": 60,
+            "hr": 3600,
+            "hour": 3600,
+            "day": 86400,
         }
 
-        # Simple format: "10/m"
+        # Simple format: "10/m", "10/minute"
         if period_str in period_map:
             period = period_map[period_str]
             return limit, period

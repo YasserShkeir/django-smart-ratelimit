@@ -5,7 +5,7 @@ with support for multiple backends, algorithms (including token bucket),
 and comprehensive rate limiting strategies.
 """
 
-__version__ = "2.2.1"
+__version__ = "3.0.0"
 __author__ = "Yasser Shkeir"
 
 # Optional backend imports (may not be available)
@@ -81,6 +81,10 @@ def ratelimit(
     settings: Optional[Any] = None,
     adaptive: Optional[Union[str, "AdaptiveRateLimiter"]] = None,
     response_callback: Optional[Callable] = None,
+    cost: Union[int, Callable[..., int]] = 1,
+    shadow: bool = False,
+    allow_list: Any = None,
+    deny_list: Any = None,
 ) -> Callable:
     """Alias for rate_limit decorator.
 
@@ -98,6 +102,10 @@ def ratelimit(
         settings=settings,
         adaptive=adaptive,
         response_callback=response_callback,
+        cost=cost,
+        shadow=shadow,
+        allow_list=allow_list,
+        deny_list=deny_list,
     )
 
 
@@ -123,6 +131,20 @@ from .middleware import RateLimitMiddleware
 
 # Performance utilities
 from .performance import RateLimitCache
+
+# v3 pipeline — shared rate-limit evaluation primitives. Exported so advanced
+# users can compose their own middleware/throttle adapters on top of the
+# same logic the built-in decorator uses.
+from .pipeline import (
+    POLICY_ALLOW,
+    POLICY_CONTINUE,
+    POLICY_DENY,
+    ResolvedLimit,
+    ShadowDecision,
+    apply_policy_lists,
+    handle_shadow_decision,
+    resolve_effective_rate,
+)
 
 # Utilities
 from .utils import is_ratelimited  # noqa: F401
@@ -240,6 +262,15 @@ __all__ = [
     "RateLimitConfigManager",
     # Performance
     "RateLimitCache",
+    # v3 Pipeline (shared evaluation primitives)
+    "POLICY_ALLOW",
+    "POLICY_CONTINUE",
+    "POLICY_DENY",
+    "ResolvedLimit",
+    "ShadowDecision",
+    "apply_policy_lists",
+    "handle_shadow_decision",
+    "resolve_effective_rate",
     # Utility functions
     "get_ip_key",
     "get_user_key",
