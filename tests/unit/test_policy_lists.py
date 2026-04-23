@@ -7,21 +7,18 @@ Tests cover IPList, FileBackedIPList, URLBackedIPList, and helper functions.
 import tempfile
 import threading
 import time
-import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-from django.http import HttpRequest
 from django.test import RequestFactory, SimpleTestCase
 
 from django_smart_ratelimit.policy.lists import (
-    IPList,
     FileBackedIPList,
+    IPList,
     URLBackedIPList,
-    parse_ip_list,
-    extract_client_ip,
     check_lists,
+    extract_client_ip,
+    parse_ip_list,
 )
 
 
@@ -78,9 +75,7 @@ class IPListTests(SimpleTestCase):
 
     def test_iplist_mixed_ipv4_ipv6(self):
         """Test IPList with mixed IPv4 and IPv6 ranges."""
-        ip_list = IPList(
-            ["10.0.0.0/8", "192.168.0.0/16", "2001:db8::/32", "fc00::/7"]
-        )
+        ip_list = IPList(["10.0.0.0/8", "192.168.0.0/16", "2001:db8::/32", "fc00::/7"])
         # IPv4 checks
         self.assertTrue(ip_list.contains("10.0.0.1"))
         self.assertTrue(ip_list.contains("192.168.1.1"))
@@ -353,7 +348,9 @@ class URLBackedIPListTests(SimpleTestCase):
     def test_url_backed_iplist_ignores_comments(self, mock_urlopen):
         """Test that URLBackedIPList ignores comments and blank lines."""
         mock_response = MagicMock()
-        mock_response.read.return_value = b"# Comment\n\n10.0.0.0/8\n# Another\n192.168.0.0/16\n\n"
+        mock_response.read.return_value = (
+            b"# Comment\n\n10.0.0.0/8\n# Another\n192.168.0.0/16\n\n"
+        )
         mock_response.__enter__ = MagicMock(return_value=mock_response)
         mock_response.__exit__ = MagicMock(return_value=None)
         mock_urlopen.return_value = mock_response
@@ -390,9 +387,7 @@ class URLBackedIPListTests(SimpleTestCase):
         mock_response.__exit__ = MagicMock(return_value=None)
         mock_urlopen.return_value = mock_response
 
-        ip_list = URLBackedIPList(
-            "https://example.com/ips.txt", refresh_interval=1
-        )
+        ip_list = URLBackedIPList("https://example.com/ips.txt", refresh_interval=1)
         self.assertTrue(ip_list.contains("10.0.0.1"))
         call_count_1 = mock_urlopen.call_count
 
@@ -629,7 +624,9 @@ class CheckListsTests(SimpleTestCase):
         request.META["REMOTE_ADDR"] = "10.0.0.1"
         allow_list = IPList(["10.0.0.0/8"])
         deny_list = IPList(["10.0.0.0/16"])
-        should_skip, reason = check_lists(request, allow_list=allow_list, deny_list=deny_list)
+        should_skip, reason = check_lists(
+            request, allow_list=allow_list, deny_list=deny_list
+        )
         self.assertFalse(should_skip)
         self.assertEqual(reason, "deny_list")
 
@@ -639,7 +636,9 @@ class CheckListsTests(SimpleTestCase):
         request.META["REMOTE_ADDR"] = "8.8.8.8"
         allow_list = IPList(["10.0.0.0/8"])
         deny_list = IPList(["203.0.113.0/24"])
-        should_skip, reason = check_lists(request, allow_list=allow_list, deny_list=deny_list)
+        should_skip, reason = check_lists(
+            request, allow_list=allow_list, deny_list=deny_list
+        )
         self.assertFalse(should_skip)
         self.assertEqual(reason, "")
 

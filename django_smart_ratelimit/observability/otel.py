@@ -53,14 +53,14 @@ from typing import Any, Dict, Optional
 # Try to import OpenTelemetry
 try:
     from opentelemetry import metrics, trace
-    from opentelemetry.trace import Status, StatusCode, Tracer
     from opentelemetry.metrics import Meter
+    from opentelemetry.trace import Status, StatusCode, Tracer
 
     HAS_OTEL = True
 except ImportError:
     HAS_OTEL = False
-    Tracer = Any  # type: ignore
-    Meter = Any  # type: ignore
+    Tracer = Any
+    Meter = Any
 
 
 # Global tracer and meter (set by instrument_rate_limit)
@@ -92,19 +92,15 @@ class NoOpSpanContext:
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Exit context manager."""
-        pass
 
     def set_attribute(self, key: str, value: Any) -> None:
         """No-op set_attribute."""
-        pass
 
     def add_event(self, name: str, attributes: Optional[Dict[str, Any]] = None) -> None:
         """No-op add_event."""
-        pass
 
     def set_status(self, status: Any) -> None:
         """No-op set_status."""
-        pass
 
 
 class NoOpMeter:
@@ -128,31 +124,22 @@ class NoOpMeter:
 class NoOpCounter:
     """No-op counter."""
 
-    def add(
-        self, value: float, attributes: Optional[Dict[str, Any]] = None
-    ) -> None:
+    def add(self, value: float, attributes: Optional[Dict[str, Any]] = None) -> None:
         """No-op add."""
-        pass
 
 
 class NoOpHistogram:
     """No-op histogram."""
 
-    def record(
-        self, value: float, attributes: Optional[Dict[str, Any]] = None
-    ) -> None:
+    def record(self, value: float, attributes: Optional[Dict[str, Any]] = None) -> None:
         """No-op record."""
-        pass
 
 
 class NoOpUpDownCounter:
     """No-op up-down counter."""
 
-    def add(
-        self, value: float, attributes: Optional[Dict[str, Any]] = None
-    ) -> None:
+    def add(self, value: float, attributes: Optional[Dict[str, Any]] = None) -> None:
         """No-op add."""
-        pass
 
 
 class RateLimitTracer:

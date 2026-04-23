@@ -16,12 +16,12 @@ Key functions:
 """
 
 from .lists import (
-    IPList,
     FileBackedIPList,
+    IPList,
     URLBackedIPList,
-    parse_ip_list,
-    extract_client_ip,
     check_lists,
+    extract_client_ip,
+    parse_ip_list,
 )
 
 __all__ = [

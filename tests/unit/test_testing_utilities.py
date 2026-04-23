@@ -4,9 +4,10 @@ Tests for django_smart_ratelimit.testing utilities.
 Verifies that fixtures and assertion helpers work as documented.
 """
 
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import pytest
+
 from django.test import Client
 
 from django_smart_ratelimit.backends.memory import MemoryBackend
@@ -31,7 +32,7 @@ class TestRateLimitMemoryBackendFixture:
     def test_fixture_clears_between_tests(self, ratelimit_memory_backend):
         """Each test should get a fresh backend."""
         # First test gets backend A
-        backend_a_id = id(ratelimit_memory_backend)
+        id(ratelimit_memory_backend)
         assert len(ratelimit_memory_backend._data) == 0
 
         # Simulate adding data
@@ -95,7 +96,6 @@ class TestFrozenRatelimitTimeFixture:
 
     def test_fixture_patches_time_module(self, frozen_ratelimit_time, monkeypatch):
         """Fixture should patch time.time() globally."""
-        import time
 
         # After patching, time.time() should return our frozen time
         frozen_ratelimit_time.set_time(1234.5)
@@ -132,7 +132,9 @@ class TestAssertRateLimited:
     def test_validates_limit_header(self):
         """Should validate X-RateLimit-Limit if provided."""
         response = Mock(status_code=429)
-        response.get = Mock(side_effect=lambda key: "10" if key == "X-RateLimit-Limit" else None)
+        response.get = Mock(
+            side_effect=lambda key: "10" if key == "X-RateLimit-Limit" else None
+        )
 
         # Should pass
         assert_rate_limited(response, expected_limit=10)
@@ -166,7 +168,9 @@ class TestAssertNotRateLimited:
     def test_passes_on_non_429_status(self):
         """Should pass when response is not 429."""
         response = Mock(status_code=200)
-        response.get = Mock(side_effect=lambda key: "5" if key == "X-RateLimit-Remaining" else None)
+        response.get = Mock(
+            side_effect=lambda key: "5" if key == "X-RateLimit-Remaining" else None
+        )
         # Should not raise
         assert_not_rate_limited(response)
 
@@ -197,7 +201,9 @@ class TestAssertRemaining:
     def test_passes_on_matching_remaining(self):
         """Should pass when remaining matches expected."""
         response = Mock()
-        response.get = Mock(side_effect=lambda key: "5" if key == "X-RateLimit-Remaining" else None)
+        response.get = Mock(
+            side_effect=lambda key: "5" if key == "X-RateLimit-Remaining" else None
+        )
 
         # Should not raise
         assert_remaining(response, 5)
@@ -205,7 +211,9 @@ class TestAssertRemaining:
     def test_fails_on_mismatching_remaining(self):
         """Should fail when remaining doesn't match."""
         response = Mock()
-        response.get = Mock(side_effect=lambda key: "5" if key == "X-RateLimit-Remaining" else None)
+        response.get = Mock(
+            side_effect=lambda key: "5" if key == "X-RateLimit-Remaining" else None
+        )
 
         with pytest.raises(AssertionError, match="X-RateLimit-Remaining"):
             assert_remaining(response, 3)
@@ -217,7 +225,9 @@ class TestAssertRetryAfter:
     def test_passes_on_exact_match(self):
         """Should pass when Retry-After matches expected."""
         response = Mock()
-        response.get = Mock(side_effect=lambda key: "60" if key == "Retry-After" else None)
+        response.get = Mock(
+            side_effect=lambda key: "60" if key == "Retry-After" else None
+        )
 
         # Should not raise
         assert_retry_after(response, 60)
@@ -225,7 +235,9 @@ class TestAssertRetryAfter:
     def test_passes_within_tolerance(self):
         """Should pass when Retry-After is within tolerance."""
         response = Mock()
-        response.get = Mock(side_effect=lambda key: "62" if key == "Retry-After" else None)
+        response.get = Mock(
+            side_effect=lambda key: "62" if key == "Retry-After" else None
+        )
 
         # Should pass with tolerance=5
         assert_retry_after(response, 60, tolerance=5)
@@ -233,7 +245,9 @@ class TestAssertRetryAfter:
     def test_fails_outside_tolerance(self):
         """Should fail when Retry-After is outside tolerance."""
         response = Mock()
-        response.get = Mock(side_effect=lambda key: "70" if key == "Retry-After" else None)
+        response.get = Mock(
+            side_effect=lambda key: "70" if key == "Retry-After" else None
+        )
 
         with pytest.raises(AssertionError, match="Retry-After"):
             assert_retry_after(response, 60, tolerance=5)
@@ -249,7 +263,9 @@ class TestAssertRetryAfter:
     def test_fails_non_integer_header(self):
         """Should fail when Retry-After is not an integer."""
         response = Mock()
-        response.get = Mock(side_effect=lambda key: "invalid" if key == "Retry-After" else None)
+        response.get = Mock(
+            side_effect=lambda key: "invalid" if key == "Retry-After" else None
+        )
 
         with pytest.raises(AssertionError, match="not an integer"):
             assert_retry_after(response, 60)
@@ -322,7 +338,9 @@ class TestRateLimitClient:
         rl_client = RateLimitClient(client)
 
         # Mock the client method to return responses
-        responses_list = [Mock(status_code=200) for _ in range(5)] + [Mock(status_code=429)]
+        responses_list = [Mock(status_code=200) for _ in range(5)] + [
+            Mock(status_code=429)
+        ]
 
         def mock_get(path, **kwargs):
             return responses_list.pop(0)
@@ -339,7 +357,9 @@ class TestRateLimitClient:
         client = Client()
         rl_client = RateLimitClient(client)
 
-        responses_list = [Mock(status_code=200) for _ in range(5)] + [Mock(status_code=429)]
+        responses_list = [Mock(status_code=200) for _ in range(5)] + [
+            Mock(status_code=429)
+        ]
 
         def mock_post(path, **kwargs):
             return responses_list.pop(0)
@@ -385,7 +405,6 @@ class TestClearRateLimitCache:
     def test_clears_without_error_if_backend_unavailable(self, monkeypatch):
         """Should not raise if backend is unavailable."""
         # Patch get_backend in the backends module to raise
-        from django_smart_ratelimit import backends
 
         def mock_get_backend(*args, **kwargs):
             raise RuntimeError("Backend unavailable")

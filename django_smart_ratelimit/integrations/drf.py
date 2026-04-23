@@ -45,10 +45,10 @@ logger = logging.getLogger(__name__)
 try:
     from rest_framework.throttling import BaseThrottle
 except ImportError:
-    BaseThrottle = None  # type: ignore
+    BaseThrottle = None
 
 
-class SmartRateLimitThrottle(BaseThrottle):  # type: ignore
+class SmartRateLimitThrottle(BaseThrottle):
     """
     BaseThrottle adapter for django-smart-ratelimit.
 
@@ -79,7 +79,7 @@ class SmartRateLimitThrottle(BaseThrottle):  # type: ignore
                 return self.get_ident(request)
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize throttle, raising helpful error if DRF not installed."""
         if BaseThrottle is None:
             raise ImportError(
@@ -90,7 +90,7 @@ class SmartRateLimitThrottle(BaseThrottle):  # type: ignore
 
         # Check attributes exist
         if not hasattr(self, "scope"):
-            self.scope = None
+            self.scope: Optional[str] = None
 
         self.algorithm = getattr(self, "algorithm", "sliding_window")
         self.cost = getattr(self, "cost", 1)
@@ -250,7 +250,7 @@ class SmartRateLimitThrottle(BaseThrottle):  # type: ignore
             # backends fall back to a loop of single-token increments so
             # weighted throttling still works end-to-end.
             try:
-                count = backend.incr(key, period, cost)
+                count = backend.incr(key, period, cost)  # type: ignore[call-arg]
             except TypeError:
                 count = backend.incr(key, period)
                 for _ in range(max(0, cost - 1)):
@@ -406,7 +406,7 @@ class ScopedRateLimitThrottle(SmartRateLimitThrottle):
             }
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize without a fixed scope."""
         super().__init__()
         self.scope = None  # Will be set from view's throttle_scope

@@ -63,8 +63,8 @@ import ipaddress
 import logging
 import threading
 import time
-import urllib.request
 import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
@@ -251,7 +251,9 @@ class FileBackedIPList(IPList):
                     f"IP list file {self.path} not found, keeping last loaded list"
                 )
             except ValueError as e:
-                logger.error(f"Invalid CIDR in {self.path}: {e}, keeping last loaded list")
+                logger.error(
+                    f"Invalid CIDR in {self.path}: {e}, keeping last loaded list"
+                )
 
     def _check_refresh(self) -> None:
         """Check if refresh is needed and perform it if necessary."""
@@ -416,9 +418,7 @@ class URLBackedIPList(IPList):
             return super().contains(ip)
 
 
-def parse_ip_list(
-    source: Union[str, List[str], IPList, None]
-) -> Optional[IPList]:
+def parse_ip_list(source: Union[str, List[str], IPList, None]) -> Optional[IPList]:
     """
     Parse various input formats into an IPList instance.
 

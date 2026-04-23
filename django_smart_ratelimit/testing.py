@@ -34,7 +34,7 @@ from typing import Any, Dict, Optional, Tuple
 try:
     import pytest
 except ImportError:
-    pytest = None  # type: ignore
+    pytest = None  # type: ignore[assignment]
 
 
 def _get_pytest() -> Any:
@@ -52,7 +52,7 @@ def _get_pytest() -> Any:
 
 if pytest is not None:
 
-    @pytest.fixture  # type: ignore
+    @pytest.fixture
     def ratelimit_memory_backend(monkeypatch: Any) -> Any:
         """
         Fixture that swaps the rate limiter backend to use MemoryBackend.
@@ -90,8 +90,8 @@ if pytest is not None:
         if hasattr(backend, "shutdown"):
             backend.shutdown()
 
-    @pytest.fixture  # type: ignore
-    def disable_ratelimit(settings: Any) -> None:  # type: ignore
+    @pytest.fixture
+    def disable_ratelimit(settings: Any) -> None:
         """
         Fixture that disables rate limiting globally for the test.
 
@@ -107,8 +107,8 @@ if pytest is not None:
         """
         settings.RATELIMIT_ENABLE = False
 
-    @pytest.fixture  # type: ignore
-    def ratelimit_redis_backend(monkeypatch: Any) -> Any:  # type: ignore
+    @pytest.fixture
+    def ratelimit_redis_backend(monkeypatch: Any) -> Any:
         """
         Fixture that uses a real Redis backend if available.
 
@@ -154,8 +154,8 @@ if pytest is not None:
         except Exception as e:
             pytest.skip(f"Redis backend unavailable: {e}")
 
-    @pytest.fixture  # type: ignore
-    def frozen_ratelimit_time(monkeypatch: Any) -> Any:  # type: ignore
+    @pytest.fixture
+    def frozen_ratelimit_time(monkeypatch: Any) -> Any:
         """
         Fixture for simulated time advancement in rate limit tests.
 
@@ -227,7 +227,6 @@ if pytest is not None:
 
             def __exit__(self, *args: Any) -> None:
                 """Context manager exit."""
-                pass
 
         return FrozenTime(monkeypatch)
 
@@ -266,13 +265,15 @@ def assert_rate_limited(
 
     if expected_limit is not None:
         actual = headers.get("limit")
-        assert actual == expected_limit, (  # nosec B101
-            f"Expected X-RateLimit-Limit={expected_limit}, got {actual}"
-        )
+        assert (
+            actual == expected_limit
+        ), f"Expected X-RateLimit-Limit={expected_limit}, got {actual}"  # nosec B101
 
     if expected_remaining is not None:
         actual = headers.get("remaining")
-        assert actual == expected_remaining, (  # nosec B101
+        assert (
+            actual == expected_remaining
+        ), (  # nosec B101
             f"Expected X-RateLimit-Remaining={expected_remaining}, got {actual}"
         )
 
@@ -298,7 +299,9 @@ def assert_not_rate_limited(response: Any) -> None:
     ), "Expected status != 429, but got 429 (rate limited)"
 
     headers = read_rate_limit_headers(response)
-    assert headers.get("remaining") is not None, (  # nosec B101
+    assert (
+        headers.get("remaining") is not None
+    ), (  # nosec B101
         "X-RateLimit-Remaining header missing from non-rate-limited response"
     )
 
@@ -320,14 +323,12 @@ def assert_remaining(response: Any, expected: int) -> None:
     """
     headers = read_rate_limit_headers(response)
     actual = headers.get("remaining")
-    assert actual == expected, (  # nosec B101
-        f"Expected X-RateLimit-Remaining={expected}, got {actual}"
-    )
+    assert (
+        actual == expected
+    ), f"Expected X-RateLimit-Remaining={expected}, got {actual}"  # nosec B101
 
 
-def assert_retry_after(
-    response: Any, expected: int, tolerance: int = 1
-) -> None:
+def assert_retry_after(response: Any, expected: int, tolerance: int = 1) -> None:
     """
     Assert that Retry-After header is within tolerance.
 
@@ -390,7 +391,11 @@ def read_rate_limit_headers(response: Any) -> Dict[str, Optional[int]]:
     # Or use response.headers for test client >= Django 3.2
     try:
         # Django test client response supports dict-like access
-        for header_key in ("X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"):
+        for header_key in (
+            "X-RateLimit-Limit",
+            "X-RateLimit-Remaining",
+            "X-RateLimit-Reset",
+        ):
             val = response.get(header_key)
             if val is not None:
                 try:
@@ -531,8 +536,7 @@ def clear_rate_limit_cache(key_pattern: str = "*") -> None:
                 import fnmatch
 
                 keys_to_delete = [
-                    k for k in backend._data.keys()
-                    if fnmatch.fnmatch(k, key_pattern)
+                    k for k in backend._data.keys() if fnmatch.fnmatch(k, key_pattern)
                 ]
                 for k in keys_to_delete:
                     backend.reset(k)

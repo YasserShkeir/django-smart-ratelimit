@@ -583,11 +583,11 @@ def rate_limit(
                 try:
                     # Use async increment if available
                     if hasattr(backend_instance, "aincr"):
-                        current_count = await backend_instance.aincr(
+                        current_count = await backend_instance.aincr(  # type: ignore[call-arg]
                             limit_key, period, request_cost
                         )
                     else:
-                        current_count = await sync_to_async(backend_instance.incr)(
+                        current_count = await sync_to_async(backend_instance.incr)(  # type: ignore[call-arg]
                             limit_key, period, request_cost
                         )
                 except TypeError:

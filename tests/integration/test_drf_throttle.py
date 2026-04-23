@@ -9,13 +9,13 @@ import unittest
 from unittest.mock import Mock, patch
 
 import pytest
+
 from django.contrib.auth import get_user_model
-from django.test import RequestFactory, TestCase, override_settings
+from django.test import RequestFactory, override_settings
 
 try:
-    from rest_framework import status
     from rest_framework.response import Response
-    from rest_framework.test import APITestCase, APIClient
+    from rest_framework.test import APIClient, APITestCase
     from rest_framework.views import APIView
 
     DRF_AVAILABLE = True
@@ -87,9 +87,7 @@ class SmartRateLimitThrottleTestCase(APITestCase):
 
     def test_throttle_unavailable_without_drf(self):
         """Test that throttle raises ImportError when DRF not installed."""
-        with patch(
-            "django_smart_ratelimit.integrations.drf.BaseThrottle", None
-        ):
+        with patch("django_smart_ratelimit.integrations.drf.BaseThrottle", None):
             from django_smart_ratelimit.integrations.drf import (
                 SmartRateLimitThrottle,
             )
@@ -309,9 +307,7 @@ class SmartRateLimitThrottleTestCase(APITestCase):
         view = Mock(spec=[])
 
         # Should allow request and log warning
-        with patch(
-            "django_smart_ratelimit.integrations.drf.logger"
-        ) as mock_logger:
+        with patch("django_smart_ratelimit.integrations.drf.logger") as mock_logger:
             result = throttle.allow_request(request, view)
             assert result is True
             mock_logger.warning.assert_called()
@@ -347,7 +343,7 @@ class SmartRateLimitThrottleTestCase(APITestCase):
         throttle.scope = "user"
         request = self.factory.get("/api/test/")
         request.user = self.user
-        view = Mock()
+        Mock()
 
         # Before calling allow_request, wait should be None
         assert throttle.wait() is None
@@ -497,8 +493,8 @@ class SmartRateLimitThrottleTestCase(APITestCase):
     def test_multiple_throttles_on_request(self):
         """Test multiple throttles on same request (different scopes)."""
         from django_smart_ratelimit.integrations.drf import (
-            UserRateLimitThrottle,
             AnonRateLimitThrottle,
+            UserRateLimitThrottle,
         )
 
         request = self.factory.get("/api/test/")

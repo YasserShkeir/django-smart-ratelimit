@@ -8,22 +8,20 @@ Skips if opentelemetry is not installed.
 import pytest
 
 try:
+    from opentelemetry.sdk.metrics import MeterProvider
+    from opentelemetry.sdk.metrics.export import InMemoryMetricReader
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import SimpleSpanProcessor
     from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
         InMemorySpanExporter,
     )
-    from opentelemetry.sdk.metrics import MeterProvider
-    from opentelemetry.sdk.metrics.export import InMemoryMetricReader
 
     HAS_OTEL = True
 except ImportError:
     HAS_OTEL = False
 
 
-pytestmark = pytest.mark.skipif(
-    not HAS_OTEL, reason="opentelemetry not installed"
-)
+pytestmark = pytest.mark.skipif(not HAS_OTEL, reason="opentelemetry not installed")
 
 
 @pytest.fixture
@@ -56,7 +54,9 @@ class TestRateLimitTracer:
         """Test that allowed request creates span with correct attributes."""
         from django_smart_ratelimit.observability.otel import RateLimitTracer
 
-        tracer = RateLimitTracer(tracer=otel_setup["tracer_provider"].get_tracer(__name__))
+        tracer = RateLimitTracer(
+            tracer=otel_setup["tracer_provider"].get_tracer(__name__)
+        )
 
         with tracer.start_check_span(
             key="user:123",
@@ -86,10 +86,13 @@ class TestRateLimitTracer:
 
     def test_denied_request_sets_error_status(self, otel_setup):
         """Test that denied request sets span status to ERROR."""
-        from django_smart_ratelimit.observability.otel import RateLimitTracer
         from opentelemetry.trace import StatusCode
 
-        tracer = RateLimitTracer(tracer=otel_setup["tracer_provider"].get_tracer(__name__))
+        from django_smart_ratelimit.observability.otel import RateLimitTracer
+
+        tracer = RateLimitTracer(
+            tracer=otel_setup["tracer_provider"].get_tracer(__name__)
+        )
 
         with tracer.start_check_span(
             key="user:456",
@@ -114,7 +117,9 @@ class TestRateLimitTracer:
         """Test that shadow mode is recorded in span attributes."""
         from django_smart_ratelimit.observability.otel import RateLimitTracer
 
-        tracer = RateLimitTracer(tracer=otel_setup["tracer_provider"].get_tracer(__name__))
+        tracer = RateLimitTracer(
+            tracer=otel_setup["tracer_provider"].get_tracer(__name__)
+        )
 
         with tracer.start_check_span(
             key="user:789",
@@ -136,7 +141,9 @@ class TestRateLimitTracer:
         """Test that cost > 1 is recorded in span attributes."""
         from django_smart_ratelimit.observability.otel import RateLimitTracer
 
-        tracer = RateLimitTracer(tracer=otel_setup["tracer_provider"].get_tracer(__name__))
+        tracer = RateLimitTracer(
+            tracer=otel_setup["tracer_provider"].get_tracer(__name__)
+        )
 
         with tracer.start_check_span(
             key="batch:op1",
