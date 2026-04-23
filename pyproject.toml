@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "django-smart-ratelimit"
-version = "2.2.1"
+version = "3.0.0"
 dynamic = []
 description = "A flexible and efficient rate limiting library for Django applications"
 readme = "README.md"
@@ -57,12 +57,18 @@ jwt = [
 prometheus = [
     "prometheus-client>=0.14.0",
 ]
+opentelemetry = [
+    "opentelemetry-api>=1.20.0",
+    "opentelemetry-sdk>=1.20.0",
+]
 all = [
     "redis>=4.0",
     "hiredis>=2.0",
     "pymongo>=4.0",
     "PyJWT>=2.0",
     "prometheus-client>=0.14.0",
+    "opentelemetry-api>=1.20.0",
+    "opentelemetry-sdk>=1.20.0",
 ]
 dev = [
     "pytest>=7.0",
@@ -94,6 +100,9 @@ Repository = "https://github.com/YasserShkeir/django-smart-ratelimit"
 Issues = "https://github.com/YasserShkeir/django-smart-ratelimit/issues"
 Discussions = "https://github.com/YasserShkeir/django-smart-ratelimit/discussions"
 Changelog = "https://github.com/YasserShkeir/django-smart-ratelimit/blob/main/CHANGELOG.md"
+
+[project.entry-points."pytest11"]
+django_smart_ratelimit = "django_smart_ratelimit.testing"
 
 [tool.hatch.version]
 path = "django_smart_ratelimit/__init__.py"

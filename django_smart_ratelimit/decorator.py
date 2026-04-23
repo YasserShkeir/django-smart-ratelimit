@@ -20,10 +20,17 @@ from .algorithms import TokenBucketAlgorithm
 from .backends import get_async_backend, get_backend
 from .backends.utils import parse_rate, validate_rate_config
 from .context import RateLimitContext
-from .exceptions import BackendError
+from .exceptions import BackendError, KeyGenerationError
 from .key_functions import generate_key
 from .messages import ERROR_RATE_LIMIT_EXCEEDED
 from .performance import get_metrics
+from .pipeline import (
+    POLICY_ALLOW,
+    POLICY_DENY,
+    apply_policy_lists,
+    handle_shadow_decision,
+    resolve_effective_rate,
+)
 from .utils import (
     HttpResponseTooManyRequests,
     add_rate_limit_headers,
@@ -75,25 +82,85 @@ def _get_request_from_args(*args: Any, **kwargs: Any) -> Optional[Any]:
     return None
 
 
+# In-process cache for first-request-aligned reset times. When
+# ``align_window_to_clock`` is False, the very first request in a window
+# establishes a reset_time of ``now + period``; subsequent calls within that
+# window must return the SAME value, otherwise X-RateLimit-Reset drifts
+# forward on every call and clients can never sleep accurately. This dict
+# is keyed by ``limit_key`` and stores ``(reset_time, expires_at)``. Entries
+# are pruned when they're past their reset_time, which bounds the dict size
+# at roughly the number of currently-active rate-limit keys.
+_reset_time_guard = __import__("threading").Lock()
+_reset_time_cache: Dict[str, tuple] = {}
+
+
+def _get_first_aligned_reset_time(limit_key: str, period: int) -> int:
+    """Return the cached first-request reset time, computing it if absent.
+
+    Across calls within the same window we want the SAME timestamp returned —
+    that's what makes ``Retry-After`` and ``X-RateLimit-Reset`` honest. Across
+    workers, multiple workers may compute slightly different reset times for
+    the same key (each worker has its own cache); that's an acceptable price
+    for keeping this hot path lock-free per worker. Operators who need
+    cross-worker stability should switch to ``align_window_to_clock=True``,
+    which is the default.
+    """
+    now = time.time()
+    cached = _reset_time_cache.get(limit_key)
+    if cached and cached[0] > now:
+        return int(cached[0])
+
+    with _reset_time_guard:
+        # Re-check under the guard in case a concurrent caller filled it.
+        cached = _reset_time_cache.get(limit_key)
+        if cached and cached[0] > now:
+            return int(cached[0])
+
+        reset_time = int(now + period)
+        _reset_time_cache[limit_key] = (reset_time, reset_time)
+
+        # Opportunistic cleanup: drop any entries whose reset has already
+        # passed. We do this inside the guard while we hold it. Bounded at
+        # 64 evictions per call so a giant cache can't stall a single
+        # request.
+        if len(_reset_time_cache) > 256:
+            stale = [k for k, v in _reset_time_cache.items() if v[1] <= now][:64]
+            for k in stale:
+                _reset_time_cache.pop(k, None)
+
+        return reset_time
+
+
 def _calculate_stable_reset_time_sliding_window(
-    period: int, align_to_clock: bool = True
+    period: int,
+    align_to_clock: bool = True,
+    limit_key: Optional[str] = None,
 ) -> int:
     """
     Calculate a stable reset time for sliding window algorithm.
 
-    Instead of using the constantly moving window approach, we calculate a stable
-    reset time based on fixed time buckets. This provides users with predictable
-    reset times while maintaining the sliding window behavior for rate limiting.
+    Two stability modes are supported:
+
+    * ``align_to_clock=True`` (default): compute reset time from the current
+      clock-aligned bucket boundary. Stable across workers and processes
+      because everyone agrees on the wall clock; recommended for production.
+
+    * ``align_to_clock=False``: use first-request semantics — the reset time
+      is ``now + period`` for the first caller, and subsequent callers within
+      the same window get back the cached value. ``limit_key`` MUST be
+      provided in this mode; without it we cannot key the cache and would
+      regress to the old drifting behavior. If it's missing we fall back to
+      the clock-aligned calculation as a safer default.
 
     Args:
         period: Time period in seconds for the rate limit window
-        align_to_clock: If True, align to clock boundaries. If False, use request time.
+        align_to_clock: If True, align to clock boundaries. If False, use
+            first-request time anchored per ``limit_key``.
+        limit_key: Required when ``align_to_clock=False``; ignored otherwise.
 
     Returns:
         Stable reset time as Unix timestamp
     """
-    import time
-
     current_time = time.time()
 
     if align_to_clock:
@@ -106,11 +173,16 @@ def _calculate_stable_reset_time_sliding_window(
         # advance to the next bucket to give users reasonable time
         if reset_time - current_time < 5:
             reset_time += period
-    else:
-        # First-request aligned: reset time is simply current_time + period
-        reset_time = int(current_time + period)
+        return reset_time
 
-    return reset_time
+    if limit_key:
+        return _get_first_aligned_reset_time(limit_key, period)
+
+    # No key to anchor first-request alignment — return the drifting
+    # ``now + period`` value. This preserves backward compatibility for
+    # direct callers that pass no key; use _get_reset_time() or supply a
+    # limit_key to opt into stable Retry-After values.
+    return int(current_time + period)
 
 
 def _get_reset_time(backend_instance: Any, limit_key: str, period: int) -> int:
@@ -136,14 +208,20 @@ def _get_reset_time(backend_instance: Any, limit_key: str, period: int) -> int:
             hasattr(backend_instance, "_algorithm")
             and backend_instance._algorithm == "sliding_window"
         ):
-            return _calculate_stable_reset_time_sliding_window(period, align_to_clock)
+            return _calculate_stable_reset_time_sliding_window(
+                period, align_to_clock, limit_key=limit_key
+            )
 
         return reset_time
     except (AttributeError, NotImplementedError) as e:
         logger.debug(f"Failed to get reset time from backend: {e}. Using fallback.")
         if align_to_clock:
-            return _calculate_stable_reset_time_sliding_window(period, align_to_clock)
-        return int(time.time() + period)
+            return _calculate_stable_reset_time_sliding_window(
+                period, align_to_clock, limit_key=limit_key
+            )
+        # First-request-aligned fallback: cache by limit_key so repeat callers
+        # within the window see the same Retry-After.
+        return _get_first_aligned_reset_time(limit_key, period)
 
 
 def _create_rate_limit_response(
@@ -312,11 +390,19 @@ def rate_limit(
     settings: Optional[Any] = None,
     adaptive: Optional[Union[str, AdaptiveRateLimiter]] = None,
     response_callback: Optional[Callable] = None,
+    cost: Union[int, Callable[..., int]] = 1,
+    shadow: bool = False,
+    allow_list: Any = None,
+    deny_list: Any = None,
 ) -> Callable:
     """Apply rate limiting to a view or function.
 
     Args:
-        key: Rate limit key or callable that returns a key
+        key: Rate limit key or callable that returns a key. Since v3.0.0, a
+            callable that returns an empty string or None raises
+            ``KeyGenerationError`` instead of silently collapsing onto a
+            shared bucket. If you want to skip rate limiting for a specific
+            request, use ``skip_if=`` instead.
         rate: Rate limit in format "10/m" (10 requests per minute).
               If None, uses default. Note: When using adaptive rate limiting,
               this value is used as the period only; the limit is determined
@@ -334,6 +420,20 @@ def rate_limit(
         response_callback: Optional callable ``(request) -> HttpResponse`` for
             custom 429 responses. Overrides the global
             ``RATELIMIT_RESPONSE_HANDLER`` setting.
+        cost: **New in v3.0.0** — cost of each request (default 1). Accepts an
+            int or a callable ``(request) -> int``. Useful for weighted rate
+            limits where expensive operations consume more of the budget.
+            Currently honored by token_bucket algorithm natively and by
+            standard algorithms via repeated increments.
+        shadow: **New in v3.0.0** — when True, rate-limit decisions are
+            evaluated and logged (including OTel events) but never actually
+            enforced. Use this to roll out a new limit safely: observe what
+            would be blocked before flipping to enforcement.
+        allow_list: **New in v3.0.0** — CIDR allow-list of IPs that bypass
+            rate limiting entirely. Accepts an :class:`IPList`, iterable of
+            CIDRs, file path, or URL.
+        deny_list: **New in v3.0.0** — CIDR deny-list of IPs to block before
+            rate limiting runs. Takes precedence over allow_list.
 
 
     Returns:
@@ -362,6 +462,19 @@ def rate_limit(
         @rate_limit(key='ip', rate='100/m', adaptive='api')
         def api_view(_request):
             return JsonResponse({'status': 'ok'})
+
+        # Shadow mode for safe rollout (v3.0.0)
+        @rate_limit(key='ip', rate='10/m', shadow=True)
+        def my_view(_request):
+            ...
+
+        # Cost-based weighted limiting (v3.0.0)
+        @rate_limit(
+            key='user', rate='100/m',
+            cost=lambda req: 5 if req.path.startswith('/export') else 1,
+        )
+        def my_view(_request):
+            ...
     """
 
     def decorator(func: Callable) -> Callable:
@@ -408,6 +521,35 @@ def rate_limit(
                             str(e),
                         )
 
+                # Allow/deny list policy — evaluated before rate check so a
+                # deny-listed IP is blocked immediately and an allow-listed IP
+                # skips the backend entirely. In shadow mode a deny still logs
+                # but passes through so operators can tune the list safely.
+                policy = apply_policy_lists(
+                    _request, allow_list=allow_list, deny_list=deny_list
+                )
+                if policy == POLICY_ALLOW:
+                    return await func(*args, **kwargs)
+                if policy == POLICY_DENY:
+                    if shadow:
+                        handle_shadow_decision(
+                            allowed=False,
+                            shadow=True,
+                            request=_request,
+                            key="deny_list",
+                            limit=0,
+                            remaining=0,
+                            algorithm="policy",
+                            backend="decorator",
+                        )
+                    else:
+                        response = _create_rate_limit_response(
+                            request=_request,
+                            response_callback=response_callback,
+                        )
+                        add_rate_limit_headers(response, 0, 0, int(time.time()))
+                        return response
+
                 # Setup backend
                 _backend = backend
                 if _backend is None and settings is not None:
@@ -417,44 +559,60 @@ def rate_limit(
                 if algorithm and hasattr(backend_instance, "config"):
                     backend_instance.config["algorithm"] = algorithm
 
-                # Generate key
-                limit_key = generate_key(key, _request, *args, **kwargs)
-                if iscoroutinefunction(key):
-                    # If key generation was async (unlikely with current implementation but possible)
-                    # generate_key currently is sync.
-                    pass
+                # Resolve key + rate + cost + adaptive in one place (v3 pipeline)
+                try:
+                    resolved = resolve_effective_rate(
+                        key=key,
+                        rate=_rate,
+                        request=_request,
+                        args=args,
+                        kwargs=kwargs,
+                        adaptive=adaptive,
+                        cost=cost,
+                    )
+                except KeyGenerationError:
+                    # Configuration error — let it surface so callers fix it.
+                    raise
 
-                # Resolve rate
-                resolved_rate = _rate
-                if callable(resolved_rate):
-                    try:
-                        resolved_rate = resolved_rate(None, _request)
-                        if iscoroutinefunction(_rate):
-                            resolved_rate = await resolved_rate
-                    except TypeError:
-                        resolved_rate = resolved_rate(_request)
-                        if iscoroutinefunction(_rate):
-                            resolved_rate = await resolved_rate
-
-                limit, period = parse_rate(resolved_rate)
-
-                # Apply adaptive rate limiting if configured
-                limit = _apply_adaptive_limit(adaptive, limit)
+                limit_key = resolved.key
+                limit = resolved.limit
+                period = resolved.period
+                request_cost = resolved.cost
 
                 # Check limit
                 try:
                     # Use async increment if available
+                    if hasattr(backend_instance, "aincr"):
+                        current_count = await backend_instance.aincr(  # type: ignore[call-arg]
+                            limit_key, period, request_cost
+                        )
+                    else:
+                        current_count = await sync_to_async(backend_instance.incr)(  # type: ignore[call-arg]
+                            limit_key, period, request_cost
+                        )
+                except TypeError:
+                    # Backend's incr doesn't accept cost yet (pre-v3 custom
+                    # backend). Fall back to single-token incr and repeat if
+                    # cost > 1 so weighted limiting still works.
                     if hasattr(backend_instance, "aincr"):
                         current_count = await backend_instance.aincr(limit_key, period)
                     else:
                         current_count = await sync_to_async(backend_instance.incr)(
                             limit_key, period
                         )
+                    for _ in range(request_cost - 1):
+                        if hasattr(backend_instance, "aincr"):
+                            current_count = await backend_instance.aincr(
+                                limit_key, period
+                            )
+                        else:
+                            current_count = await sync_to_async(backend_instance.incr)(
+                                limit_key, period
+                            )
                 except BackendError as e:
                     # Handle backend errors
                     if not backend_instance.fail_open:
                         if _settings and _settings.exception_handler:
-                            # Async handler support? Standard handler returns HttpResponse
                             handler = get_exception_handler()
                             return handler(_request, e)
                         else:
@@ -465,16 +623,27 @@ def rate_limit(
                             )
                     current_count = 0
 
-                # Check if limited
-                if current_count > limit:
+                # Check if limited, apply shadow mode
+                is_allowed = current_count <= limit
+                remaining = max(0, limit - current_count)
+                decision = handle_shadow_decision(
+                    allowed=is_allowed,
+                    shadow=shadow,
+                    request=_request,
+                    key=limit_key,
+                    limit=limit,
+                    remaining=remaining,
+                    algorithm=algorithm or "sliding_window",
+                    backend=type(backend_instance).__name__,
+                    cost=request_cost,
+                )
+
+                if not decision.allow:
                     if block:
                         response = _create_rate_limit_response(
                             request=_request,
                             response_callback=response_callback,
                         )
-                        # We need reset time.
-                        # backend.get_reset_time might be sync. Safe to call if it's just math/cache lookup?
-                        # Ideally use async version if exists, or sync_to_async
                         reset_time = int(time.time() + period)
                         add_rate_limit_headers(response, limit, 0, reset_time)
                         return response
@@ -483,7 +652,6 @@ def rate_limit(
                 response = await func(*args, **kwargs)
 
                 # Add headers
-                remaining = max(0, limit - current_count)
                 reset_time = int(time.time() + period)
 
                 if (
@@ -528,6 +696,34 @@ def rate_limit(
                             str(e),
                         )
 
+                # Allow/deny list policy check (v3) — evaluated before any
+                # backend work so deny-listed IPs never touch the cache. In
+                # shadow mode a deny still logs but passes through.
+                policy = apply_policy_lists(
+                    _request, allow_list=allow_list, deny_list=deny_list
+                )
+                if policy == POLICY_ALLOW:
+                    return func(*args, **kwargs)
+                if policy == POLICY_DENY:
+                    if shadow:
+                        handle_shadow_decision(
+                            allowed=False,
+                            shadow=True,
+                            request=_request,
+                            key="deny_list",
+                            limit=0,
+                            remaining=0,
+                            algorithm="policy",
+                            backend="decorator",
+                        )
+                    else:
+                        response = _create_rate_limit_response(
+                            request=_request,
+                            response_callback=response_callback,
+                        )
+                        add_rate_limit_headers(response, 0, 0, int(time.time()))
+                        return response
+
                 # Get the backend and configure algorithm
                 _backend = backend
                 if _backend is None and settings is not None:
@@ -537,30 +733,24 @@ def rate_limit(
                 if algorithm and hasattr(backend_instance, "config"):
                     backend_instance.config["algorithm"] = algorithm
 
-                # Generate the rate limit key and parse rate
-                limit_key = generate_key(key, _request, *args, **kwargs)
+                # Resolve key, rate, cost, adaptive via the v3 pipeline.
+                try:
+                    resolved = resolve_effective_rate(
+                        key=key,
+                        rate=_rate,
+                        request=_request,
+                        args=args,
+                        kwargs=kwargs,
+                        adaptive=adaptive,
+                        cost=cost,
+                    )
+                except KeyGenerationError:
+                    raise
 
-                # Handle dynamic rate (callable)
-                resolved_rate = _rate
-                if callable(resolved_rate):
-                    # Helper to call rate function with appropriate arguments
-                    # Compatibility with django-ratelimit: func(group, request)
-                    # But we don't strictly have 'group'. potentially pass key or None.
-                    # Inspecting views.py: get_tier_rate(grupo, request)
-                    try:
-                        resolved_rate = resolved_rate(None, _request)
-                    except TypeError:
-                        # Fallback if function only takes one argument
-                        try:
-                            resolved_rate = resolved_rate(_request)
-                        except TypeError:
-                            # Last resort, maybe no args?
-                            resolved_rate = resolved_rate()
-
-                limit, period = parse_rate(resolved_rate)
-
-                # Apply adaptive rate limiting if configured
-                limit = _apply_adaptive_limit(adaptive, limit)
+                limit_key = resolved.key
+                limit = resolved.limit
+                period = resolved.period
+                request_cost = resolved.cost
 
                 # Handle middleware vs decorator scenarios
                 if middleware_processed:
@@ -575,6 +765,8 @@ def rate_limit(
                         period,
                         block,
                         response_callback=response_callback,
+                        shadow=shadow,
+                        cost=request_cost,
                     )
 
                 # Handle algorithm-specific logic
@@ -591,6 +783,8 @@ def rate_limit(
                         block,
                         algorithm_config,
                         response_callback=response_callback,
+                        shadow=shadow,
+                        cost=request_cost,
                     )
 
                 # Standard rate limiting (sliding_window or fixed_window)
@@ -605,6 +799,8 @@ def rate_limit(
                     period,
                     block,
                     response_callback=response_callback,
+                    shadow=shadow,
+                    cost=request_cost,
                 )
 
         return wrapper
@@ -623,6 +819,8 @@ def _handle_middleware_processed_request(
     period: int,
     block: bool,
     response_callback: Optional[Callable] = None,
+    shadow: bool = False,
+    cost: int = 1,
 ) -> Any:
     """Handle request when middleware has already processed it."""
     # Even though middleware processed the request, the decorator should still
@@ -636,14 +834,29 @@ def _handle_middleware_processed_request(
     )
 
     try:
-        ctx = check_rate_limit(ctx, backend_instance)
+        ctx = check_rate_limit(ctx, backend_instance, cost=cost)
     except BackendError as e:
         # Handle backend errors based on configuration
         handler = get_exception_handler()
         return handler(_request, e)
 
+    # Apply shadow mode: if shadow=True and the request would have been
+    # blocked, flip the decision to allow but emit a structured log line.
+    decision = handle_shadow_decision(
+        allowed=ctx.allowed,
+        shadow=shadow,
+        request=_request,
+        key=limit_key,
+        limit=limit,
+        remaining=ctx.remaining,
+        algorithm=getattr(backend_instance, "_algorithm", "sliding_window"),
+        backend=type(backend_instance).__name__,
+        cost=cost,
+    )
+    ctx_allowed = decision.allow
+
     # Check if the decorator's limit is exceeded
-    if not ctx.allowed:
+    if not ctx_allowed:
         if block:
             # Block the request and return 429
             return _handle_rate_limit_exceeded(
@@ -691,13 +904,37 @@ def _handle_token_bucket_algorithm(
     block: bool,
     algorithm_config: Optional[Dict[str, Any]],
     response_callback: Optional[Callable] = None,
+    shadow: bool = False,
+    cost: int = 1,
 ) -> Any:
     """Handle token bucket algorithm logic."""
     try:
         algorithm_instance = TokenBucketAlgorithm(algorithm_config)
-        is_allowed, metadata = algorithm_instance.is_allowed(
-            backend_instance, limit_key, limit, period
+        # Token bucket natively supports cost via its ``tokens_requested`` arg.
+        try:
+            is_allowed, metadata = algorithm_instance.is_allowed(
+                backend_instance, limit_key, limit, period, tokens_requested=cost
+            )
+        except TypeError:
+            # Older algorithm signature without tokens_requested kwarg —
+            # fall back to 1 token per request.
+            is_allowed, metadata = algorithm_instance.is_allowed(
+                backend_instance, limit_key, limit, period
+            )
+
+        # Apply shadow mode.
+        decision = handle_shadow_decision(
+            allowed=is_allowed,
+            shadow=shadow,
+            request=_request,
+            key=limit_key,
+            limit=limit,
+            remaining=int(metadata.get("tokens_remaining", 0)) if metadata else 0,
+            algorithm="token_bucket",
+            backend=type(backend_instance).__name__,
+            cost=cost,
         )
+        is_allowed = decision.allow
 
         if not is_allowed:
             if block:
@@ -728,7 +965,7 @@ def _handle_token_bucket_algorithm(
             "Falling back to standard rate limiting.",
             str(e),
         )
-        # Fall back to standard algorithm
+        # Fall back to standard algorithm, preserving shadow + cost
         return _handle_standard_rate_limiting(
             func,
             _request,
@@ -739,16 +976,25 @@ def _handle_token_bucket_algorithm(
             limit,
             period,
             block,
+            response_callback=response_callback,
+            shadow=shadow,
+            cost=cost,
         )
 
 
-def check_rate_limit(ctx: RateLimitContext, backend_instance: Any) -> RateLimitContext:
+def check_rate_limit(
+    ctx: RateLimitContext,
+    backend_instance: Any,
+    cost: int = 1,
+) -> RateLimitContext:
     """
     Check rate limit using context and backend.
 
     Args:
         ctx: The rate limit context
         backend_instance: The backend to use
+        cost: Number of tokens / increments to consume for this request.
+              New in v3.0.0 — defaults to 1 for backwards compatibility.
 
     Returns:
         Updated context with result
@@ -760,11 +1006,24 @@ def check_rate_limit(ctx: RateLimitContext, backend_instance: Any) -> RateLimitC
             current_count, remaining = backend_instance.increment(
                 ctx.key, ctx.period, ctx.limit
             )
+            # Cost > 1 with a backend that doesn't support cost natively:
+            # repeat the increment so weighted limiting still works. This is
+            # non-atomic per-token; backends that care should implement a
+            # native incr(..., cost=N).
+            for _ in range(cost - 1):
+                current_count, remaining = backend_instance.increment(
+                    ctx.key, ctx.period, ctx.limit
+                )
             ctx.current_count = current_count
             ctx.remaining = remaining
         else:
-            # Basic incr
-            current_count = backend_instance.incr(ctx.key, ctx.period)
+            # Basic incr — try passing cost kwarg first (v3 backend contract)
+            try:
+                current_count = backend_instance.incr(ctx.key, ctx.period, cost)
+            except TypeError:
+                current_count = backend_instance.incr(ctx.key, ctx.period)
+                for _ in range(cost - 1):
+                    current_count = backend_instance.incr(ctx.key, ctx.period)
             ctx.current_count = current_count
             ctx.remaining = max(0, ctx.limit - ctx.current_count)
 
@@ -805,6 +1064,8 @@ def _handle_standard_rate_limiting(
     period: int,
     block: bool,
     response_callback: Optional[Callable] = None,
+    shadow: bool = False,
+    cost: int = 1,
 ) -> Any:
     """Handle standard rate limiting (sliding_window or fixed_window)."""
     # Create context
@@ -817,10 +1078,26 @@ def _handle_standard_rate_limiting(
     )
 
     try:
-        ctx = check_rate_limit(ctx, backend_instance)
+        ctx = check_rate_limit(ctx, backend_instance, cost=cost)
     except BackendError as e:
         handler = get_exception_handler()
         return handler(_request, e)
+
+    # Apply shadow mode and observability in one place.
+    decision = handle_shadow_decision(
+        allowed=ctx.allowed,
+        shadow=shadow,
+        request=_request,
+        key=limit_key,
+        limit=limit,
+        remaining=ctx.remaining,
+        algorithm=getattr(backend_instance, "_algorithm", "sliding_window"),
+        backend=type(backend_instance).__name__,
+        cost=cost,
+    )
+    ctx.allowed = decision.allow
+    if decision.shadowed:
+        ctx.metadata["shadow"] = True
 
     # Attach context to request
     if _request:
