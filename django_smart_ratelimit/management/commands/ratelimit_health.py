@@ -80,11 +80,21 @@ class Command(BaseCommand):
     ) -> None:
         """Check health of a single backend."""
         try:
-            # Simple health check
-            test_key = "_health_check_test"
-            backend.get_count(test_key)
-            healthy = True
-            error = None
+            if hasattr(backend, "health_check"):
+                # Prefer a direct connectivity probe. Unlike get_count(),
+                # health_check() does not honor fail_open, so an unreachable
+                # store is reported as unhealthy instead of being masked by a
+                # fail-open default value.
+                result = backend.health_check()
+                healthy = result.get("status") == "healthy"
+                error = None if healthy else result.get("error")
+            else:
+                # Fall back to a simple probe for backends without a dedicated
+                # health_check method.
+                test_key = "_health_check_test"
+                backend.get_count(test_key)
+                healthy = True
+                error = None
         except Exception as e:
             healthy = False
             error = str(e)

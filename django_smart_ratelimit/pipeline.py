@@ -25,6 +25,7 @@ both sync and async call-sites without sync_to_async gymnastics.
 
 from __future__ import annotations
 
+import inspect
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Optional, Tuple, Union
@@ -78,6 +79,37 @@ def _resolve_rate(
     if not callable(rate):
         raise TypeError(f"Rate must be str or callable, got {type(rate)!r}")
 
+    # Prefer dispatching by inspected arity so a TypeError raised *inside* the
+    # callable (a real bug in user code) propagates instead of being silently
+    # swallowed and retried with a different argument count.
+    try:
+        params = [
+            p
+            for p in inspect.signature(rate).parameters.values()
+            if p.kind
+            in (
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            )
+        ]
+        has_var_positional = any(
+            p.kind == inspect.Parameter.VAR_POSITIONAL
+            for p in inspect.signature(rate).parameters.values()
+        )
+    except (TypeError, ValueError):
+        params = None
+        has_var_positional = False
+
+    if params is not None and not has_var_positional:
+        if len(params) == 0:
+            return rate()
+        if len(params) == 1:
+            return rate(request)
+        # 2+ params: django-ratelimit compatibility — (group/self, request).
+        return rate(None, request)
+
+    # Signature could not be introspected (builtin, C callable, odd partial):
+    # fall back to probing argument counts.
     try:
         return rate(None, request)
     except TypeError:

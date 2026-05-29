@@ -31,9 +31,10 @@ Example:
         }
 """
 
+import inspect
 import logging
 import time
-from typing import Any, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from django.http import HttpRequest
 
@@ -41,14 +42,81 @@ from django_smart_ratelimit.backends import get_backend
 
 logger = logging.getLogger(__name__)
 
+# Cache of whether a given backend type's ``incr`` accepts a cost/amount
+# argument. Keyed by backend class so the (cheap but non-trivial) signature
+# inspection runs once per backend type rather than on every request.
+_INCR_COST_SUPPORT_CACHE: Dict[type, bool] = {}
+
+
+def _backend_incr_supports_cost(backend: Any) -> bool:
+    """
+    Determine whether ``backend.incr`` accepts a positional cost argument.
+
+    The decision is based on inspecting the method signature (cached per
+    backend type) rather than catching ``TypeError`` from the call itself.
+    Relying on ``TypeError`` is fragile: a ``TypeError`` raised from *inside*
+    the backend would be misclassified as "no cost support".
+
+    A backend is considered to support cost if its ``incr`` accepts more than
+    the two required parameters (``key``, ``period``) -- e.g. a third
+    positional parameter or ``*args`` -- so additional tokens can be consumed
+    in a single call.
+
+    Args:
+        backend: The backend instance whose ``incr`` is being inspected.
+
+    Returns:
+        True if a cost argument can be passed to ``backend.incr``.
+    """
+    backend_type = type(backend)
+    cached = _INCR_COST_SUPPORT_CACHE.get(backend_type)
+    if cached is not None:
+        return cached
+
+    supports_cost = False
+    try:
+        signature = inspect.signature(backend.incr)
+        params = list(signature.parameters.values())
+        # ``backend.incr`` is bound, so ``self`` is already excluded. The base
+        # contract is incr(key, period); anything that can bind a third
+        # positional argument supports cost.
+        positional = [
+            p
+            for p in params
+            if p.kind
+            in (
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            )
+        ]
+        has_var_positional = any(
+            p.kind == inspect.Parameter.VAR_POSITIONAL for p in params
+        )
+        supports_cost = len(positional) > 2 or has_var_positional
+    except (TypeError, ValueError):
+        # Builtins / C-implemented callables may not expose a signature.
+        # Be conservative and fall back to single-token increments.
+        supports_cost = False
+
+    _INCR_COST_SUPPORT_CACHE[backend_type] = supports_cost
+    return supports_cost
+
+
 # Graceful DRF import with helpful error
 try:
     from rest_framework.throttling import BaseThrottle
 except ImportError:
     BaseThrottle = None
 
+# Base class used for the throttle hierarchy. When DRF is installed this is the
+# real ``BaseThrottle``; otherwise it falls back to ``object`` so the module can
+# still be imported. Attempting to *instantiate* a throttle without DRF raises a
+# helpful ImportError from ``__init__`` (subclassing ``None`` directly would
+# crash at import time before that helpful error could ever be shown).
+_ThrottleBase: Any = BaseThrottle if BaseThrottle is not None else object
 
-class SmartRateLimitThrottle(BaseThrottle):
+
+class SmartRateLimitThrottle(_ThrottleBase):
     """
     BaseThrottle adapter for django-smart-ratelimit.
 
@@ -246,12 +314,16 @@ class SmartRateLimitThrottle(BaseThrottle):
 
         try:
             cost = self.get_cost(request, view)
-            # Prefer backends that accept a cost kwarg (v3 contract). Older
+            # Prefer backends that accept a cost argument (v3 contract).
+            # Whether cost is supported is decided by inspecting the backend's
+            # ``incr`` signature (cached per backend type) -- NOT by catching
+            # TypeError from the call, which would misclassify a TypeError
+            # raised from inside the backend as "no cost support". Older
             # backends fall back to a loop of single-token increments so
             # weighted throttling still works end-to-end.
-            try:
+            if _backend_incr_supports_cost(backend):
                 count = backend.incr(key, period, cost)  # type: ignore[call-arg]
-            except TypeError:
+            else:
                 count = backend.incr(key, period)
                 for _ in range(max(0, cost - 1)):
                     count = backend.incr(key, period)

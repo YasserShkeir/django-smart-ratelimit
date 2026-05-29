@@ -66,6 +66,11 @@ except ImportError:
 # Global tracer and meter (set by instrument_rate_limit)
 _global_tracer: Optional["RateLimitTracer"] = None
 _global_meter: Optional["RateLimitMeter"] = None
+# Lazily-created fallback instances used by record_check when
+# instrument_rate_limit() was never invoked. Cached as module-level
+# singletons so instruments are not recreated on every call.
+_fallback_tracer: Optional["RateLimitTracer"] = None
+_fallback_meter: Optional["RateLimitMeter"] = None
 _lock = threading.Lock()
 
 
@@ -330,6 +335,39 @@ class RateLimitMeter:
         self._backend_errors.add(1, attributes={"error_type": error_type})
 
 
+def _get_tracer_and_meter() -> tuple:
+    """
+    Return the tracer and meter to use for recording checks.
+
+    Prefers the global instances set by instrument_rate_limit(). If those were
+    never initialized, lazily creates module-level fallback singletons once and
+    reuses them on subsequent calls, avoiding recreation of OTel instruments on
+    every record_check() call.
+
+    Returns:
+        A (tracer, meter) tuple of RateLimitTracer and RateLimitMeter instances.
+    """
+    global _fallback_tracer, _fallback_meter
+
+    tracer = _global_tracer
+    meter = _global_meter
+    if tracer is not None and meter is not None:
+        return tracer, meter
+
+    # Lazily create the cached fallbacks under the lock (created once).
+    if _fallback_tracer is None or _fallback_meter is None:
+        with _lock:
+            if _fallback_tracer is None:
+                _fallback_tracer = RateLimitTracer()
+            if _fallback_meter is None:
+                _fallback_meter = RateLimitMeter()
+
+    return (
+        tracer if tracer is not None else _fallback_tracer,
+        meter if meter is not None else _fallback_meter,
+    )
+
+
 def record_check(
     *,
     key: str,
@@ -374,9 +412,10 @@ def record_check(
             duration_ms=2.5,
         )
     """
-    # Use global instances if available (read-only module-level access).
-    tracer = _global_tracer or RateLimitTracer()
-    meter = _global_meter or RateLimitMeter()
+    # Use global instances if instrument_rate_limit() was called; otherwise
+    # fall back to cached module-level singletons so instruments are not
+    # recreated on every call.
+    tracer, meter = _get_tracer_and_meter()
 
     # Record span
     with tracer.start_check_span(

@@ -317,9 +317,12 @@ def time_aware_key(request: HttpRequest, time_window: str = "hour") -> str:
     Returns:
         Rate limiting key string with time information
     """
-    from datetime import datetime
+    from datetime import datetime, timezone
 
-    now = datetime.now()
+    # Use UTC so the time window is consistent across servers and timezones.
+    # A naive local datetime.now() would put servers in different timezones
+    # into different buckets for the same instant.
+    now = datetime.now(timezone.utc)
 
     if time_window == "hour":
         time_str = now.strftime("%Y-%m-%d-%H")
@@ -363,6 +366,12 @@ def generate_key(
             return get_ip_key(request)
         elif key == "user":
             return get_user_key(request)
+        elif key == "user_or_ip":
+            # Authenticated user id, else client IP. Without this branch the
+            # literal "user_or_ip" (and RateLimitKey.USER_OR_IP) fell through to
+            # the "return as-is" path and collapsed every request onto a single
+            # shared global bucket.
+            return user_or_ip_key(request)
         elif key.startswith("user:") and hasattr(request, "user"):
             # Handle user-based templates like "user:{user.id}"
             if request.user.is_authenticated:
@@ -379,11 +388,13 @@ def generate_key(
             meta_key = f"HTTP_{header_name.upper().replace('-', '_')}"
             value = request.META.get(meta_key, "")
             return f"header:{header_name}:{value}"
-        elif key.startswith("get:"):
-            # Handle GET parameter keys
-            param_name = key.split(":", 1)[1]
+        elif key.startswith("get:") or key.startswith("param:"):
+            # Handle GET parameter keys. "param:" is accepted as an alias for
+            # "get:" so RateLimitKey.PARAM ("param") composes correctly, e.g.
+            # f"{RateLimitKey.PARAM}:page".
+            prefix, param_name = key.split(":", 1)
             value = request.GET.get(param_name, "")
-            return f"get:{param_name}:{value}"
+            return f"{prefix}:{param_name}:{value}"
         else:
             # Return key as-is for other patterns
             return key

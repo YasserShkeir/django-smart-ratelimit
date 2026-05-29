@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.0.0] - 2026-04-17
+## [3.0.0] - 2026-05-30
 
 This is a major release that consolidates and hardens the v2.x runtime. Existing
 `@rate_limit(...)` and `RateLimitMiddleware` call-sites keep working unchanged;
@@ -46,6 +46,18 @@ new keyword arguments are all optional. See `MIGRATION.md` for upgrade notes.
   primitives the built-in decorator uses.
 - **`ratelimit` alias** for the `rate_limit` decorator to match
   `django-ratelimit` naming conventions, with the full v3 signature.
+- **`drf` install extra** (`pip install django-smart-ratelimit[drf]`) that
+  pulls in Django REST Framework for the throttle adapter. It is also part of
+  the `all` extra.
+- **`leaky_bucket` is now a first-class decorator algorithm.**
+  `algorithm="leaky_bucket"` (or `Algorithm.LEAKY_BUCKET`) is dispatched to the
+  leaky-bucket implementation on backends with native support (the database
+  backend); other backends log a warning and fall back to window limiting.
+  `Algorithm.LEAKY_BUCKET` was added to the enum and accepted by config
+  validation.
+- **Enum documentation.** The `Algorithm` and `RateLimitKey` enums are now
+  documented across the README and docs, including that `RateLimitKey.HEADER`
+  and `RateLimitKey.PARAM` are prefixes (e.g. `f"{RateLimitKey.HEADER}:X-Api-Key"`).
 - Integration tests for shadow mode, cost limiting, CIDR lists, and key
   validation; unit tests for the pipeline module.
 
@@ -70,6 +82,10 @@ new keyword arguments are all optional. See `MIGRATION.md` for upgrade notes.
   accessed through `type(self)` to bypass Python's method-binding so a
   plain function assigned as a class attribute receives
   `(throttle, request)` rather than an extra bound `self`.
+- **CI**: the test matrix now pins Django in the same install command as the
+  package so the new `djangorestframework` extra cannot pull Django forward off
+  the matrix version; bumped `codecov/codecov-action` 5 to 6,
+  `softprops/action-gh-release` 2 to 3, and `mkdocs-material` to `>=9.7.6`.
 
 ### Fixed
 
@@ -81,6 +97,59 @@ new keyword arguments are all optional. See `MIGRATION.md` for upgrade notes.
   `getattr(backend, "fail_open", True)`.
 - DRF test state no longer leaks across test cases: `setUp`/`tearDown` now
   clear the backend singleton and its counters.
+
+The following were found and fixed during the pre-release review pass:
+
+- **Out-of-the-box failure**: when `RATELIMIT_BACKEND` was unset, the default
+  backend path was unimportable and `get_backend()` raised
+  `ImproperlyConfigured`. The default now correctly resolves to the in-memory
+  backend.
+- **Redis fail-open could 500 instead of allowing**: when retries were
+  exhausted the backend returned `None`, which then crashed callers doing a
+  numeric comparison. It now raises so each method's `fail_open` path runs (and
+  the circuit breaker can see the failure).
+- **Redis fixed-window reads/clears used the wrong key**: in clock-aligned
+  `fixed_window` mode, `incr()` wrote to a time-bucketed key while `get_count()`
+  and `reset()` used the bare key. They now target the same key.
+- **MultiBackend fail-open crash**: `increment()` returned `None` (not a tuple)
+  when every backend was down with `fail_open=True`, crashing the caller on
+  unpack. It now returns a valid allow tuple; `cleanup_expired()` returns `0`.
+- **Circuit breaker**: the `OPEN -> HALF_OPEN` probe is now counted against
+  `half_open_max_calls` (it previously admitted one extra probe), and the
+  decision/transition paths are guarded by the breaker lock. Redis-backed
+  state now expires the `failures`/`last_failure` keys with the state key.
+- **Async decorator**: non-blocking mode (`block=False`) now sets
+  `request.rate_limit_exceeded` like the sync path; `aratelimit()` honors
+  `fail_open` instead of always failing open; and selecting a `token_bucket`/
+  `leaky_bucket` algorithm on an async view logs a warning (window counting is
+  used — async algorithm dispatch is a known limitation).
+- **Key resolution**: `key="user_or_ip"` (and `RateLimitKey.USER_OR_IP`) now
+  resolve to the user-or-IP key instead of collapsing every request onto one
+  global bucket; `param:` is accepted as an alias of `get:`.
+- **Algorithm edge cases**: token-bucket/leaky-bucket now honor an explicit
+  `0` for `initial_tokens`/`bucket_size`/`refill_rate`/`leak_rate` rather than
+  treating it as "unset".
+- **Prometheus**: the high-cardinality rate-limit `key` was removed from metric
+  labels (it allowed unbounded series growth / memory exhaustion), the
+  no-`prometheus_client` fallback no longer stores unbounded per-observation
+  lists, and metric initialization is lock-protected.
+- **Divide-by-zero guards**: `ConnectionCountIndicator` (`max_connections=0`)
+  and `RateLimitTokenBucket.time_until_tokens` (`refill_rate=0`).
+- **OpenTelemetry**: `record_check()` reuses a cached meter/tracer instead of
+  constructing new instruments on every call.
+- **MongoDB**: the fixed-window upsert retries on a concurrent-first-hit
+  `DuplicateKeyError` instead of surfacing it.
+- **Health check** reports a backend as unhealthy when its store is unreachable
+  even if `fail_open=True` (the fail-open value previously masked the outage).
+- The in-memory backend's cleanup thread is now stopped when the backend cache
+  is cleared (no leaked daemon threads), and `time_aware_key` uses UTC so the
+  window is consistent across servers.
+- The DRF integration module now imports cleanly without Django REST Framework
+  installed (instantiating a throttle without it raises a helpful `ImportError`).
+
+### Removed
+
+- Dead, unused `conf.py` module (its defaults contradicted the real `config.py`).
 
 ### Migration
 

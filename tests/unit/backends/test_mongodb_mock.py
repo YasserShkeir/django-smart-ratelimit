@@ -7,6 +7,8 @@ import pytest
 
 from django.core.exceptions import ImproperlyConfigured
 
+from django_smart_ratelimit.exceptions import BackendError
+
 try:
     import pymongo
 
@@ -81,3 +83,36 @@ class TestMongoDBBackendMock(unittest.TestCase):
 
         with self.assertRaises(NotImplementedError):
             backend.token_bucket_check("key", 10, 1.0, 10, 1)
+
+    def test_fixed_window_retries_on_duplicate_key_error(self):
+        """Concurrent first-hit DuplicateKeyError is retried, not propagated."""
+        backend = MongoDBBackend(host="localhost", port=27017, algorithm="fixed_window")
+
+        # First call simulates losing the concurrent insert race; the retry
+        # then finds the document created by the winner and increments it.
+        self.mock_counter_collection.find_one_and_update.side_effect = [
+            pymongo.errors.DuplicateKeyError("E11000 duplicate key"),
+            {"count": 2},
+        ]
+
+        count = backend.incr("user:1", 60)
+
+        self.assertEqual(count, 2)
+        self.assertEqual(self.mock_counter_collection.find_one_and_update.call_count, 2)
+
+    def test_fixed_window_reraises_persistent_duplicate_key_error(self):
+        """A persistent DuplicateKeyError surfaces via backend error handling."""
+        backend = MongoDBBackend(host="localhost", port=27017, algorithm="fixed_window")
+
+        # Every attempt raises: the retry loop exhausts (3 attempts) and
+        # re-raises, which incr() funnels into _handle_backend_error.
+        self.mock_counter_collection.find_one_and_update.side_effect = (
+            pymongo.errors.DuplicateKeyError("E11000 duplicate key")
+        )
+
+        # With fail_open=False (default), incr() surfaces the exhausted error
+        # as a BackendError rather than masking a persistent failure.
+        with self.assertRaises(BackendError):
+            backend.incr("user:1", 60)
+
+        self.assertEqual(self.mock_counter_collection.find_one_and_update.call_count, 3)

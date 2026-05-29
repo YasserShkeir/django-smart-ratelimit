@@ -38,6 +38,19 @@ def login_view(request):
     return authenticate(request)
 ```
 
+Keys and algorithms accept plain strings, or the `RateLimitKey` and `Algorithm`
+enums if you prefer autocomplete and a typo-proof contract. The two are
+interchangeable:
+
+```python
+from django_smart_ratelimit import ratelimit
+from django_smart_ratelimit.enums import Algorithm, RateLimitKey
+
+@ratelimit(key=RateLimitKey.USER_OR_IP, rate='5/m', algorithm=Algorithm.TOKEN_BUCKET)
+def login_view(request):
+    return authenticate(request)
+```
+
 ### Async Support
 
 ```python
@@ -50,13 +63,19 @@ async def api_view(request):
 
 ### Class-Based Views
 
-```python
-from django_smart_ratelimit import RateLimitMixin
+Apply the decorator to a method with Django's `method_decorator`:
 
-class LoginView(RateLimitMixin, View):
-    ratelimit_key = 'ip'
-    ratelimit_rate = '5/m'
-    ratelimit_block = True
+```python
+from django.utils.decorators import method_decorator
+from django.views import View
+
+from django_smart_ratelimit import ratelimit
+
+
+class LoginView(View):
+    @method_decorator(ratelimit(key='ip', rate='5/m', block=True))
+    def post(self, request):
+        return authenticate(request)
 ```
 
 ## Configuration
@@ -64,14 +83,15 @@ class LoginView(RateLimitMixin, View):
 Add to your Django settings:
 
 ```python
-RATELIMIT_DEFAULT_BACKEND = 'redis'
-RATELIMIT_REDIS_URL = 'redis://localhost:6379/0'
+RATELIMIT_BACKEND = 'redis'
+RATELIMIT_REDIS = {'host': 'localhost', 'port': 6379, 'db': 0}
+# Or point at a Redis URL instead of host/port:
+# RATELIMIT_REDIS = {'url': 'redis://localhost:6379/0'}
 
 # Optional: enable structured logging
 RATELIMIT_LOGGING = {
     'ENABLED': True,
-    'LEVEL': 'INFO',
-    'FORMAT': 'json',
+    'FORMAT': 'json',  # "json" or "text"
 }
 
 # Optional: enable Prometheus metrics
@@ -79,6 +99,8 @@ RATELIMIT_PROMETHEUS = {
     'ENABLED': True,
 }
 ```
+
+If `RATELIMIT_BACKEND` is unset, the in-memory backend is used by default.
 
 ## Documentation
 

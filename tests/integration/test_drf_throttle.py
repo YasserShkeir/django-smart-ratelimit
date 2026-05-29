@@ -22,6 +22,13 @@ try:
 except ImportError:
     DRF_AVAILABLE = False
 
+    # Fallbacks so this module can still be COLLECTED without DRF installed.
+    # Every test is skipped via ``pytestmark`` below, but the class bodies are
+    # still evaluated at import time, so the base class name must resolve.
+    from django.test import TestCase as APITestCase
+
+    APIClient = APIView = Response = object  # type: ignore[assignment,misc]
+
 
 pytestmark = pytest.mark.skipif(
     not DRF_AVAILABLE, reason="Django REST Framework not installed"
@@ -489,6 +496,127 @@ class SmartRateLimitThrottleTestCase(APITestCase):
 
         throttle = SlidingWindowThrottle()
         assert throttle.algorithm == "sliding_window"
+
+    def test_cost_passed_once_to_cost_aware_backend(self):
+        """A backend whose incr accepts cost is called once with the cost."""
+        from django_smart_ratelimit.integrations import drf as drf_module
+        from django_smart_ratelimit.integrations.drf import (
+            SmartRateLimitThrottle,
+        )
+
+        # Clear per-type capability cache so this mock type is re-inspected.
+        drf_module._INCR_COST_SUPPORT_CACHE.clear()
+
+        calls = []
+
+        class CostAwareBackend:
+            fail_open = True
+
+            def incr(self, key, period, cost=1):
+                calls.append((key, period, cost))
+                return cost
+
+            def get_reset_time(self, key):
+                return None
+
+        class CostThrottle(SmartRateLimitThrottle):
+            scope = "custom"
+            rate = "10/minute"
+            cost = 3
+
+        throttle = CostThrottle()
+        request = self.factory.get("/api/test/")
+        request.user = self.user
+        view = Mock()
+
+        with patch.object(drf_module, "get_backend", return_value=CostAwareBackend()):
+            assert throttle.allow_request(request, view) is True
+
+        # incr should be called exactly once, with the full cost.
+        assert calls == [(calls[0][0], 60, 3)]
+
+    def test_cost_loops_for_non_cost_backend(self):
+        """A backend whose incr lacks cost is called once per token."""
+        from django_smart_ratelimit.integrations import drf as drf_module
+        from django_smart_ratelimit.integrations.drf import (
+            SmartRateLimitThrottle,
+        )
+
+        drf_module._INCR_COST_SUPPORT_CACHE.clear()
+
+        calls = []
+
+        class NoCostBackend:
+            fail_open = True
+
+            def incr(self, key, period):
+                calls.append((key, period))
+                return len(calls)
+
+            def get_reset_time(self, key):
+                return None
+
+        class CostThrottle(SmartRateLimitThrottle):
+            scope = "custom"
+            rate = "10/minute"
+            cost = 3
+
+        throttle = CostThrottle()
+        request = self.factory.get("/api/test/")
+        request.user = self.user
+        view = Mock()
+
+        with patch.object(drf_module, "get_backend", return_value=NoCostBackend()):
+            assert throttle.allow_request(request, view) is True
+
+        # incr should be called once per token (cost == 3).
+        assert len(calls) == 3
+
+    def test_typeerror_from_cost_backend_not_misclassified(self):
+        """A TypeError raised inside a cost-aware incr is not silently retried.
+
+        Regression: previously the code caught TypeError from the incr call
+        itself and fell back to single-token increments. A TypeError raised
+        from *inside* a cost-supporting backend would be misclassified as
+        "no cost support" and the backend re-called. It must instead propagate
+        to the outer handler (here surfaced via fail_open).
+        """
+        from django_smart_ratelimit.integrations import drf as drf_module
+        from django_smart_ratelimit.integrations.drf import (
+            SmartRateLimitThrottle,
+        )
+
+        drf_module._INCR_COST_SUPPORT_CACHE.clear()
+
+        calls = []
+
+        class BuggyCostBackend:
+            fail_open = True
+
+            def incr(self, key, period, cost=1):
+                calls.append((key, period, cost))
+                raise TypeError("internal bug, not a signature mismatch")
+
+            def get_reset_time(self, key):
+                return None
+
+        class CostThrottle(SmartRateLimitThrottle):
+            scope = "custom"
+            rate = "10/minute"
+            cost = 3
+
+        throttle = CostThrottle()
+        request = self.factory.get("/api/test/")
+        request.user = self.user
+        view = Mock()
+
+        with patch.object(drf_module, "get_backend", return_value=BuggyCostBackend()):
+            # fail_open=True -> request allowed, but the TypeError must NOT
+            # trigger a fallback re-call of incr without cost.
+            assert throttle.allow_request(request, view) is True
+
+        # incr called exactly once (with cost); no fallback loop attempted.
+        assert calls == [(calls[0][0], 60, 3)]
 
     def test_multiple_throttles_on_request(self):
         """Test multiple throttles on same request (different scopes)."""

@@ -341,7 +341,12 @@ def validate_rate_config(
     parse_rate(rate)
 
     # Validate algorithm
-    valid_algorithms = ["fixed_window", "sliding_window", "token_bucket"]
+    valid_algorithms = [
+        "fixed_window",
+        "sliding_window",
+        "token_bucket",
+        "leaky_bucket",
+    ]
     if algorithm and algorithm not in valid_algorithms:
         raise ImproperlyConfigured(
             f"Invalid algorithm: {algorithm}. Must be one of {valid_algorithms}"
@@ -1032,7 +1037,14 @@ def calculate_token_bucket_state(
     )
 
     if tokens_requested > updated_tokens and tokens_requested > 0:
-        time_to_refill = (tokens_requested - updated_tokens) / refill_rate
+        # A refill_rate of 0 means the bucket never refills, so the requested
+        # tokens will never become available. Avoid dividing by zero and report
+        # that refill never happens.
+        time_to_refill = (
+            (tokens_requested - updated_tokens) / refill_rate
+            if refill_rate > 0
+            else float("inf")
+        )
     else:
         time_to_refill = (
             (bucket_size - tokens_remaining) / refill_rate if refill_rate > 0 else 0

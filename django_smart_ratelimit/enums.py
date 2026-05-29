@@ -45,18 +45,26 @@ class Algorithm(StrEnum):
     SLIDING_WINDOW = "sliding_window"
     FIXED_WINDOW = "fixed_window"
     TOKEN_BUCKET = "token_bucket"  # nosec B105
+    LEAKY_BUCKET = "leaky_bucket"
 
 
 class RateLimitKey(StrEnum):
     """Built-in rate limit key types.
 
-    Usage::
+    ``IP``, ``USER`` and ``USER_OR_IP`` are complete keys and can be used
+    directly::
 
         from django_smart_ratelimit.enums import RateLimitKey
 
-        @rate_limit(key=RateLimitKey.USER, rate="10/m")
+        @rate_limit(key=RateLimitKey.USER_OR_IP, rate="10/m")
         def my_view(request):
             ...
+
+    ``HEADER`` and ``PARAM`` are *prefixes*: they require a sub-value naming the
+    header or query parameter to key on. Compose them with that value::
+
+        @rate_limit(key=f"{RateLimitKey.HEADER}:X-Api-Key", rate="100/h")
+        @rate_limit(key=f"{RateLimitKey.PARAM}:tenant", rate="100/h")
     """
 
     IP = "ip"

@@ -7,6 +7,7 @@
 - **[Algorithms](algorithms.md)**: Deep dive into Token Buckets and Windows
 - **[Configuration](configuration.md)**: Backends, Circuit Breakers, and Settings
 - **[Error Handling](error_handling.md)**: Strategies for failure scenarios
+- **[Deployment](deployment.md)**: Running in production
 - **[Migration Guide](migration.md)**: moving from `django-ratelimit`
 
 ## API Reference

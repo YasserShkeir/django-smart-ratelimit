@@ -108,10 +108,18 @@ class TokenBucketAlgorithm(RateLimitAlgorithm):
         limit = _limit
         period = _period
         kwargs = _kwargs
-        # Calculate configuration values
+        # Calculate configuration values. Use ``is not None`` checks so that an
+        # explicit ``0`` is honored instead of being treated as "unset":
+        #   - bucket_size=0 -> reject everything (handled below)
+        #   - refill_rate=0 -> never refill (handled by ``refill_rate > 0`` guards)
+        #   - initial_tokens=0 -> start with an empty bucket
         bucket_size = self.bucket_size if self.bucket_size is not None else limit
-        refill_rate = self.refill_rate or (limit / period)
-        initial_tokens = self.initial_tokens or bucket_size
+        refill_rate = (
+            self.refill_rate if self.refill_rate is not None else (limit / period)
+        )
+        initial_tokens = (
+            self.initial_tokens if self.initial_tokens is not None else bucket_size
+        )
         tokens_requested = kwargs.get("tokens_requested", self.tokens_per_request)
 
         # Handle edge case: zero bucket size means no requests allowed
@@ -167,8 +175,13 @@ class TokenBucketAlgorithm(RateLimitAlgorithm):
         key = _key
         limit = _limit
         period = _period
-        bucket_size = self.bucket_size or limit
-        refill_rate = self.refill_rate or (limit / period)
+        # Mirror the ``is_allowed`` None-vs-zero handling so the two methods
+        # agree on configuration (an explicit ``0`` is honored, not treated as
+        # "unset").
+        bucket_size = self.bucket_size if self.bucket_size is not None else limit
+        refill_rate = (
+            self.refill_rate if self.refill_rate is not None else (limit / period)
+        )
 
         if hasattr(backend, "token_bucket_info"):
             return backend.token_bucket_info(key, bucket_size, refill_rate)

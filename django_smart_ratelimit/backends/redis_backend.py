@@ -330,9 +330,12 @@ class RedisBackend(BaseBackend):
             except redis.RedisError as e:
                 raise BackendError(f"Redis error: {e}") from e
 
-        if self.fail_open:
-            return None  # Fallback?
-
+        # Always raise on exhaustion — never leak a bare ``None`` up to callers.
+        # Each public method (incr, token_bucket_check, ...) applies fail-open in
+        # its own except block via ``_handle_backend_error``, which returns a
+        # safe value (e.g. 0 for incr) when ``fail_open`` is True. Returning None
+        # here instead bypassed that logic and crashed callers doing numeric
+        # comparisons (``None <= limit``), turning fail-open into a 500.
         raise BackendConnectionError(
             f"Redis operation failed after {max_retries} attempts",
             original_exception=last_error,
@@ -512,8 +515,11 @@ class RedisBackend(BaseBackend):
                 window_start = now - period
                 return self.redis.zcount(normalized_key, window_start, "+inf")
             else:
-                # For fixed window, get the counter value
-                count = self.redis.get(normalized_key)
+                # For fixed window, read the SAME key incr writes to. In
+                # clock-aligned mode (default) incr appends a time-bucket suffix,
+                # so reading the bare key would always return 0.
+                fixed_key = normalized_key + get_time_bucket_key_suffix(period)
+                count = self.redis.get(fixed_key)
                 return int(count) if count else 0
         except Exception as e:
             log_backend_operation(

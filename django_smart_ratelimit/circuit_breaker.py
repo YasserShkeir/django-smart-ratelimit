@@ -361,34 +361,46 @@ class CircuitBreaker:
         Returns:
             True if allowed, False otherwise
         """
-        current_state = self.state
-
-        if current_state == CircuitBreakerState.CLOSED:
-            return True
-
-        if current_state == CircuitBreakerState.OPEN:
-            if self._should_attempt_reset():
-                self._change_state(CircuitBreakerState.HALF_OPEN)
-                return True
-            return False
-
-        if current_state == CircuitBreakerState.HALF_OPEN:
-            # Check if we exceeded max calls in half-open state
+        # Hold the lock for the whole decision so the check-then-transition
+        # sequence is atomic within a process. (Cross-process atomicity for the
+        # Redis storage backend still relies on the storage layer's own atomic
+        # counters; this lock removes the in-process race that let N threads all
+        # observe OPEN+reset-ready and each return True.)
+        with self._lock:
             name = self._config.name or "default"
-            # We increment first to reserve the spot
-            count = self._storage.increment_half_open_calls(name)
-            if count > self._config.half_open_max_calls:
-                return False
-            return True
+            current_state = self.state
 
-        return False
+            if current_state == CircuitBreakerState.CLOSED:
+                return True
+
+            if current_state == CircuitBreakerState.OPEN:
+                if self._should_attempt_reset():
+                    self._change_state(CircuitBreakerState.HALF_OPEN)
+                    # Count this first probe against the half-open budget.
+                    # Previously the OPEN->HALF_OPEN transition returned True
+                    # without consuming a slot, so half_open_max_calls=1 actually
+                    # admitted two probes (off-by-one).
+                    count = self._storage.increment_half_open_calls(name)
+                    return count <= self._config.half_open_max_calls
+                return False
+
+            if current_state == CircuitBreakerState.HALF_OPEN:
+                # Check if we exceeded max calls in half-open state.
+                # We increment first to reserve the spot.
+                count = self._storage.increment_half_open_calls(name)
+                if count > self._config.half_open_max_calls:
+                    return False
+                return True
+
+            return False
 
     def report_success(self) -> None:
         """Report successful execution."""
-        if self.state == CircuitBreakerState.HALF_OPEN:
-            # Success in HALF_OPEN -> reset to CLOSED
-            self._change_state(CircuitBreakerState.CLOSED)
-            self._storage.reset_failures(self._config.name or "default")
+        with self._lock:
+            if self.state == CircuitBreakerState.HALF_OPEN:
+                # Success in HALF_OPEN -> reset to CLOSED
+                self._change_state(CircuitBreakerState.CLOSED)
+                self._storage.reset_failures(self._config.name or "default")
 
         self._stats.record_success()
 
@@ -397,13 +409,15 @@ class CircuitBreaker:
         self._stats.record_failure()
         name = self._config.name or "default"
 
-        # Increment failures in storage
-        new_count = self._storage.increment_failure(name)
+        # Increment failures in storage and trip the breaker atomically so a
+        # concurrent check-then-trip cannot race two threads past the threshold.
+        with self._lock:
+            new_count = self._storage.increment_failure(name)
 
-        # Check threshold
-        if new_count >= self._config.failure_threshold:
-            if self.state != CircuitBreakerState.OPEN:
-                self._change_state(CircuitBreakerState.OPEN)
+            # Check threshold
+            if new_count >= self._config.failure_threshold:
+                if self.state != CircuitBreakerState.OPEN:
+                    self._change_state(CircuitBreakerState.OPEN)
 
     def call_with_fallback(
         self, func: Callable[..., T], *args: Any, **kwargs: Any

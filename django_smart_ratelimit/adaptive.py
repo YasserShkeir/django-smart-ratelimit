@@ -201,6 +201,8 @@ class ConnectionCountIndicator(LoadIndicator):
     def get_load(self) -> float:
         """Get load based on connection count."""
         with self._lock:
+            if self._max_connections <= 0:
+                return 0.0
             return min(1.0, self._current_connections / self._max_connections)
 
 

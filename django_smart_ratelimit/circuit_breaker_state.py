@@ -147,6 +147,11 @@ class RedisCircuitBreakerState(CircuitBreakerStateStorage):
         key = self._key(name, "state")
         if ttl:
             self._redis.setex(key, ttl, state)
+            # Apply the same TTL to the failures and last_failure keys so they
+            # cannot outlive the state key and leave an inconsistent CLOSED
+            # state with stale failure counts.
+            self._redis.expire(self._key(name, "failures"), ttl)
+            self._redis.expire(self._key(name, "last_failure"), ttl)
         else:
             self._redis.set(key, state)
 

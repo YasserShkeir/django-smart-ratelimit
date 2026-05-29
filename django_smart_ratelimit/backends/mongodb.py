@@ -58,6 +58,11 @@ class MongoDBBackend(BaseBackend):
     ) -> None:
         """Initialize the MongoDB backend with connection and configuration."""
         # Initialize parent class with circuit breaker
+        # TODO(follow-up): the circuit breaker is initialized here but incr(),
+        # get_count(), and reset() do not route their MongoDB calls through it,
+        # so it currently has no effect. Wire these operations through the
+        # circuit breaker in a future release. Left as-is here to avoid a risky
+        # behavioral change while shipping the DuplicateKeyError fix.
         super().__init__(enable_circuit_breaker, circuit_breaker_config)
 
         if pymongo is None:
@@ -237,7 +242,13 @@ class MongoDBBackend(BaseBackend):
             raise ImproperlyConfigured(f"Cannot create MongoDB indexes: {e}")
 
     def _incr_sliding_window(self, key: str, period: int) -> int:
-        """Increment counter for sliding window algorithm."""
+        """Increment counter for sliding window algorithm.
+
+        TODO(follow-up): the insert + count_documents pair below is not atomic.
+        Concurrent hits can interleave and under-count under load. Consider an
+        aggregation pipeline or a transaction to make insert-and-count a single
+        atomic operation. Deferred to avoid a risky rewrite in this release.
+        """
         if self._collection is None:
             raise ImproperlyConfigured("MongoDB collection not initialized")
 
@@ -275,28 +286,46 @@ class MongoDBBackend(BaseBackend):
         window_start, window_end = get_window_times(period)
         expires_at = window_end + timedelta(seconds=60)  # Keep for a bit longer
 
-        # Use upsert to atomically increment or create counter
-        result = self._counter_collection.find_one_and_update(
-            {
-                "key": key,
-                "window_start": window_start,
-                "window_end": window_end,
-            },
-            {
-                "$inc": {"count": 1},
-                "$set": {"expires_at": expires_at},
-                "$setOnInsert": {
-                    "key": key,
-                    "window_start": window_start,
-                    "window_end": window_end,
-                    "algorithm": "fixed_window",
-                },
-            },
-            upsert=True,
-            return_document=pymongo.ReturnDocument.AFTER,
-        )
+        # Use upsert to atomically increment or create counter.
+        #
+        # Concurrent first hits can race: two upserts may both fail to match an
+        # existing document and attempt to insert, but the unique index on
+        # (key, window_start) lets only one succeed. The loser raises
+        # DuplicateKeyError. Retry so the next attempt finds the now-existing
+        # document and increments it instead of bubbling up a 500.
+        max_attempts = 3
+        for attempt in range(max_attempts):
+            try:
+                result = self._counter_collection.find_one_and_update(
+                    {
+                        "key": key,
+                        "window_start": window_start,
+                        "window_end": window_end,
+                    },
+                    {
+                        "$inc": {"count": 1},
+                        "$set": {"expires_at": expires_at},
+                        "$setOnInsert": {
+                            "key": key,
+                            "window_start": window_start,
+                            "window_end": window_end,
+                            "algorithm": "fixed_window",
+                        },
+                    },
+                    upsert=True,
+                    return_document=pymongo.ReturnDocument.AFTER,
+                )
+                return result["count"] if result else 1
+            except DuplicateKeyError:
+                # Another concurrent first hit won the insert race. On the last
+                # attempt, re-raise so the caller's error handling sees it
+                # rather than silently returning a stale count.
+                if attempt == max_attempts - 1:
+                    raise
+                continue
 
-        return result["count"] if result else 1
+        # Unreachable: the loop either returns or raises on the final attempt.
+        return 1
 
     def incr(self, key: str, period: int) -> int:
         """

@@ -16,7 +16,7 @@ from asgiref.sync import iscoroutinefunction, sync_to_async
 from django.http import HttpResponse
 
 from .adaptive import AdaptiveRateLimiter, get_adaptive_limiter
-from .algorithms import TokenBucketAlgorithm
+from .algorithms import LeakyBucketAlgorithm, TokenBucketAlgorithm
 from .backends import get_async_backend, get_backend
 from .backends.utils import parse_rate, validate_rate_config
 from .context import RateLimitContext
@@ -559,6 +559,17 @@ def rate_limit(
                 if algorithm and hasattr(backend_instance, "config"):
                     backend_instance.config["algorithm"] = algorithm
 
+                # The async path performs window counting only; the dedicated
+                # token/leaky bucket handlers are sync-only for now. Warn instead
+                # of silently applying the wrong algorithm semantics.
+                if algorithm in ("token_bucket", "leaky_bucket"):
+                    logger.warning(
+                        "algorithm=%r is not yet honored for async views; "
+                        "falling back to window counting. Use a sync view for "
+                        "token/leaky bucket burst semantics.",
+                        algorithm,
+                    )
+
                 # Resolve key + rate + cost + adaptive in one place (v3 pipeline)
                 try:
                     resolved = resolve_effective_rate(
@@ -647,6 +658,12 @@ def rate_limit(
                         reset_time = int(time.time() + period)
                         add_rate_limit_headers(response, limit, 0, reset_time)
                         return response
+                    # Non-blocking: mark the request so the view can detect the
+                    # soft-limit breach, mirroring the sync paths.
+                    if _request is not None:
+                        _request.rate_limit_exceeded = True
+                    elif args and hasattr(args[0], "META"):
+                        args[0].rate_limit_exceeded = True
 
                 # Call view
                 response = await func(*args, **kwargs)
@@ -785,6 +802,36 @@ def rate_limit(
                         response_callback=response_callback,
                         shadow=shadow,
                         cost=request_cost,
+                    )
+
+                if algorithm == "leaky_bucket":
+                    # Leaky bucket needs a backend with an atomic, correct
+                    # implementation (the database backend provides
+                    # ``leaky_bucket_check``). The generic in-storage fallback is
+                    # not reliable across all backends, so where native support
+                    # is missing we warn and fall back to standard window
+                    # limiting rather than silently mis-counting.
+                    if hasattr(backend_instance, "leaky_bucket_check"):
+                        return _handle_leaky_bucket_algorithm(
+                            func,
+                            _request,
+                            args,
+                            kwargs,
+                            backend_instance,
+                            limit_key,
+                            limit,
+                            period,
+                            block,
+                            algorithm_config,
+                            response_callback=response_callback,
+                            shadow=shadow,
+                            cost=request_cost,
+                        )
+                    logger.warning(
+                        "algorithm='leaky_bucket' requires a backend with native "
+                        "leaky-bucket support (e.g. the database backend); %s does "
+                        "not, so standard window limiting is applied instead.",
+                        type(backend_instance).__name__,
                     )
 
                 # Standard rate limiting (sliding_window or fixed_window)
@@ -966,6 +1013,96 @@ def _handle_token_bucket_algorithm(
             str(e),
         )
         # Fall back to standard algorithm, preserving shadow + cost
+        return _handle_standard_rate_limiting(
+            func,
+            _request,
+            args,
+            kwargs,
+            backend_instance,
+            limit_key,
+            limit,
+            period,
+            block,
+            response_callback=response_callback,
+            shadow=shadow,
+            cost=cost,
+        )
+
+
+def _handle_leaky_bucket_algorithm(
+    func: Callable,
+    _request: Any,
+    args: tuple,
+    kwargs: dict,
+    backend_instance: Any,
+    limit_key: str,
+    limit: int,
+    period: int,
+    block: bool,
+    algorithm_config: Optional[Dict[str, Any]],
+    response_callback: Optional[Callable] = None,
+    shadow: bool = False,
+    cost: int = 1,
+) -> Any:
+    """Handle leaky bucket algorithm logic.
+
+    Mirrors :func:`_handle_token_bucket_algorithm`. Backends that implement
+    ``leaky_bucket_check`` (e.g. the database backend) get an atomic check; the
+    others use :class:`LeakyBucketAlgorithm`'s generic fallback.
+    """
+    try:
+        algorithm_instance = LeakyBucketAlgorithm(algorithm_config)
+        # Leaky bucket takes per-request weight via its ``request_cost`` kwarg.
+        is_allowed, metadata = algorithm_instance.is_allowed(
+            backend_instance, limit_key, limit, period, request_cost=cost
+        )
+
+        remaining = int(metadata.get("space_remaining", 0)) if metadata else 0
+
+        # Apply shadow mode.
+        decision = handle_shadow_decision(
+            allowed=is_allowed,
+            shadow=shadow,
+            request=_request,
+            key=limit_key,
+            limit=limit,
+            remaining=remaining,
+            algorithm="leaky_bucket",
+            backend=type(backend_instance).__name__,
+            cost=cost,
+        )
+        is_allowed = decision.allow
+
+        reset_time = _get_reset_time(backend_instance, limit_key, period)
+
+        if not is_allowed:
+            if block:
+                return _create_rate_limit_response(
+                    request=_request,
+                    response_callback=response_callback,
+                )
+            # Non-blocking: mark the request and continue.
+            if _request:
+                _request.rate_limit_exceeded = True
+            elif args and hasattr(args[0], "META"):
+                args[0].rate_limit_exceeded = True
+
+            response = func(*args, **kwargs)
+            add_rate_limit_headers(response, limit, remaining, reset_time)
+            return response
+
+        # Execute the original function
+        response = func(*args, **kwargs)
+        add_rate_limit_headers(response, limit, remaining, reset_time)
+        return response
+
+    except Exception as e:
+        # If leaky bucket fails, fall back to standard rate limiting.
+        logger.error(
+            "Leaky bucket algorithm failed with error: %s. "
+            "Falling back to standard rate limiting.",
+            str(e),
+        )
         return _handle_standard_rate_limiting(
             func,
             _request,
@@ -1296,8 +1433,18 @@ def aratelimit(
                     reset_time = meta.get("reset_time", reset_time)
             except Exception as e:
                 logger.exception(f"Async backend check failed: {e}")
+                # Honor the backend's fail_open setting instead of always
+                # failing open. With fail_open=False a backend outage must
+                # fail closed (deny), not silently allow every request.
+                fail_open = getattr(backend_instance, "fail_open", True)
+                if not fail_open:
+                    response = HttpResponseTooManyRequests(
+                        get_rate_limit_error_message()
+                    )
+                    add_rate_limit_headers(response, limit, 0, reset_time)
+                    return response
                 allowed = True
-                remaining = limit  # Assume full quota on error
+                remaining = limit  # Assume full quota on error (fail open)
 
             if not allowed and block:
                 response = HttpResponseTooManyRequests(get_rate_limit_error_message())

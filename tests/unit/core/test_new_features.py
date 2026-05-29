@@ -68,7 +68,9 @@ class AlgorithmEnumTests(TestCase):
     def test_algorithm_iteration(self):
         """Algorithm enum supports iteration."""
         algorithms = list(Algorithm)
-        self.assertEqual(len(algorithms), 3)
+        # sliding_window, fixed_window, token_bucket, leaky_bucket
+        self.assertEqual(len(algorithms), 4)
+        self.assertIn("leaky_bucket", [a.value for a in Algorithm])
 
 
 class RateLimitKeyEnumTests(TestCase):

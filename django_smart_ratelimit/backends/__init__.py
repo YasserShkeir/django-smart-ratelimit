@@ -96,7 +96,22 @@ def get_async_backend(backend_name: Optional[str] = None) -> BaseBackend:
 
 
 def clear_backend_cache() -> None:
-    """Clear the backend instance cache. Useful for testing."""
+    """Clear the backend instance cache. Useful for testing.
+
+    Any cached backend that exposes a ``shutdown()`` method (e.g. the
+    in-memory backend, which runs a background cleanup thread) has it called
+    before the cache is cleared so resources such as daemon threads are not
+    leaked when the cache is reconfigured.
+    """
+    for backend in list(_backend_instances.values()):
+        shutdown = getattr(backend, "shutdown", None)
+        if callable(shutdown):
+            try:
+                shutdown()
+            except Exception:
+                # Best-effort cleanup: never let a shutdown failure prevent
+                # the cache from being cleared.
+                pass
     _backend_instances.clear()
 
 

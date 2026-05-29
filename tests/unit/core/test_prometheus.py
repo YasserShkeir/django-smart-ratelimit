@@ -2,6 +2,8 @@
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from django.http import HttpResponse
 from django.test import RequestFactory, TestCase, override_settings
 
@@ -339,7 +341,7 @@ class TestLabeledSimpleMetric(TestCase):
         hist = SimpleHistogram("test", "test", labels=["a"])
         labeled = _LabeledSimpleMetric(hist, ("val",))
         labeled.observe(0.5)
-        assert len(hist._observations[("val",)]) == 1
+        assert hist._counts[("val",)] == 1
 
 
 class TestThreadSafety(TestCase):
@@ -383,7 +385,7 @@ class TestThreadSafety(TestCase):
         for t in threads:
             t.join()
 
-        assert len(hist._observations[()]) == 1000
+        assert hist._counts[()] == 1000
 
 
 class TestEdgeCases(TestCase):
@@ -420,3 +422,80 @@ class TestEdgeCases(TestCase):
         output = metrics.generate_metrics()
         assert "edge_requests_total" in output
         assert "edge_request_duration_seconds" in output
+
+
+class TestLabelCardinality(TestCase):
+    """Regression tests guarding against unbounded label cardinality."""
+
+    def setUp(self):
+        PrometheusMetrics.reset()
+
+    def tearDown(self):
+        PrometheusMetrics.reset()
+
+    def test_key_is_not_a_label(self):
+        """The rate-limit key must not appear as a metric label.
+
+        Per-key labels (per-IP/per-user/per-API-key) cause unbounded
+        cardinality, so record_request must not emit the key value.
+        """
+        metrics = PrometheusMetrics()
+        metrics._initialize(prefix="card")
+
+        # The metric label sets themselves must not include "key".
+        assert "key" not in metrics.requests_total._label_names
+        assert "key" not in metrics.requests_denied_total._label_names
+
+        secret_key = "ip:203.0.113.42"
+        metrics.record_request(
+            key=secret_key,
+            backend="memory",
+            allowed=False,
+            duration_seconds=0.002,
+        )
+        output = metrics.generate_metrics()
+
+        # The key value must never be emitted as a label.
+        assert secret_key not in output
+        assert 'key="' not in output
+        # Low-cardinality labels are still present.
+        assert 'backend="memory"' in output
+        assert 'result="denied"' in output
+
+    def test_rotating_keys_do_not_grow_label_series(self):
+        """Rotating keys must not create new time series per key."""
+        metrics = PrometheusMetrics()
+        metrics._initialize(prefix="card")
+
+        for i in range(1000):
+            metrics.record_request(
+                key=f"ip:10.0.0.{i}",
+                backend="memory",
+                allowed=True,
+                duration_seconds=0.001,
+            )
+
+        # Only one series per (backend, result) combination should exist.
+        assert len(metrics.requests_total._values) == 1
+        assert metrics.requests_total._values[("memory", "allowed")] == 1000.0
+
+    def test_histogram_storage_is_bounded(self):
+        """Histogram must store fixed aggregates, not per-observation lists."""
+        hist = SimpleHistogram(
+            "bounded_hist",
+            "Bounded histogram",
+            buckets=(0.01, 0.05, 0.1, float("inf")),
+        )
+        for _ in range(10000):
+            hist.observe(0.03)
+
+        # Storage size is bounded by the number of buckets, not observations.
+        assert len(hist._bucket_counts[()]) == len(hist.buckets)
+        assert hist._counts[()] == 10000
+        assert hist._sums[()] == pytest.approx(10000 * 0.03)
+
+        output = hist.collect()
+        assert 'bounded_hist_bucket{le="0.01"} 0' in output
+        assert 'bounded_hist_bucket{le="0.05"} 10000' in output
+        assert 'bounded_hist_bucket{le="+Inf"} 10000' in output
+        assert "bounded_hist_count 10000" in output

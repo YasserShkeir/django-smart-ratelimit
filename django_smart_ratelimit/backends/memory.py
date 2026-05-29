@@ -180,14 +180,11 @@ class MemoryBackend(BaseBackend):
 
     def _cleanup_loop(self) -> None:
         """Background cleanup loop."""
-        import time
-
         from .utils import log_backend_operation
 
-        while not self._shutdown_event.is_set():
-            time.sleep(self._cleanup_interval)
-            if self._shutdown_event.is_set():
-                break
+        # Use the stop event's interruptible wait so shutdown() wakes the
+        # thread immediately instead of blocking on a full sleep interval.
+        while not self._shutdown_event.wait(self._cleanup_interval):
             try:
                 with self._lock:
                     self._cleanup_if_needed()

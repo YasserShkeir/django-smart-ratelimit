@@ -543,6 +543,86 @@ class TokenBucketEdgeCaseTest(TestCase):
             )
             self.assertFalse(is_allowed)
 
+    def test_zero_initial_tokens_starts_empty(self):
+        """initial_tokens=0 should start with an empty bucket, not a full one."""
+        algorithm = TokenBucketAlgorithm({"initial_tokens": 0})
+
+        # First request must be denied because the bucket starts empty.
+        is_allowed, metadata = algorithm.is_allowed(
+            self.backend, "zero_initial_key", 10, 60
+        )
+        self.assertFalse(is_allowed)
+        self.assertLess(metadata["tokens_remaining"], 0.1)
+        # bucket_size still defaults to limit even though it starts empty.
+        self.assertEqual(metadata["bucket_size"], 10)
+
+    def test_zero_bucket_size_consistent_between_is_allowed_and_get_info(self):
+        """is_allowed and get_info must agree that bucket_size=0 is honored."""
+        algorithm = TokenBucketAlgorithm({"bucket_size": 0})
+
+        is_allowed, metadata = algorithm.is_allowed(
+            self.backend, "zero_bucket_key", 10, 60
+        )
+        info = algorithm.get_info(self.backend, "zero_bucket_key", 10, 60)
+
+        self.assertFalse(is_allowed)
+        self.assertEqual(metadata["bucket_size"], 0)
+        # get_info previously fell back to limit (10) due to a falsy check;
+        # it must now report the same explicit 0.
+        self.assertEqual(info["bucket_size"], 0)
+
+    def test_zero_refill_rate_is_honored_and_never_divides_by_zero(self):
+        """refill_rate=0 must be honored (never refill) without dividing by zero."""
+        algorithm = TokenBucketAlgorithm({"refill_rate": 0})
+
+        # The explicit 0 must be honored, not replaced by limit/period.
+        is_allowed, metadata = algorithm.is_allowed(
+            self.backend, "zero_refill_key", 10, 60
+        )
+        self.assertTrue(is_allowed)
+        self.assertEqual(metadata["refill_rate"], 0)
+
+        # Drain the remaining tokens; the denial path must not raise
+        # ZeroDivisionError when refill_rate is 0.
+        for _ in range(9):
+            algorithm.is_allowed(self.backend, "zero_refill_key", 10, 60)
+
+        is_allowed, metadata = algorithm.is_allowed(
+            self.backend, "zero_refill_key", 10, 60
+        )
+        self.assertFalse(is_allowed)
+        self.assertEqual(metadata["refill_rate"], 0)
+
+        # get_info must also honor the explicit 0 without dividing by zero.
+        info = algorithm.get_info(self.backend, "zero_refill_key", 10, 60)
+        self.assertEqual(info["refill_rate"], 0)
+
+    def test_zero_refill_rate_generic_backend_path(self):
+        """The generic (non-native) backend path also honors refill_rate=0."""
+
+        class MinimalBackend:
+            def __init__(self):
+                self.store = {}
+
+            def get(self, k):
+                return self.store.get(k)
+
+            def set(self, k, v, *_args):
+                self.store[k] = v
+
+        algorithm = TokenBucketAlgorithm({"refill_rate": 0})
+        backend = MinimalBackend()
+
+        # Drain the bucket, then confirm the denial path does not raise.
+        for _ in range(10):
+            algorithm.is_allowed(backend, "generic_zero_refill", 10, 60)
+
+        is_allowed, metadata = algorithm.is_allowed(
+            backend, "generic_zero_refill", 10, 60
+        )
+        self.assertFalse(is_allowed)
+        self.assertEqual(metadata["refill_rate"], 0)
+
     def test_extremely_high_refill_rate(self):
         """Test behavior with very high refill rate."""
         config = {"refill_rate": 1000000}  # 1M tokens per second
@@ -807,14 +887,14 @@ class TokenBucketAlgorithmSimpleExtendedTests(TestCase):
         )
         self.assertEqual(meta2.get("tokens_requested"), 7)
 
-    def test_get_info_with_zero_bucket_size_falls_back_to_limit(self):
-        """get_info uses limit when config bucket_size=0 (falsy)."""
+    def test_get_info_with_zero_bucket_size_honors_explicit_zero(self):
+        """get_info honors an explicit bucket_size=0 (consistent with is_allowed)."""
         algorithm = TokenBucketAlgorithm({"bucket_size": 0})
         info = algorithm.get_info(self.backend, "info_zero", 10, 60)
-        # Because get_info uses , 0 falls back to limit
-        self.assertEqual(info.get("bucket_size"), 10)
+        # An explicit 0 is honored (not treated as "unset"), matching is_allowed.
+        self.assertEqual(info.get("bucket_size"), 0)
         self.assertIn("tokens_remaining", info)
-        self.assertLessEqual(info["tokens_remaining"], 10)
+        self.assertLessEqual(info["tokens_remaining"], 0)
 
     def test_algorithm_initialization_defaults(self):
         """Test algorithm initialization with defaults."""

@@ -64,7 +64,7 @@ from .circuit_breaker import (
 from .configuration import RateLimitConfigManager
 
 # Core functionality
-from .decorator import rate_limit
+from .decorator import aratelimit, rate_limit
 
 # Enums for type-safe configuration
 from .enums import Algorithm, RateLimitKey
@@ -209,6 +209,7 @@ __all__ = [
     # Core functionality
     "rate_limit",
     "ratelimit",  # Alias for rate_limit
+    "aratelimit",  # Async decorator
     "RateLimitMiddleware",
     # Logging
     "RATELIMIT_LOG_FORMAT",

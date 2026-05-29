@@ -131,6 +131,15 @@ class TestLoadIndicators:
 
         assert indicator.get_load() == 0.0
 
+    def test_connection_count_indicator_zero_max_connections(self):
+        """Test that max_connections=0 returns 0.0 load (no ZeroDivisionError)."""
+        indicator = ConnectionCountIndicator(max_connections=0)
+
+        indicator.increment()
+
+        # Should not raise ZeroDivisionError and return 0.0
+        assert indicator.get_load() == 0.0
+
     def test_custom_load_indicator(self):
         """Test custom load indicator with a function."""
         custom_load = MagicMock(return_value=0.75)

@@ -5,11 +5,14 @@ This module provides classes for managing IP allowlists and denylists using CIDR
 It supports IPv4 and IPv6 addresses, file-based configuration, and URL-based feeds.
 
 IMPORTANT SECURITY NOTE ON X-Forwarded-For:
-The `extract_client_ip` function respects X-Forwarded-For headers to support proxies and CDNs.
-However, this header can be spoofed if not properly validated. Only trust X-Forwarded-For
-if your application is behind a trusted proxy and you've configured Django's TRUSTED_PROXIES
-setting appropriately. Otherwise, clients can spoof their IP address and bypass IP-based
-rate limiting controls.
+The `extract_client_ip` function respects X-Forwarded-For (and CF-Connecting-IP /
+X-Real-IP) headers to support proxies and CDNs. These headers are client-controlled and
+can be spoofed unless a trusted proxy overwrites them. This library does not yet validate
+proxy trust, so when CIDR allow/deny lists drive access control you MUST ensure these
+headers are set only by a trusted reverse proxy (and stripped from inbound client
+requests at the edge). If your app is exposed directly (no header-sanitizing proxy in
+front), a client can spoof its IP to match an allow-list entry or evade a deny-list
+entry. See the deployment docs for the recommended proxy configuration.
 
 Examples:
     Basic IP list for allow/deny:
@@ -165,9 +168,12 @@ class FileBackedIPList(IPList):
         path: File path to read CIDRs from
         refresh_interval: Seconds between file refreshes (default: 300)
 
-    Raises:
-        ValueError: If file cannot be read or contains invalid CIDRs
-        FileNotFoundError: If file does not exist initially
+    Note:
+        A missing file (or invalid CIDR content) on the initial load is logged
+        as a warning and leaves the list empty rather than raising — so a
+        transiently-unavailable file does not crash application startup. Use
+        ``force_refresh()`` to reload, and check ``networks`` if you need to
+        confirm entries were loaded.
 
     Examples:
         >>> blocklist = FileBackedIPList('/etc/ratelimit/blocklist.txt', refresh_interval=300)
@@ -486,7 +492,8 @@ def extract_client_ip(request: HttpRequest) -> str:
     This function trusts X-Forwarded-For and other proxy headers. These headers
     can be spoofed if the request doesn't come from a trusted proxy. Only rely
     on this function if your application is deployed behind a trusted reverse
-    proxy and you've configured Django's TRUSTED_PROXIES appropriately.
+    proxy that overwrites these headers and strips any client-supplied values.
+    The library does not currently validate proxy trust itself.
 
     Args:
         request: Django HTTP request object
