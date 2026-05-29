@@ -4,12 +4,15 @@ Backend management for rate limiting storage.
 This module provides the backend selection and initialization logic.
 """
 
+import logging
 from typing import Dict, Optional
 
 from django.core.exceptions import ImproperlyConfigured
 
 from .base import BaseBackend
 from .factory import BackendFactory
+
+logger = logging.getLogger(__name__)
 
 # Backend instance cache
 _backend_instances: Dict[str, BaseBackend] = {}
@@ -108,10 +111,10 @@ def clear_backend_cache() -> None:
         if callable(shutdown):
             try:
                 shutdown()
-            except Exception:
+            except Exception as exc:
                 # Best-effort cleanup: never let a shutdown failure prevent
                 # the cache from being cleared.
-                pass
+                logger.debug("Backend shutdown during cache clear failed: %s", exc)
     _backend_instances.clear()
 
 

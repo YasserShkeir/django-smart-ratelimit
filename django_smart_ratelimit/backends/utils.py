@@ -730,7 +730,7 @@ def format_lua_args(args: List[Any]) -> List[str]:
 # Backend Factory and Registration
 # ============================================================================
 
-_backend_registry = {}
+_backend_registry: Dict[str, type] = {}
 
 
 def register_backend(name: str, backend_class: type) -> None:
