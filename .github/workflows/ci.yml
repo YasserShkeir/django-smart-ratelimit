@@ -56,7 +56,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[all]"
-          pip install pip-audit bandit
+          # Pin bandit: its B105 heuristics shift between minor releases, so an
+          # unpinned bandit makes a green build non-reproducible.
+          pip install pip-audit "bandit==1.9.4"
 
       - name: Run pip-audit (dependency vulnerability scan)
         # Advisory, not blocking. This is a LIBRARY: it does not pin its dev /
