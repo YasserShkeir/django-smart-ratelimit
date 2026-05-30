@@ -137,11 +137,11 @@ Overflow (bucket full) → request rejected
 
 ## Async Views and Algorithm Selection
 
-On asynchronous views (`aratelimit`, or an `async def` view) algorithm selection is
-**not yet honored** for `token_bucket` and `leaky_bucket`. The async path performs
-window counting only; passing either of those algorithms logs a warning and falls
-back to window counting. Use a synchronous view if you need token/leaky bucket burst
-semantics.
+As of v3.1.0, `@rate_limit` on an `async def` view honors `token_bucket` (and
+`leaky_bucket` on a backend with native support, such as the database backend) —
+the algorithm check runs off the event loop. On backends without native
+leaky-bucket support, `leaky_bucket` logs a warning and falls back to window
+counting. The standalone `@aratelimit` decorator performs window counting only.
 
 ## Window Alignment
 

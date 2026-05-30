@@ -87,10 +87,10 @@ When `algorithm` is left as `None`, standard window limiting is applied
 
 Limitations to be aware of:
 
-- `token_bucket` and `leaky_bucket` are honored only by the **sync** decorator.
-  On async views (an `async def` view, or `@aratelimit`) algorithm selection is
-  not yet honored: the decorator logs a warning and falls back to window
-  counting.
+- `token_bucket` and `leaky_bucket` are honored on **sync** views and on
+  **async** `async def` views decorated with `@rate_limit` (as of v3.1.0 the
+  async path runs the algorithm check off the event loop). The standalone
+  `@aratelimit` decorator still applies window counting only.
 - `leaky_bucket` via the decorator requires a backend with native leaky-bucket
   support. The **database** backend provides this. On other backends the
   decorator logs a warning and falls back to standard window limiting, so do not
@@ -154,9 +154,9 @@ async def my_async_view(request):
 ```
 
 `@rate_limit` also detects `async def` views automatically and applies its async
-path, so most async views can use `@rate_limit` directly. Note that on either
-async path, `token_bucket` / `leaky_bucket` selection is not honored and window
-counting is used instead.
+path, so most async views can use `@rate_limit` directly — including
+`token_bucket` / `leaky_bucket`, which are honored on the async path as of
+v3.1.0. The standalone `@aratelimit` decorator applies window counting only.
 
 ## @ratelimit_batch
 
