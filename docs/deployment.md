@@ -115,7 +115,9 @@ machine-readable output, `--verbose` for per-backend detail). Use
 ## Performance Tuning
 
 - **Algorithm choice**: `token_bucket` (`Algorithm.TOKEN_BUCKET`) is generally efficient and
-  smooths bursts. The default is `sliding_window` (`Algorithm.SLIDING_WINDOW`). Algorithm
-  selection is honored by the synchronous decorator; on async views it currently logs a
-  warning and falls back to window counting.
+  smooths bursts. The default is `sliding_window` (`Algorithm.SLIDING_WINDOW`). As of v3.1.0,
+  `token_bucket` and `leaky_bucket` are honored on both sync and async `@rate_limit` views
+  (`leaky_bucket` requires a backend with native support, e.g. the database backend; otherwise
+  it warns and falls back to window counting). The standalone `@aratelimit` decorator uses
+  window counting only.
 - **Connection pooling**: the Redis backend reuses connection pools across requests.
