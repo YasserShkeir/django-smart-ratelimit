@@ -442,9 +442,17 @@ class TestLabelCardinality(TestCase):
         metrics = PrometheusMetrics()
         metrics._initialize(prefix="card")
 
-        # The metric label sets themselves must not include "key".
-        assert "key" not in metrics.requests_total._label_names
-        assert "key" not in metrics.requests_denied_total._label_names
+        # The metric label sets themselves must not include "key". Works for
+        # both the real prometheus_client Counter (``_labelnames``) and the
+        # built-in fallback (``_label_names``).
+        def _label_names(metric):
+            names = getattr(metric, "_labelnames", None)
+            if names is None:
+                names = getattr(metric, "_label_names", ())
+            return names
+
+        assert "key" not in _label_names(metrics.requests_total)
+        assert "key" not in _label_names(metrics.requests_denied_total)
 
         secret_key = "ip:203.0.113.42"
         metrics.record_request(
@@ -475,9 +483,22 @@ class TestLabelCardinality(TestCase):
                 duration_seconds=0.001,
             )
 
-        # Only one series per (backend, result) combination should exist.
-        assert len(metrics.requests_total._values) == 1
-        assert metrics.requests_total._values[("memory", "allowed")] == 1000.0
+        # Assert via the exposition output so this holds for both the real
+        # prometheus_client and the built-in fallback: rotating the key must not
+        # create a new time series per key.
+        output = metrics.generate_metrics()
+        series = [
+            line
+            for line in output.splitlines()
+            if line.startswith("card_requests_total{")
+        ]
+        # Exactly one (backend, result) series — no per-key explosion.
+        assert len(series) == 1
+        assert 'backend="memory"' in series[0]
+        assert 'result="allowed"' in series[0]
+        assert "key=" not in series[0]
+        # That single series counted all 1000 requests.
+        assert float(series[0].rsplit(" ", 1)[1]) == 1000.0
 
     def test_histogram_storage_is_bounded(self):
         """Histogram must store fixed aggregates, not per-observation lists."""
