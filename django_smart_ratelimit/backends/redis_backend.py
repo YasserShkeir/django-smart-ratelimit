@@ -116,32 +116,44 @@ class RedisBackend(BaseBackend):
         local tokens_to_add = time_elapsed * refill_rate
         current_tokens = math.min(bucket_size, current_tokens + tokens_to_add)
 
+        -- Expiration: time for a full refill + buffer. A non-positive
+        -- refill_rate means the bucket never refills; use a fixed TTL and do
+        -- NOT divide by zero (which yields inf and a Redis "value is not an
+        -- integer or out of range" error on EXPIRE).
+        local expiration
+        if refill_rate > 0 then
+            expiration = math.ceil(bucket_size / refill_rate) + 60
+        else
+            expiration = 3600
+        end
+
         -- Check if request can be served
         if current_tokens >= tokens_requested then
             -- Consume tokens
             local remaining_tokens = current_tokens - tokens_requested
             redis.call('HMSET', key, 'tokens', remaining_tokens, 'last_refill',
                       current_time)
-
-            -- Set expiration (bucket expires after it could be completely
-            -- refilled + buffer)
-            local expiration = math.ceil(bucket_size / refill_rate) + 60
             redis.call('EXPIRE', key, expiration)
 
-            -- Return success with metadata
-            return {1, remaining_tokens, bucket_size, refill_rate,
-                   (bucket_size - remaining_tokens) / refill_rate}
+            -- Return success with metadata (time_to_refill is 0 when the
+            -- bucket does not refill).
+            local time_to_refill = 0
+            if refill_rate > 0 then
+                time_to_refill = (bucket_size - remaining_tokens) / refill_rate
+            end
+            return {1, remaining_tokens, bucket_size, refill_rate, time_to_refill}
         else
             -- Update last_refill time even if request is denied
             redis.call('HMSET', key, 'tokens', current_tokens, 'last_refill',
                       current_time)
-
-            local expiration = math.ceil(bucket_size / refill_rate) + 60
             redis.call('EXPIRE', key, expiration)
 
             -- Return failure with metadata
-            return {0, current_tokens, bucket_size, refill_rate,
-                   (tokens_requested - current_tokens) / refill_rate}
+            local time_to_refill = 0
+            if refill_rate > 0 then
+                time_to_refill = (tokens_requested - current_tokens) / refill_rate
+            end
+            return {0, current_tokens, bucket_size, refill_rate, time_to_refill}
         end
     """  # nosec B105
 
@@ -162,9 +174,13 @@ class RedisBackend(BaseBackend):
         local tokens_to_add = time_elapsed * refill_rate
         current_tokens = math.min(bucket_size, current_tokens + tokens_to_add)
 
-        -- Return current state
-        return {current_tokens, bucket_size, refill_rate,
-               math.max(0, (bucket_size - current_tokens) / refill_rate), last_refill}
+        -- Return current state (time_to_refill is 0 when the bucket does not
+        -- refill, avoiding a divide-by-zero / inf metadata value).
+        local time_to_refill = 0
+        if refill_rate > 0 then
+            time_to_refill = math.max(0, (bucket_size - current_tokens) / refill_rate)
+        end
+        return {current_tokens, bucket_size, refill_rate, time_to_refill, last_refill}
     """  # nosec B105
 
     def __init__(
