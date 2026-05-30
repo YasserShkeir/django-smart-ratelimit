@@ -161,6 +161,29 @@ With clock alignment disabled:
 - User A's first request at 12:00:30 → window is 12:00:30-12:01:30 (60s remaining)
 - User B's first request at 12:00:45 → window is 12:00:45-12:01:45 (60s remaining)
 
+## Client IP and Proxy Trust
+
+The `"ip"` / `"user_or_ip"` keys and the CIDR allow/deny lists derive the client
+IP from request headers. Forwarded headers (`X-Forwarded-For`, `CF-Connecting-IP`,
+`X-Real-IP`) are client-controlled and spoofable unless a trusted proxy overwrites
+them, so two settings (added in v3.1.0) control how much they are trusted:
+
+```python
+# A list of IP/CIDR strings identifying your reverse proxies / load balancers.
+# When set, forwarded headers are honored ONLY for requests arriving from one of
+# these proxies, and the real client is the right-most non-trusted entry of the
+# X-Forwarded-For chain. This is the secure, recommended configuration.
+RATELIMIT_TRUSTED_PROXIES = ['10.0.0.0/8']
+
+# Master switch (default True). Set False to ignore forwarded headers entirely
+# and always use REMOTE_ADDR (useful when the app is never behind a proxy).
+RATELIMIT_TRUST_FORWARDED_HEADERS = True
+```
+
+Defaults are backward compatible: when neither setting is configured, the first
+present forwarded header is trusted (the historical behavior). See the deployment
+guide for the security rationale.
+
 ## Circuit Breaker Configuration
 
 Protects your application when backends are unhealthy.

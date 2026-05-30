@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.1.0] - 2026-05-30
+
+### Added
+
+- **Configurable proxy trust for client IP extraction.** New settings
+  `RATELIMIT_TRUSTED_PROXIES` (a list of IP/CIDR strings) and
+  `RATELIMIT_TRUST_FORWARDED_HEADERS` (bool). When `RATELIMIT_TRUSTED_PROXIES`
+  is set, the forwarded headers (`X-Forwarded-For`, `CF-Connecting-IP`,
+  `X-Real-IP`) are honored only for requests that arrive from a trusted proxy,
+  and the real client is taken as the right-most non-trusted entry of the
+  `X-Forwarded-For` chain. The default behavior is unchanged and backward
+  compatible (forwarded headers are trusted) until you opt in. A new public
+  helper, `django_smart_ratelimit.policy.get_client_ip`, centralizes the logic;
+  `get_ip_key` and the CIDR allow/deny lists now share it so the rate-limit key
+  and policy lists always agree on the client IP.
+- **Async support for the token-bucket and leaky-bucket algorithms.**
+  `@rate_limit(..., algorithm="token_bucket")` (and `leaky_bucket` on backends
+  with native support, e.g. the database backend) are now honored on async
+  views — the algorithm check runs off the event loop via `sync_to_async`.
+  Previously async views silently fell back to window counting. Async views on
+  a backend without native leaky-bucket support still warn and use window
+  limiting.
+
+### Security
+
+- IP-based limits and CIDR allow/deny lists can no longer be bypassed by a
+  spoofed `X-Forwarded-For` (or `CF-Connecting-IP` / `X-Real-IP`) header once
+  `RATELIMIT_TRUSTED_PROXIES` is configured. A direct (non-proxied) client's
+  forwarded headers are ignored, and a client cannot move the result by
+  prepending fake entries to the chain. See the deployment docs for setup.
+
 ## [3.0.0] - 2026-05-30
 
 This is a major release that consolidates and hardens the v2.x runtime. Existing

@@ -25,25 +25,18 @@ def get_ip_key(request: HttpRequest) -> str:
 
     Returns:
         IP address string formatted as 'ip:{address}'
+
+    Note:
+        Client IP extraction (and whether forwarded headers such as
+        X-Forwarded-For are trusted) is governed by ``RATELIMIT_TRUSTED_PROXIES``
+        / ``RATELIMIT_TRUST_FORWARDED_HEADERS``. See
+        :func:`django_smart_ratelimit.policy.get_client_ip`.
     """
-    # Try various headers to get real IP (considering proxies)
-    ip_headers = [
-        "HTTP_CF_CONNECTING_IP",  # Cloudflare
-        "HTTP_X_FORWARDED_FOR",  # Standard proxy header
-        "HTTP_X_REAL_IP",  # Nginx proxy
-        "REMOTE_ADDR",  # Direct connection
-    ]
+    # Delegate to the shared, proxy-trust-aware extractor so the rate-limit key
+    # and the CIDR allow/deny lists agree on the client IP.
+    from .policy import get_client_ip
 
-    for header in ip_headers:
-        ip = request.META.get(header)
-        if ip:
-            # Handle comma-separated IPs (X-Forwarded-For)
-            if "," in ip:
-                ip = ip.split(",")[0].strip()
-            if ip and ip != "unknown":
-                return f"ip:{ip}"
-
-    return "ip:unknown"
+    return f"ip:{get_client_ip(request)}"
 
 
 def get_user_key(request: HttpRequest) -> str:

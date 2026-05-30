@@ -481,19 +481,126 @@ def parse_ip_list(source: Union[str, List[str], IPList, None]) -> Optional[IPLis
     return None
 
 
+# Cache of parsed trusted-proxy IPLists, keyed by the raw setting value so a
+# changed RATELIMIT_TRUSTED_PROXIES (e.g. via override_settings) re-parses.
+_TRUSTED_PROXY_CACHE: dict = {}
+
+# Forwarded headers consulted in the legacy (trust-everything) path, in order.
+_FORWARDED_HEADERS = (
+    "HTTP_CF_CONNECTING_IP",  # Cloudflare
+    "HTTP_X_FORWARDED_FOR",  # Standard proxy header
+    "HTTP_X_REAL_IP",  # Nginx
+)
+
+
+def _get_trusted_proxies() -> Optional[IPList]:
+    """Return the configured trusted-proxy IPList, or None if not configured."""
+    from django.conf import settings
+
+    raw = getattr(settings, "RATELIMIT_TRUSTED_PROXIES", None)
+    if not raw:
+        return None
+    key = tuple(raw)
+    cached = _TRUSTED_PROXY_CACHE.get(key)
+    if cached is not None:
+        return cached
+    try:
+        ip_list = IPList(list(raw))
+    except ValueError as exc:
+        logger.warning(
+            "Invalid RATELIMIT_TRUSTED_PROXIES (%s); ignoring proxy trust config",
+            exc,
+        )
+        return None
+    _TRUSTED_PROXY_CACHE[key] = ip_list
+    return ip_list
+
+
+def _client_from_trusted_chain(request: HttpRequest, trusted: IPList) -> str:
+    """Pick the real client IP when the request came from a trusted proxy.
+
+    The X-Forwarded-For chain is ``client, proxy1, proxy2, ...`` (left to
+    right). Walking from the right and returning the first address that is not
+    a trusted proxy yields the real client even when several proxies are
+    chained, and prevents a client from spoofing the value by prepending fake
+    entries.
+    """
+    xff = (request.META.get("HTTP_X_FORWARDED_FOR") or "").strip()
+    if xff:
+        parts = [p.strip() for p in xff.split(",") if p.strip()]
+        for addr in reversed(parts):
+            if not trusted.contains(addr):
+                return addr
+        if parts:
+            # Every hop was a trusted proxy — the left-most entry is the client.
+            return parts[0]
+    for header in ("HTTP_CF_CONNECTING_IP", "HTTP_X_REAL_IP"):
+        value = (request.META.get(header) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def get_client_ip(request: HttpRequest) -> str:
+    """
+    Extract the client IP from a Django request, honoring proxy-trust config.
+
+    Behavior:
+
+    - If ``RATELIMIT_TRUSTED_PROXIES`` is set (a list of IP/CIDR strings),
+      forwarded headers are honored ONLY when ``REMOTE_ADDR`` is one of those
+      trusted proxies; the client IP is the right-most non-trusted entry of the
+      ``X-Forwarded-For`` chain. Requests that did not arrive via a trusted
+      proxy fall back to ``REMOTE_ADDR``. This is the secure configuration.
+    - Else if ``RATELIMIT_TRUST_FORWARDED_HEADERS`` is False, ``REMOTE_ADDR`` is
+      used directly (forwarded headers ignored).
+    - Otherwise (the default, backward-compatible behavior), the first present
+      forwarded header (CF-Connecting-IP, then the left-most X-Forwarded-For,
+      then X-Real-IP) is trusted, falling back to ``REMOTE_ADDR``.
+
+    SECURITY: forwarded headers are client-controlled and spoofable unless a
+    trusted proxy overwrites them. Configure ``RATELIMIT_TRUSTED_PROXIES`` (or
+    set ``RATELIMIT_TRUST_FORWARDED_HEADERS = False``) whenever IP-based limits
+    or CIDR allow/deny lists are security-relevant.
+
+    Args:
+        request: Django HTTP request object
+
+    Returns:
+        Client IP address string, or "unknown" if none could be determined.
+    """
+    from django.conf import settings
+
+    remote_addr = (request.META.get("REMOTE_ADDR") or "").strip()
+
+    trusted = _get_trusted_proxies()
+    if trusted is not None:
+        if remote_addr and trusted.contains(remote_addr):
+            client = _client_from_trusted_chain(request, trusted)
+            if client:
+                return client
+        return remote_addr or "unknown"
+
+    if not getattr(settings, "RATELIMIT_TRUST_FORWARDED_HEADERS", True):
+        return remote_addr or "unknown"
+
+    # Legacy/default behavior: trust the first present forwarded header.
+    for header in _FORWARDED_HEADERS + ("REMOTE_ADDR",):
+        value = (request.META.get(header) or "").strip()
+        if value and value != "unknown":
+            if "," in value:
+                value = value.split(",")[0].strip()
+            if value:
+                return value
+    return "unknown"
+
+
 def extract_client_ip(request: HttpRequest) -> str:
     """
     Extract client IP address from a Django request.
 
-    Respects proxy headers (X-Forwarded-For, X-Real-IP, CF-Connecting-IP) to
-    support requests through load balancers and CDNs.
-
-    SECURITY WARNING:
-    This function trusts X-Forwarded-For and other proxy headers. These headers
-    can be spoofed if the request doesn't come from a trusted proxy. Only rely
-    on this function if your application is deployed behind a trusted reverse
-    proxy that overwrites these headers and strips any client-supplied values.
-    The library does not currently validate proxy trust itself.
+    Thin wrapper around :func:`get_client_ip` kept for backwards compatibility.
+    Proxy-header trust is configurable — see :func:`get_client_ip`.
 
     Args:
         request: Django HTTP request object
@@ -507,22 +614,9 @@ def extract_client_ip(request: HttpRequest) -> str:
         ...     # Handle blocked IP
         ...     pass
     """
-    # Order of preference for IP headers
-    ip_headers = [
-        "HTTP_CF_CONNECTING_IP",  # Cloudflare
-        "HTTP_X_FORWARDED_FOR",  # Standard proxy header
-        "HTTP_X_REAL_IP",  # Nginx
-        "REMOTE_ADDR",  # Direct connection (always available)
-    ]
-
-    for header in ip_headers:
-        ip = request.META.get(header, "").strip()
-        if ip and ip != "unknown":
-            # Handle comma-separated IPs (X-Forwarded-For)
-            if "," in ip:
-                ip = ip.split(",")[0].strip()
-            if ip:
-                return ip
+    ip = get_client_ip(request)
+    if ip:
+        return ip
 
     return "unknown"
 

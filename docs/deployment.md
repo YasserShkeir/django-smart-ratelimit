@@ -59,23 +59,33 @@ preferring proxy headers in this order before falling back to the socket address
 This affects the `"ip"` and `"user_or_ip"` keys (`RateLimitKey.IP`, `RateLimitKey.USER_OR_IP`)
 and the `allow_list` / `deny_list` arguments of the `rate_limit` decorator.
 
-**These headers are trusted as-is.** The library does not currently validate proxy trust,
-and any client can set `X-Forwarded-For` or `CF-Connecting-IP` on a request. If your app is
-reachable directly (no header-sanitizing proxy in front), a client can spoof its IP to:
+**By default these headers are trusted as-is** (backward-compatible behavior). Any client can
+set `X-Forwarded-For` or `CF-Connecting-IP` on a request, so if your app is reachable directly
+(no header-sanitizing proxy in front), a client can spoof its IP to:
 
 - match an `allow_list` entry and bypass rate limiting, or
 - evade a `deny_list` entry, or
 - pollute the keyspace by forging a different IP on every request.
 
-Only deploy IP keys or CIDR allow/deny lists behind a reverse proxy you control. That proxy
-**must**:
+You have two ways to lock this down (added in v3.1.0):
 
-- **Overwrite** the forwarded header with the real peer address (do not append).
-- **Strip** any client-supplied `X-Forwarded-For`, `X-Real-IP`, and `CF-Connecting-IP`
-  values on inbound requests so they cannot reach Django.
+```python
+# Recommended: validate proxy trust. Forwarded headers are honored ONLY for
+# requests arriving from one of these proxies, and the client is taken as the
+# right-most entry of X-Forwarded-For that is not one of them.
+RATELIMIT_TRUSTED_PROXIES = ['10.0.0.0/8', '172.16.0.0/12']
 
-There is no Django `TRUSTED_PROXIES` setting in this library; proxy trust is enforced at the
-edge (your nginx / load balancer / CDN), not in application settings.
+# Or, if you never sit behind a proxy, ignore forwarded headers entirely:
+RATELIMIT_TRUST_FORWARDED_HEADERS = False
+```
+
+With `RATELIMIT_TRUSTED_PROXIES` set, a direct client's forwarded headers are ignored and a
+client cannot move the result by prepending fake chain entries.
+
+Whether or not you configure the above, your edge proxy (nginx / load balancer / CDN) should
+still **overwrite** the forwarded header with the real peer address and **strip** any
+client-supplied `X-Forwarded-For` / `X-Real-IP` / `CF-Connecting-IP` values on inbound
+requests as defense in depth.
 
 Example: nginx terminating TLS in front of the app. `proxy_set_header` replaces the value
 the upstream sees, so any client-supplied header is discarded:

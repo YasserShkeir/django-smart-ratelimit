@@ -9,7 +9,7 @@ import functools
 import importlib
 import logging
 import time
-from typing import Any, Callable, Dict, Optional, Union, cast
+from typing import Any, Callable, Dict, Optional, Tuple, Union, cast
 
 from asgiref.sync import iscoroutinefunction, sync_to_async
 
@@ -559,17 +559,6 @@ def rate_limit(
                 if algorithm and hasattr(backend_instance, "config"):
                     backend_instance.config["algorithm"] = algorithm
 
-                # The async path performs window counting only; the dedicated
-                # token/leaky bucket handlers are sync-only for now. Warn instead
-                # of silently applying the wrong algorithm semantics.
-                if algorithm in ("token_bucket", "leaky_bucket"):
-                    logger.warning(
-                        "algorithm=%r is not yet honored for async views; "
-                        "falling back to window counting. Use a sync view for "
-                        "token/leaky bucket burst semantics.",
-                        algorithm,
-                    )
-
                 # Resolve key + rate + cost + adaptive in one place (v3 pipeline)
                 try:
                     resolved = resolve_effective_rate(
@@ -590,36 +579,58 @@ def rate_limit(
                 period = resolved.period
                 request_cost = resolved.cost
 
-                # Check limit
+                # Decide the allow/deny. token_bucket (and leaky_bucket on
+                # backends with native support) run their sync algorithm check
+                # off the event loop via sync_to_async, so async views get true
+                # bucket semantics instead of window counting.
+                bucket_metadata: Optional[Dict[str, Any]] = None
+                use_bucket = algorithm == "token_bucket" or (
+                    algorithm == "leaky_bucket"
+                    and hasattr(backend_instance, "leaky_bucket_check")
+                )
+                if algorithm == "leaky_bucket" and not use_bucket:
+                    logger.warning(
+                        "algorithm='leaky_bucket' requires a backend with native "
+                        "leaky-bucket support (e.g. the database backend); %s does "
+                        "not, so standard window limiting is applied instead.",
+                        type(backend_instance).__name__,
+                    )
+
                 try:
-                    # Use async increment if available
-                    if hasattr(backend_instance, "aincr"):
-                        current_count = await backend_instance.aincr(  # type: ignore[call-arg]
-                            limit_key, period, request_cost
-                        )
-                    else:
-                        current_count = await sync_to_async(backend_instance.incr)(  # type: ignore[call-arg]
-                            limit_key, period, request_cost
-                        )
-                except TypeError:
-                    # Backend's incr doesn't accept cost yet (pre-v3 custom
-                    # backend). Fall back to single-token incr and repeat if
-                    # cost > 1 so weighted limiting still works.
-                    if hasattr(backend_instance, "aincr"):
-                        current_count = await backend_instance.aincr(limit_key, period)
-                    else:
-                        current_count = await sync_to_async(backend_instance.incr)(
-                            limit_key, period
-                        )
-                    for _ in range(request_cost - 1):
-                        if hasattr(backend_instance, "aincr"):
-                            current_count = await backend_instance.aincr(
-                                limit_key, period
+                    if use_bucket:
+                        try:
+                            (
+                                is_allowed,
+                                bucket_metadata,
+                                remaining,
+                            ) = await sync_to_async(_run_bucket_check)(
+                                cast(str, algorithm),
+                                backend_instance,
+                                limit_key,
+                                limit,
+                                period,
+                                request_cost,
+                                algorithm_config,
                             )
-                        else:
-                            current_count = await sync_to_async(backend_instance.incr)(
-                                limit_key, period
+                        except Exception as exc:  # pragma: no cover - defensive
+                            logger.error(
+                                "Async %s algorithm failed: %s; falling back to "
+                                "window limiting.",
+                                algorithm,
+                                exc,
                             )
+                            bucket_metadata = None
+                            current_count = await _aincr_with_cost(
+                                backend_instance, limit_key, period, request_cost
+                            )
+                            is_allowed = current_count <= limit
+                            remaining = max(0, limit - current_count)
+                    else:
+                        current_count = await _aincr_with_cost(
+                            backend_instance, limit_key, period, request_cost
+                        )
+                        is_allowed = current_count <= limit
+                        remaining = max(0, limit - current_count)
                 except BackendError as e:
                     # Handle backend errors
                     if not backend_instance.fail_open:
@@ -632,11 +643,10 @@ def rate_limit(
                                 request=_request,
                                 response_callback=response_callback,
                             )
-                    current_count = 0
+                    is_allowed = True
+                    remaining = limit
 
-                # Check if limited, apply shadow mode
-                is_allowed = current_count <= limit
-                remaining = max(0, limit - current_count)
+                # Apply shadow mode
                 decision = handle_shadow_decision(
                     allowed=is_allowed,
                     shadow=shadow,
@@ -655,8 +665,13 @@ def rate_limit(
                             request=_request,
                             response_callback=response_callback,
                         )
-                        reset_time = int(time.time() + period)
-                        add_rate_limit_headers(response, limit, 0, reset_time)
+                        if bucket_metadata is not None:
+                            add_token_bucket_headers(
+                                response, bucket_metadata, limit, period
+                            )
+                        else:
+                            reset_time = int(time.time() + period)
+                            add_rate_limit_headers(response, limit, 0, reset_time)
                         return response
                     # Non-blocking: mark the request so the view can detect the
                     # soft-limit breach, mirroring the sync paths.
@@ -669,13 +684,14 @@ def rate_limit(
                 response = await func(*args, **kwargs)
 
                 # Add headers
-                reset_time = int(time.time() + period)
-
-                if (
-                    hasattr(response, "headers")
-                    and "X-RateLimit-Limit" not in response.headers
-                ):
-                    add_rate_limit_headers(response, limit, remaining, reset_time)
+                if hasattr(response, "headers"):
+                    if bucket_metadata is not None:
+                        add_token_bucket_headers(
+                            response, bucket_metadata, limit, period
+                        )
+                    elif "X-RateLimit-Limit" not in response.headers:
+                        reset_time = int(time.time() + period)
+                        add_rate_limit_headers(response, limit, remaining, reset_time)
 
                 return response
 
@@ -937,6 +953,65 @@ def _handle_middleware_processed_request(
     reset_time = ctx.reset_time or _get_reset_time(backend_instance, limit_key, period)
     add_rate_limit_headers(response, limit, ctx.remaining, reset_time)
     return response
+
+
+def _run_bucket_check(
+    algorithm: str,
+    backend_instance: Any,
+    limit_key: str,
+    limit: int,
+    period: int,
+    cost: int,
+    algorithm_config: Optional[Dict[str, Any]],
+) -> Tuple[bool, Dict[str, Any], int]:
+    """Run a (synchronous) token/leaky bucket check.
+
+    Returns ``(is_allowed, metadata, remaining)``. Used by the async decorator
+    via ``sync_to_async`` so async views get true bucket semantics.
+    """
+    if algorithm == "leaky_bucket":
+        algorithm_instance: Any = LeakyBucketAlgorithm(algorithm_config)
+        is_allowed, metadata = algorithm_instance.is_allowed(
+            backend_instance, limit_key, limit, period, request_cost=cost
+        )
+        remaining = int(metadata.get("space_remaining", 0)) if metadata else 0
+    else:
+        algorithm_instance = TokenBucketAlgorithm(algorithm_config)
+        try:
+            is_allowed, metadata = algorithm_instance.is_allowed(
+                backend_instance, limit_key, limit, period, tokens_requested=cost
+            )
+        except TypeError:
+            is_allowed, metadata = algorithm_instance.is_allowed(
+                backend_instance, limit_key, limit, period
+            )
+        remaining = int(metadata.get("tokens_remaining", 0)) if metadata else 0
+    return is_allowed, metadata, remaining
+
+
+async def _aincr_with_cost(
+    backend_instance: Any, limit_key: str, period: int, request_cost: int
+) -> int:
+    """Async increment honoring cost, with a fallback for cost-unaware backends."""
+    try:
+        if hasattr(backend_instance, "aincr"):
+            return await backend_instance.aincr(limit_key, period, request_cost)
+        return await sync_to_async(backend_instance.incr)(
+            limit_key, period, request_cost
+        )
+    except TypeError:
+        # Backend's incr doesn't accept cost yet (pre-v3 custom backend).
+        # Fall back to single-token increments so weighted limiting still works.
+        if hasattr(backend_instance, "aincr"):
+            count = await backend_instance.aincr(limit_key, period)
+        else:
+            count = await sync_to_async(backend_instance.incr)(limit_key, period)
+        for _ in range(request_cost - 1):
+            if hasattr(backend_instance, "aincr"):
+                count = await backend_instance.aincr(limit_key, period)
+            else:
+                count = await sync_to_async(backend_instance.incr)(limit_key, period)
+        return count
 
 
 def _handle_token_bucket_algorithm(

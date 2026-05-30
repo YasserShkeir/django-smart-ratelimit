@@ -39,6 +39,16 @@ class RateLimitSettings:
     default_limit: str = "100/m"
     align_window_to_clock: bool = True  # Clock-aligned windows by default
 
+    # Client IP / proxy trust. When ``trusted_proxies`` is set (a list of
+    # IP/CIDR strings), forwarded headers (X-Forwarded-For, CF-Connecting-IP,
+    # X-Real-IP) are only honored for requests arriving from a trusted proxy,
+    # and the real client is taken as the right-most non-trusted entry of the
+    # X-Forwarded-For chain. When it is not set, ``trust_forwarded_headers``
+    # controls whether forwarded headers are trusted at all (default True keeps
+    # the historical behavior; set False to use REMOTE_ADDR only).
+    trusted_proxies: Optional[list] = None
+    trust_forwarded_headers: bool = True
+
     # Error Handling
     log_exceptions: bool = True
     exception_handler: Optional[str] = None
@@ -108,6 +118,10 @@ class RateLimitSettings:
             default_limit=getattr(django_settings, "RATELIMIT_DEFAULT_LIMIT", "100/m"),
             align_window_to_clock=getattr(
                 django_settings, "RATELIMIT_ALIGN_WINDOW_TO_CLOCK", True
+            ),
+            trusted_proxies=getattr(django_settings, "RATELIMIT_TRUSTED_PROXIES", None),
+            trust_forwarded_headers=getattr(
+                django_settings, "RATELIMIT_TRUST_FORWARDED_HEADERS", True
             ),
             log_exceptions=getattr(django_settings, "RATELIMIT_LOG_EXCEPTIONS", True),
             collect_metrics=getattr(

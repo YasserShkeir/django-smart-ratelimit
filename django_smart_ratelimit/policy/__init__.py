@@ -11,7 +11,8 @@ Key classes:
 
 Key functions:
     - parse_ip_list: Convert various input formats to IPList instances
-    - extract_client_ip: Extract client IP from request
+    - get_client_ip: Extract client IP from request (proxy-trust aware)
+    - extract_client_ip: Backwards-compatible alias for get_client_ip
     - check_lists: Check if IP is in allow/deny lists
 """
 
@@ -21,6 +22,7 @@ from .lists import (
     URLBackedIPList,
     check_lists,
     extract_client_ip,
+    get_client_ip,
     parse_ip_list,
 )
 
@@ -29,6 +31,7 @@ __all__ = [
     "FileBackedIPList",
     "URLBackedIPList",
     "parse_ip_list",
+    "get_client_ip",
     "extract_client_ip",
     "check_lists",
 ]
