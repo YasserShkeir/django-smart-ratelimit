@@ -12,6 +12,15 @@ RATELIMIT_ENABLE = True
 # Options: 'sliding_window', 'fixed_window', 'token_bucket', 'leaky_bucket'
 RATELIMIT_ALGORITHM = 'sliding_window'
 
+# RATELIMIT_ALGORITHM also accepts the Algorithm enum (StrEnum), which is
+# interchangeable with the equivalent string:
+#
+#   from django_smart_ratelimit.enums import Algorithm
+#   RATELIMIT_ALGORITHM = Algorithm.TOKEN_BUCKET
+#
+# Algorithm.SLIDING_WINDOW == 'sliding_window', Algorithm.FIXED_WINDOW == 'fixed_window',
+# Algorithm.TOKEN_BUCKET == 'token_bucket', Algorithm.LEAKY_BUCKET == 'leaky_bucket'.
+
 # Default rate limit when not specified in decorator (default: '100/m')
 RATELIMIT_DEFAULT_LIMIT = '100/m'
 
@@ -19,7 +28,31 @@ RATELIMIT_DEFAULT_LIMIT = '100/m'
 RATELIMIT_KEY_PREFIX = 'ratelimit:'
 ```
 
+## Key Selection
+
+Anywhere a key string is accepted (for example the `key` argument of the
+`rate_limit` decorator), you can pass either the raw string or the `RateLimitKey`
+enum (a StrEnum), which is interchangeable with its string value:
+
+```python
+from django_smart_ratelimit.enums import RateLimitKey
+
+# Complete keys, usable directly:
+#   RateLimitKey.IP         == 'ip'
+#   RateLimitKey.USER       == 'user'
+#   RateLimitKey.USER_OR_IP == 'user_or_ip'
+
+# HEADER and PARAM are prefixes: combine them with a sub-value that names the
+# header or query parameter to key on.
+key = f"{RateLimitKey.HEADER}:X-Api-Key"  # -> 'header:X-Api-Key'
+key = f"{RateLimitKey.PARAM}:tenant"      # -> 'param:tenant'
+```
+
 ## Backend Configuration
+
+`RATELIMIT_BACKEND` accepts one of the short names `"redis"`, `"memory"`,
+`"mongodb"`, `"database"`, `"multi"`, or a dotted path to a backend class. When
+`RATELIMIT_BACKEND` is unset, the in-memory backend is used by default.
 
 ### Redis (Recommended)
 
@@ -29,6 +62,16 @@ RATELIMIT_REDIS = {
     'host': 'localhost',
     'port': 6379,
     'db': 0,
+}
+```
+
+Alternatively, supply a connection URL via the `url` key instead of
+`host`/`port`/`db`:
+
+```python
+RATELIMIT_BACKEND = 'redis'
+RATELIMIT_REDIS = {
+    'url': 'redis://localhost:6379/0',
 }
 ```
 

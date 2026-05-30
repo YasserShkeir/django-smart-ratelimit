@@ -1,8 +1,10 @@
 [bandit]
 # Bandit configuration for django-smart-ratelimit
 
-# Skip specific tests that are false positives
-skips = B105
+# Skip specific tests that are false positives.
+# B105 - hardcoded password strings (Lua scripts / cache key prefixes, not credentials)
+# B101 - assert_used (only present in django_smart_ratelimit.testing pytest helpers)
+skips = B101,B105
 
 # Lua scripts in Redis backend are not passwords
 exclude_dirs = []

@@ -309,11 +309,14 @@ class RateLimitTokenBucket(models.Model):
             tokens_needed: Number of tokens needed
 
         Returns:
-            Seconds until tokens are available (0 if already available)
+            Seconds until tokens are available (0 if already available,
+            ``float("inf")`` if the bucket never refills)
         """
         current_tokens = self.calculate_current_tokens()
         if current_tokens >= tokens_needed:
             return 0.0
+        if self.refill_rate <= 0:
+            return float("inf")
         tokens_deficit = tokens_needed - current_tokens
         return tokens_deficit / self.refill_rate
 

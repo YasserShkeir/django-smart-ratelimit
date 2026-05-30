@@ -662,6 +662,53 @@ class MemoryBackendTest(
         self.assertEqual(final_count, frequency_count)
 
 
+class MemoryBackendShutdownTest(unittest.TestCase):
+    """Tests for the background cleanup thread lifecycle."""
+
+    def test_shutdown_stops_cleanup_thread(self):
+        """shutdown() should stop the background cleanup thread."""
+        backend = MemoryBackend(cleanup_interval=1)
+
+        # The background cleanup thread should be running after init.
+        self.assertIsNotNone(backend._cleanup_thread)
+        self.assertTrue(backend._cleanup_thread.is_alive())
+
+        backend.shutdown()
+
+        self.assertTrue(backend._shutdown_event.is_set())
+        self.assertFalse(backend._cleanup_thread.is_alive())
+
+    def test_shutdown_is_idempotent(self):
+        """Calling shutdown() multiple times should be safe."""
+        backend = MemoryBackend(cleanup_interval=1)
+
+        backend.shutdown()
+        # A second call must not raise and the thread must remain stopped.
+        backend.shutdown()
+
+        self.assertFalse(backend._cleanup_thread.is_alive())
+
+    def test_clear_backend_cache_shuts_down_cached_backend(self):
+        """clear_backend_cache() should shut down cached backends."""
+        from django_smart_ratelimit.backends import (
+            _backend_instances,
+            clear_backend_cache,
+        )
+
+        backend = MemoryBackend(cleanup_interval=1)
+        _backend_instances["__shutdown_test__"] = backend
+        try:
+            self.assertTrue(backend._cleanup_thread.is_alive())
+
+            clear_backend_cache()
+
+            self.assertFalse(backend._cleanup_thread.is_alive())
+            self.assertNotIn("__shutdown_test__", _backend_instances)
+        finally:
+            _backend_instances.pop("__shutdown_test__", None)
+            backend.shutdown()
+
+
 class MemoryBackendIntegrationTest(TestCase):
     """Integration tests for the memory backend."""
 

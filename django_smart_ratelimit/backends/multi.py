@@ -393,6 +393,15 @@ class MultiBackend(BaseBackend):
                 elif method_name == "token_bucket_info":
                     # Return empty info
                     return {}
+                elif method_name == "increment":
+                    # increment() returns (current_count, remaining). Allow one
+                    # request and compute remaining from the limit arg so callers
+                    # that unpack the tuple don't crash on fail-open.
+                    limit_arg = args[2] if len(args) > 2 else 0
+                    return (1, max(0, limit_arg - 1))
+                elif method_name == "cleanup_expired":
+                    # Declared to return an int count of cleaned entries.
+                    return 0
                 return None
 
             raise last_exception

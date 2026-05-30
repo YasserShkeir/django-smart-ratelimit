@@ -186,7 +186,12 @@ class RedisBackendTests(TestCase):
         result = backend.get_count("test_key")
 
         self.assertEqual(result, 4)
-        self.mock_redis_client.get.assert_called_once_with("test:ratelimit:test_key")
+        # get_count must read the SAME key incr writes. In clock-aligned mode
+        # (the default) that key carries a time-bucket suffix, so assert the
+        # read targets a key derived from the normalized key.
+        self.mock_redis_client.get.assert_called_once()
+        called_key = self.mock_redis_client.get.call_args[0][0]
+        self.assertTrue(called_key.startswith("test:ratelimit:test_key"))
 
     @override_settings(RATELIMIT_ALGORITHM="fixed_window")
     def test_redis_backend_get_count_fixed_window_no_key(self):

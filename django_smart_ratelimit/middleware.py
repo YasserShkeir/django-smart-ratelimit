@@ -69,6 +69,12 @@ class RateLimitMiddleware:
         self.block = middleware_config.get("BLOCK", True)
         self.skip_paths = middleware_config.get("SKIP_PATHS", [])
         self.rate_limits = middleware_config.get("RATE_LIMITS", {})
+        # v3: optional CIDR-based allow/deny lists. Accept any of:
+        # an IPList instance, iterable of CIDR strings, file path, or URL.
+        self.allow_list = middleware_config.get("ALLOW_LIST", None)
+        self.deny_list = middleware_config.get("DENY_LIST", None)
+        # v3: when True, rate-limit decisions are logged but not enforced.
+        self.shadow = bool(middleware_config.get("SHADOW", False))
 
         # Initialize backend
         self.backend = get_backend(self.backend_name)
@@ -92,6 +98,38 @@ class RateLimitMiddleware:
         # Check if path should be skipped based on configured patterns
         if should_skip_path(request.path, self.skip_paths):
             return self.get_response(request)
+
+        # v3: CIDR allow/deny list check. Deny wins over allow.
+        from .pipeline import (
+            POLICY_ALLOW,
+            POLICY_DENY,
+            apply_policy_lists,
+            handle_shadow_decision,
+        )
+
+        policy = apply_policy_lists(
+            request, allow_list=self.allow_list, deny_list=self.deny_list
+        )
+        if policy == POLICY_ALLOW:
+            return self.get_response(request)
+        if policy == POLICY_DENY:
+            if self.shadow:
+                # Log the block but don't enforce.
+                handle_shadow_decision(
+                    allowed=False,
+                    shadow=True,
+                    request=request,
+                    key="deny_list",
+                    limit=0,
+                    remaining=0,
+                    algorithm="policy",
+                    backend="middleware",
+                )
+            else:
+                message = get_rate_limit_error_message(include_details=True)
+                response = HttpResponseTooManyRequests(message)
+                add_rate_limit_headers(response, 0, 0, int(time.time()))
+                return response
 
         # Get rate limit for this path
         rate = get_rate_for_path(request.path, self.rate_limits, self.default_rate)
@@ -128,7 +166,18 @@ class RateLimitMiddleware:
         )
 
         if current_count > limit:
-            if self.block:
+            # v3: shadow mode downgrades a real block to a log line.
+            decision = handle_shadow_decision(
+                allowed=False,
+                shadow=self.shadow,
+                request=request,
+                key=key,
+                limit=limit,
+                remaining=0,
+                algorithm=getattr(self.backend, "_algorithm", "sliding_window"),
+                backend=type(self.backend).__name__,
+            )
+            if not decision.allow and self.block:
                 message = get_rate_limit_error_message(include_details=True)
                 response = HttpResponseTooManyRequests(message)
                 add_rate_limit_headers(response, limit, 0, int(time.time() + period))
@@ -184,6 +233,37 @@ class RateLimitMiddleware:
         if should_skip_path(request.path, self.skip_paths):
             return await self.get_response(request)
 
+        # v3: CIDR allow/deny list check. Deny wins over allow.
+        from .pipeline import (
+            POLICY_ALLOW,
+            POLICY_DENY,
+            apply_policy_lists,
+            handle_shadow_decision,
+        )
+
+        policy = apply_policy_lists(
+            request, allow_list=self.allow_list, deny_list=self.deny_list
+        )
+        if policy == POLICY_ALLOW:
+            return await self.get_response(request)
+        if policy == POLICY_DENY:
+            if self.shadow:
+                handle_shadow_decision(
+                    allowed=False,
+                    shadow=True,
+                    request=request,
+                    key="deny_list",
+                    limit=0,
+                    remaining=0,
+                    algorithm="policy",
+                    backend="middleware",
+                )
+            else:
+                message = get_rate_limit_error_message(include_details=True)
+                response = HttpResponseTooManyRequests(message)
+                add_rate_limit_headers(response, 0, 0, int(time.time()))
+                return response
+
         # Get rate limit for this path
         rate = get_rate_for_path(request.path, self.rate_limits, self.default_rate)
 
@@ -219,9 +299,18 @@ class RateLimitMiddleware:
         )
 
         if current_count > limit:
-            if self.block:
+            decision = handle_shadow_decision(
+                allowed=False,
+                shadow=self.shadow,
+                request=request,
+                key=key,
+                limit=limit,
+                remaining=0,
+                algorithm=getattr(self.backend, "_algorithm", "sliding_window"),
+                backend=type(self.backend).__name__,
+            )
+            if not decision.allow and self.block:
                 message = get_rate_limit_error_message(include_details=True)
-                # HttpResponseTooManyRequests is a subclass of HttpResponse, which is safe to return in async views
                 response = HttpResponseTooManyRequests(message)
                 add_rate_limit_headers(response, limit, 0, int(time.time() + period))
                 return response

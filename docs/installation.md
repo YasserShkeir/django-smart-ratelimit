@@ -2,10 +2,13 @@
 
 ## Requirements
 
-- Python 3.9+
-- Django 3.2+
-- Redis (Recommended for production)
-    - For **Async** support: `redis-py` >= 4.2.0 is required.
+- Python 3.9 - 3.13
+- Django 3.2 - 5.1
+- Redis (recommended for production)
+    - For async support, `redis-py` >= 4.2.0 is required.
+
+The only hard dependencies are `Django>=3.2` and `asgiref>=3.6.0`. Everything else
+(Redis, MongoDB, JWT, DRF, Prometheus, OpenTelemetry) is an optional extra.
 
 ## Basic Installation
 
@@ -19,6 +22,31 @@ To install with Redis support (recommended):
 
 ```bash
 pip install "django-smart-ratelimit[redis]"
+```
+
+### Optional Extras
+
+Install only the backends and integrations you need:
+
+| Extra | Installs | Use for |
+| --- | --- | --- |
+| `redis` | `redis`, `hiredis` | Redis backend (recommended for production) |
+| `mongodb` | `pymongo` | MongoDB backend |
+| `jwt` | `PyJWT` | JWT-based rate limit keys |
+| `drf` | `djangorestframework` | DRF throttle adapter (new in v3.0.0) |
+| `prometheus` | `prometheus-client` | Prometheus metrics |
+| `opentelemetry` | `opentelemetry-api`, `opentelemetry-sdk` | OpenTelemetry tracing |
+| `all` | all of the above | Install everything |
+
+```bash
+# A single extra
+pip install "django-smart-ratelimit[drf]"
+
+# Several at once
+pip install "django-smart-ratelimit[redis,prometheus]"
+
+# Everything
+pip install "django-smart-ratelimit[all]"
 ```
 
 ## Django Configuration
@@ -50,17 +78,23 @@ MIDDLEWARE = [
 
 In your `settings.py`, configure the backend:
 
+`RATELIMIT_BACKEND` accepts a short name (`"redis"`, `"memory"`, `"mongodb"`,
+`"database"`, `"multi"`) or a dotted path to a backend class. When unset, the
+in-memory backend is used.
+
 ```python
-# Use Redis (Recommended)
-RATELIMIT_BACKEND = 'django_smart_ratelimit.backends.RedisBackend'
+# Use Redis (recommended)
+RATELIMIT_BACKEND = 'redis'
 RATELIMIT_REDIS = {
     'host': 'localhost',
     'port': 6379,
     'db': 0,
 }
+# Alternatively, configure Redis with a URL:
+# RATELIMIT_REDIS = {'url': 'redis://localhost:6379/0'}
 
-# OR Use Memory (Development only)
-# RATELIMIT_BACKEND = 'django_smart_ratelimit.backends.MemoryBackend'
+# OR use the in-memory backend (development only)
+# RATELIMIT_BACKEND = 'memory'
 ```
 
 See [Configuration](configuration.md) for more advanced options including Database and Multi-backend setups.

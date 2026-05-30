@@ -117,10 +117,12 @@ jobs:
           cache: "pip"
 
       - name: Install dependencies
+        # Pin Django in the SAME resolver pass as the package so the extras
+        # (notably djangorestframework, whose newest release requires Django
+        # >=4.2) cannot silently upgrade Django away from the matrix version.
         run: |
           python -m pip install --upgrade pip
-          pip install Django==${{ matrix.django-version }}
-          pip install -e .[all,dev]
+          pip install -e ".[all,dev]" "Django==${{ matrix.django-version }}"
 
       - name: Run tests
         if: ${{ !matrix.coverage }}
@@ -138,7 +140,7 @@ jobs:
 
       - name: Upload coverage to Codecov
         if: ${{ matrix.coverage }}
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.xml

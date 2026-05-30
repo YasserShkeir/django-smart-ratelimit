@@ -2,7 +2,7 @@
 
 Brief description of the changes in this pull request.
 
-> **💡 Tip**: For feature discussions or questions about implementation, consider starting a discussion in [GitHub Discussions](https://github.com/YasserShkeir/django-smart-ratelimit/discussions) first.
+> **Tip**: For feature discussions or questions about implementation, consider starting a discussion in [GitHub Discussions](https://github.com/YasserShkeir/django-smart-ratelimit/discussions) first.
 
 ## Type of Change
 

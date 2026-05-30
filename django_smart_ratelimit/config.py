@@ -89,7 +89,7 @@ class RateLimitSettings:
             backend_class=getattr(
                 django_settings,
                 "RATELIMIT_BACKEND",
-                "django_smart_ratelimit.backends.MemoryBackend",
+                "django_smart_ratelimit.backends.memory.MemoryBackend",
             ),
             backend_options=getattr(django_settings, "RATELIMIT_BACKEND_OPTIONS", {}),
             backend_config=getattr(django_settings, "RATELIMIT_BACKEND_CONFIG", {}),

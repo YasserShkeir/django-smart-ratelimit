@@ -6,7 +6,7 @@ labels: bug
 assignees: ""
 ---
 
-> **📝 Note**: For questions, feature requests, or general discussions, please use [GitHub Discussions](https://github.com/YasserShkeir/django-smart-ratelimit/discussions) instead of creating an issue.
+> **Note**: For questions, feature requests, or general discussions, please use [GitHub Discussions](https://github.com/YasserShkeir/django-smart-ratelimit/discussions) instead of creating an issue.
 
 ## Bug Description
 

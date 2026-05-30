@@ -192,8 +192,17 @@ class SimpleHistogram:
         self.name = name
         self.help_text = help_text
         self._label_names = labels or []
-        self.buckets = buckets or self.DEFAULT_BUCKETS
-        self._observations: Dict[Tuple[str, ...], List[float]] = defaultdict(list)
+        # Ensure buckets are sorted ascending so cumulative bucket counters
+        # are updated correctly on each observation.
+        self.buckets = tuple(sorted(buckets or self.DEFAULT_BUCKETS))
+        # Store fixed-size aggregates per label set instead of every individual
+        # observation. This keeps memory bounded regardless of request volume:
+        # per-bucket cumulative counts plus a running sum and count.
+        self._bucket_counts: Dict[Tuple[str, ...], List[float]] = defaultdict(
+            lambda: [0.0] * len(self.buckets)
+        )
+        self._sums: Dict[Tuple[str, ...], float] = defaultdict(float)
+        self._counts: Dict[Tuple[str, ...], float] = defaultdict(float)
         self._lock = threading.Lock()
 
     def labels(self, **kwargs: str) -> "_LabeledSimpleMetric":
@@ -201,12 +210,16 @@ class SimpleHistogram:
         return _LabeledSimpleMetric(self, key)
 
     def observe(self, value: float) -> None:
-        with self._lock:
-            self._observations[()].append(value)
+        self._observe_labeled((), value)
 
     def _observe_labeled(self, key: Tuple[str, ...], value: float) -> None:
         with self._lock:
-            self._observations[key].append(value)
+            bucket_counts = self._bucket_counts[key]
+            for i, bucket_bound in enumerate(self.buckets):
+                if value <= bucket_bound:
+                    bucket_counts[i] += 1
+            self._sums[key] += value
+            self._counts[key] += 1
 
     def collect(self) -> str:
         lines = [
@@ -214,28 +227,28 @@ class SimpleHistogram:
             f"# TYPE {self.name} histogram",
         ]
         with self._lock:
-            for key, observations in sorted(self._observations.items()):
+            for key in sorted(self._counts):
                 label_prefix = ""
                 if key and self._label_names:
                     label_prefix = ",".join(
                         f'{name}="{val}"' for name, val in zip(self._label_names, key)
                     )
 
-                total = sum(observations)
-                count = len(observations)
+                total = self._sums[key]
+                count = int(self._counts[key])
+                bucket_counts = self._bucket_counts[key]
 
-                for bucket_bound in self.buckets:
-                    bucket_count = sum(1 for o in observations if o <= bucket_bound)
+                for bucket_bound, bucket_count in zip(self.buckets, bucket_counts):
                     le_str = (
                         "+Inf" if bucket_bound == float("inf") else str(bucket_bound)
                     )
                     if label_prefix:
                         lines.append(
-                            f'{self.name}_bucket{{{label_prefix},le="{le_str}"}} {bucket_count}'
+                            f'{self.name}_bucket{{{label_prefix},le="{le_str}"}} {int(bucket_count)}'
                         )
                     else:
                         lines.append(
-                            f'{self.name}_bucket{{le="{le_str}"}} {bucket_count}'
+                            f'{self.name}_bucket{{le="{le_str}"}} {int(bucket_count)}'
                         )
 
                 if label_prefix:
@@ -308,19 +321,29 @@ class PrometheusMetrics:
         return cls._instance
 
     def _initialize(self, prefix: str = "django_ratelimit") -> None:
-        """Initialize metrics with the given prefix."""
+        """Initialize metrics with the given prefix.
+
+        Guarded by the class lock so that concurrent callers cannot
+        double-initialize (and double-register) the metrics.
+        """
         if self._initialized:
             return
 
-        self._prefix = prefix
+        with self._lock:
+            # Re-check under the lock in case another thread initialized
+            # while we were waiting to acquire it.
+            if self._initialized:
+                return
 
-        if HAS_PROMETHEUS_CLIENT:
-            self._registry = CollectorRegistry()
-            self._init_prometheus_client_metrics()
-        else:
-            self._init_simple_metrics()
+            self._prefix = prefix
 
-        self._initialized = True
+            if HAS_PROMETHEUS_CLIENT:
+                self._registry = CollectorRegistry()
+                self._init_prometheus_client_metrics()
+            else:
+                self._init_simple_metrics()
+
+            self._initialized = True
 
     def _init_prometheus_client_metrics(self) -> None:
         """Initialize metrics using prometheus_client library."""
@@ -329,14 +352,14 @@ class PrometheusMetrics:
         self.requests_total = Counter(
             f"{p}_requests_total",
             "Total number of rate limit checks",
-            ["key", "backend", "result"],
+            ["backend", "result"],
             registry=self._registry,
         )
 
         self.requests_denied_total = Counter(
             f"{p}_requests_denied_total",
             "Total number of denied requests",
-            ["key", "backend"],
+            ["backend"],
             registry=self._registry,
         )
 
@@ -376,13 +399,13 @@ class PrometheusMetrics:
         self.requests_total = SimpleCounter(
             f"{p}_requests_total",
             "Total number of rate limit checks",
-            labels=["key", "backend", "result"],
+            labels=["backend", "result"],
         )
 
         self.requests_denied_total = SimpleCounter(
             f"{p}_requests_denied_total",
             "Total number of denied requests",
-            labels=["key", "backend"],
+            labels=["backend"],
         )
 
         self.request_duration_seconds = SimpleHistogram(
@@ -432,7 +455,9 @@ class PrometheusMetrics:
         Record a rate limit check.
 
         Args:
-            key: The rate limit key.
+            key: The rate limit key. Accepted for API compatibility but
+                intentionally NOT used as a metric label, since per-key labels
+                (per-IP/per-user/per-API-key) cause unbounded label cardinality.
             backend: The backend name.
             allowed: Whether the request was allowed.
             duration_seconds: Time taken for the check in seconds.
@@ -441,10 +466,10 @@ class PrometheusMetrics:
             return
 
         result = "allowed" if allowed else "denied"
-        self.requests_total.labels(key=key, backend=backend, result=result).inc()
+        self.requests_total.labels(backend=backend, result=result).inc()
 
         if not allowed:
-            self.requests_denied_total.labels(key=key, backend=backend).inc()
+            self.requests_denied_total.labels(backend=backend).inc()
 
         self.request_duration_seconds.labels(backend=backend).observe(duration_seconds)
 

@@ -4,12 +4,15 @@ Backend management for rate limiting storage.
 This module provides the backend selection and initialization logic.
 """
 
+import logging
 from typing import Dict, Optional
 
 from django.core.exceptions import ImproperlyConfigured
 
 from .base import BaseBackend
 from .factory import BackendFactory
+
+logger = logging.getLogger(__name__)
 
 # Backend instance cache
 _backend_instances: Dict[str, BaseBackend] = {}
@@ -96,7 +99,22 @@ def get_async_backend(backend_name: Optional[str] = None) -> BaseBackend:
 
 
 def clear_backend_cache() -> None:
-    """Clear the backend instance cache. Useful for testing."""
+    """Clear the backend instance cache. Useful for testing.
+
+    Any cached backend that exposes a ``shutdown()`` method (e.g. the
+    in-memory backend, which runs a background cleanup thread) has it called
+    before the cache is cleared so resources such as daemon threads are not
+    leaked when the cache is reconfigured.
+    """
+    for backend in list(_backend_instances.values()):
+        shutdown = getattr(backend, "shutdown", None)
+        if callable(shutdown):
+            try:
+                shutdown()
+            except Exception as exc:
+                # Best-effort cleanup: never let a shutdown failure prevent
+                # the cache from being cleared.
+                logger.debug("Backend shutdown during cache clear failed: %s", exc)
     _backend_instances.clear()
 
 

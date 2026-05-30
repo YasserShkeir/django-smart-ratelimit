@@ -254,3 +254,79 @@ class TestLeakyBucketAlgorithmEdgeCases:
 
         assert result is True
         assert metadata["bucket_level"] == 1  # Fresh bucket + 1 request
+
+
+class TestLeakyBucketAlgorithmLeakRateHandling:
+    """Tests for explicit leak_rate handling and time_until_space semantics."""
+
+    def test_explicit_zero_leak_rate_is_honored(self):
+        """An explicit leak_rate of 0 must not fall back to limit/period."""
+        algorithm = LeakyBucketAlgorithm({"leak_rate": 0})
+        mock_backend = MagicMock()
+        mock_backend.leaky_bucket_check.return_value = (True, {})
+
+        # limit=100, period=60 would yield leak_rate=100/60 if 0 were treated
+        # as falsy and ignored. The explicit 0 must be passed through instead.
+        algorithm.is_allowed(mock_backend, "test_key", 100, 60)
+
+        call_args = mock_backend.leaky_bucket_check.call_args
+        assert call_args[0][2] == 0  # leak_rate honored as 0 (never leaks)
+
+    def test_explicit_zero_leak_rate_honored_in_get_info(self):
+        """An explicit leak_rate of 0 must be honored by get_info too."""
+        algorithm = LeakyBucketAlgorithm({"leak_rate": 0})
+        mock_backend = MagicMock()
+        mock_backend.leaky_bucket_info.return_value = {}
+
+        algorithm.get_info(mock_backend, "test_key", 100, 60)
+
+        call_args = mock_backend.leaky_bucket_info.call_args
+        assert call_args[0][2] == 0  # leak_rate honored as 0 (never leaks)
+
+    def test_zero_leak_rate_never_leaks_in_generic(self):
+        """With leak_rate=0 the generic bucket never drains over time."""
+        algorithm = LeakyBucketAlgorithm({"leak_rate": 0})
+        mock_backend = MagicMock(spec=["get", "set"])
+        # Bucket at level 5, lots of time elapsed; with leak_rate=0 nothing leaks.
+        mock_backend.get.return_value = '{"level": 5, "last_leak": 100.0}'
+
+        with patch.object(algorithm, "get_current_time", return_value=1000.0):
+            result, metadata = algorithm.is_allowed(mock_backend, "test_key", 10, 60)
+
+        assert result is True
+        assert metadata["leak_rate"] == 0
+        assert metadata["bucket_level"] == 6  # 5 (no leaking) + 1 (request)
+
+    def test_zero_leak_rate_full_bucket_time_until_space_infinite(self):
+        """With leak_rate=0 a full bucket reports infinite time_until_space."""
+        algorithm = LeakyBucketAlgorithm({"leak_rate": 0})
+        mock_backend = MagicMock(spec=["get", "set"])
+        # Bucket at level 9; request of cost 1 fills it exactly to capacity 10.
+        mock_backend.get.return_value = '{"level": 9, "last_leak": 1000.0}'
+
+        with patch.object(algorithm, "get_current_time", return_value=1000.0):
+            result, metadata = algorithm.is_allowed(mock_backend, "test_key", 10, 60)
+
+        assert result is True
+        assert metadata["bucket_level"] == 10
+        assert metadata["space_remaining"] == 0
+        assert metadata["time_until_space"] == float("inf")
+
+    def test_time_until_space_is_one_unit_when_bucket_full(self):
+        """time_until_space reflects time for ONE unit of space (1/leak_rate)."""
+        # Use a high-cost request so request_cost != 1, proving the value is
+        # 1/leak_rate rather than request_cost/leak_rate.
+        algorithm = LeakyBucketAlgorithm({"leak_rate": 2.0, "cost_per_request": 4})
+        mock_backend = MagicMock(spec=["get", "set"])
+        # Bucket at level 6; request cost 4 fills it exactly to capacity 10.
+        mock_backend.get.return_value = '{"level": 6, "last_leak": 1000.0}'
+
+        with patch.object(algorithm, "get_current_time", return_value=1000.0):
+            result, metadata = algorithm.is_allowed(mock_backend, "test_key", 10, 60)
+
+        assert result is True
+        assert metadata["bucket_level"] == 10
+        assert metadata["space_remaining"] == 0
+        # One unit of space frees in 1 / leak_rate = 1 / 2.0 = 0.5s,
+        # NOT request_cost / leak_rate = 4 / 2.0 = 2.0s.
+        assert metadata["time_until_space"] == 0.5

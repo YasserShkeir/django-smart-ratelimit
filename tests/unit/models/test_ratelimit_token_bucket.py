@@ -306,6 +306,29 @@ class TestRateLimitTokenBucketTimeUntilTokens:
 
         assert 1.9 <= wait_time <= 2.1
 
+    def test_time_until_tokens_zero_refill_rate(self, bucket_data):
+        """Test that a zero refill rate does not raise ZeroDivisionError."""
+        bucket_data["tokens"] = 0.0
+        bucket_data["refill_rate"] = 0.0  # bucket never refills
+        bucket_data["last_update"] = timezone.now()
+        bucket = RateLimitTokenBucket.objects.create(**bucket_data)
+
+        # With no refill, the requested tokens will never become available.
+        wait_time = bucket.time_until_tokens(50)
+
+        assert wait_time == float("inf")
+
+    def test_time_until_tokens_zero_refill_rate_already_available(self, bucket_data):
+        """Test zero refill rate still returns 0 when tokens are available."""
+        bucket_data["tokens"] = 50.0
+        bucket_data["refill_rate"] = 0.0
+        bucket_data["last_update"] = timezone.now()
+        bucket = RateLimitTokenBucket.objects.create(**bucket_data)
+
+        wait_time = bucket.time_until_tokens(30)
+
+        assert wait_time == 0.0
+
 
 @pytest.mark.django_db
 class TestRateLimitTokenBucketStr:

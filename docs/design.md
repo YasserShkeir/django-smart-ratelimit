@@ -7,8 +7,8 @@
 | Feature                        | django-smart-ratelimit                        | django-ratelimit                               | Other Packages             |
 | ------------------------------ | --------------------------------------------- | ---------------------------------------------- | -------------------------- |
 | **Maintenance Status**         | Yes - Actively maintained                     | Limited (last release Jul 2023)                | Varies                     |
-| **Multiple Algorithms**        | Yes - Token bucket, sliding window, fixed window | No - Fixed window only                      | No - Usually basic           |
-| **Backend Flexibility**        | Yes - Redis, Database, Memory, Multi-backend   | No - Django cache framework only              | No - Limited options         |
+| **Multiple Algorithms**        | Yes - Sliding window, fixed window, token bucket, leaky bucket | No - Fixed window only         | No - Usually basic           |
+| **Backend Flexibility**        | Yes - Redis, Database, Memory, MongoDB, Multi-backend | No - Django cache framework only       | No - Limited options         |
 | **Circuit Breaker Protection** | Yes - Automatic failure recovery               | No                                            | No - Rarely available        |
 | **Atomic Operations**          | Yes - Redis Lua scripts prevent race conditions | No - Race condition prone                    | No - Usually not atomic      |
 | **Automatic Failover**         | Yes - Graceful degradation between backends    | No                                            | No - Single point of failure |

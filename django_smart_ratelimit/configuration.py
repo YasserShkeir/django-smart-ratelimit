@@ -169,7 +169,12 @@ class RateLimitConfigManager:
 
         # Validate algorithm
         if "algorithm" in config:
-            valid_algorithms = ["sliding_window", "fixed_window", "token_bucket"]
+            valid_algorithms = [
+                "sliding_window",
+                "fixed_window",
+                "token_bucket",
+                "leaky_bucket",
+            ]
             if config["algorithm"] not in valid_algorithms:
                 raise ImproperlyConfigured(
                     f"Algorithm must be one of: {valid_algorithms}"

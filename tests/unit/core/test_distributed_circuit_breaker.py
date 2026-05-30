@@ -94,6 +94,11 @@ class MockSharedRedis:
                 count += 1
         return count
 
+    def expire(self, key, time):
+        # This mock does not track TTLs (keys never expire during a test); just
+        # emulate redis returning 1 when the key exists, 0 otherwise.
+        return 1 if key in self.data else 0
+
     def pipeline(self):
         return MockPipeline(self)
 

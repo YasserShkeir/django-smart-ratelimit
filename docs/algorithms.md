@@ -2,21 +2,53 @@
 
 ## Algorithm Comparison
 
-| Algorithm          | Characteristics              | Best For                   |
-| ------------------ | ---------------------------- | -------------------------- |
-| **token_bucket**   | Allows traffic bursts        | APIs with variable load    |
-| **sliding_window** | Smooth request distribution  | Consistent traffic control |
-| **fixed_window**   | Simple, predictable behavior | Basic rate limiting needs  |
+| Algorithm          | Characteristics                  | Best For                   |
+| ------------------ | -------------------------------- | -------------------------- |
+| **sliding_window** | Smooth request distribution      | Consistent traffic control |
+| **fixed_window**   | Simple, predictable behavior     | Basic rate limiting needs  |
+| **token_bucket**   | Allows traffic bursts            | APIs with variable load    |
+| **leaky_bucket**   | Constant drain rate, smooths out | Steady downstream pacing   |
+
+`sliding_window` is the default. It is used when no `algorithm` is passed to the
+decorator and `RATELIMIT_ALGORITHM` is unset.
+
+## Selecting an Algorithm with the Algorithm Enum
+
+You can pass the algorithm as a plain string or use the `Algorithm` enum for IDE
+autocomplete and type safety. The enum is a `StrEnum`, so its members are
+interchangeable with the string values everywhere an algorithm is accepted.
+
+```python
+from django_smart_ratelimit.enums import Algorithm
+
+# These two are equivalent:
+@rate_limit(key="ip", rate="10/m", algorithm="sliding_window")
+@rate_limit(key="ip", rate="10/m", algorithm=Algorithm.SLIDING_WINDOW)
+def my_view(request):
+    ...
+
+# Also works in settings.py:
+RATELIMIT_ALGORITHM = Algorithm.TOKEN_BUCKET
+```
+
+| Enum member               | String value       |
+| ------------------------- | ------------------ |
+| `Algorithm.SLIDING_WINDOW` | `"sliding_window"` |
+| `Algorithm.FIXED_WINDOW`   | `"fixed_window"`   |
+| `Algorithm.TOKEN_BUCKET`   | `"token_bucket"`   |
+| `Algorithm.LEAKY_BUCKET`   | `"leaky_bucket"`   |
 
 ## Token Bucket Algorithm
 
 The token bucket algorithm allows for burst traffic handling:
 
 ```python
+from django_smart_ratelimit.enums import Algorithm
+
 @rate_limit(
     key='user',
     rate='100/h',  # Base rate
-    algorithm='token_bucket',
+    algorithm=Algorithm.TOKEN_BUCKET,  # or algorithm='token_bucket'
     algorithm_config={
         'bucket_size': 200,  # Allow bursts up to 200 requests
         'refill_rate': 2.0,  # Refill tokens at 2 per second
@@ -40,7 +72,7 @@ The sliding window algorithm provides smooth, consistent rate limiting:
 @rate_limit(
     key='ip',
     rate='60/m',
-    algorithm='sliding_window',
+    algorithm=Algorithm.SLIDING_WINDOW,  # or algorithm='sliding_window'
 )
 def consistent_api(request):
     return JsonResponse({'status': 'ok'})
@@ -60,7 +92,7 @@ The fixed window algorithm uses discrete time periods:
 @rate_limit(
     key='user',
     rate='100/h',
-    algorithm='fixed_window',
+    algorithm=Algorithm.FIXED_WINDOW,  # or algorithm='fixed_window'
 )
 def hourly_limited_api(request):
     return JsonResponse({'data': 'result'})
@@ -71,6 +103,45 @@ def hourly_limited_api(request):
 - Simple counter that resets at window boundaries
 - Lower memory and computational overhead
 - May allow bursts at window edges (up to 2x rate if timed correctly)
+
+## Leaky Bucket Algorithm
+
+The leaky bucket algorithm enforces a constant drain rate, smoothing bursts into a
+steady stream:
+
+```python
+from django_smart_ratelimit.enums import Algorithm
+
+@rate_limit(
+    key='user',
+    rate='100/h',
+    algorithm=Algorithm.LEAKY_BUCKET,  # or algorithm='leaky_bucket'
+)
+def steady_pace_api(request):
+    return JsonResponse({'data': 'result'})
+```
+
+**Backend requirement:** when used through the decorator, `leaky_bucket` requires a
+backend with native leaky-bucket support. Only the **database** backend implements
+this (via `leaky_bucket_check`). On any other backend (redis, memory, mongodb,
+multi) the decorator logs a warning and falls back to standard window limiting, so
+you do not get true leaky-bucket semantics there.
+
+```
+Timeline (leaky bucket, constant drain):
+Bucket fills with requests, drains at a fixed rate
+  in:  ▓▓▓▓     ▓▓        ▓▓▓▓▓
+  out: ▓ ▓ ▓ ▓ ▓ ▓ ▓ ▓ ▓ ▓ ▓ ▓   (constant rate)
+Overflow (bucket full) → request rejected
+```
+
+## Async Views and Algorithm Selection
+
+On asynchronous views (`aratelimit`, or an `async def` view) algorithm selection is
+**not yet honored** for `token_bucket` and `leaky_bucket`. The async path performs
+window counting only; passing either of those algorithms logs a warning and falls
+back to window counting. Use a synchronous view if you need token/leaky bucket burst
+semantics.
 
 ## Window Alignment
 

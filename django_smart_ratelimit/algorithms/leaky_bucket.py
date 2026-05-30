@@ -90,7 +90,9 @@ class LeakyBucketAlgorithm(RateLimitAlgorithm):
         bucket_capacity = (
             self.bucket_capacity if self.bucket_capacity is not None else limit
         )
-        leak_rate = self.leak_rate or (limit / period)
+        # Honor an explicit leak_rate of 0 (never leaks); only fall back to the
+        # default when no leak_rate was configured at all.
+        leak_rate = self.leak_rate if self.leak_rate is not None else (limit / period)
         request_cost = kwargs.get("request_cost", self.cost_per_request)
 
         # Handle edge case: zero bucket capacity means no requests allowed
@@ -151,7 +153,9 @@ class LeakyBucketAlgorithm(RateLimitAlgorithm):
         bucket_capacity = (
             self.bucket_capacity if self.bucket_capacity is not None else limit
         )
-        leak_rate = self.leak_rate or (limit / period)
+        # Honor an explicit leak_rate of 0 (never leaks); only fall back to the
+        # default when no leak_rate was configured at all.
+        leak_rate = self.leak_rate if self.leak_rate is not None else (limit / period)
 
         if hasattr(backend, "leaky_bucket_info"):
             return backend.leaky_bucket_info(key, bucket_capacity, leak_rate)
@@ -213,10 +217,12 @@ class LeakyBucketAlgorithm(RateLimitAlgorithm):
                 backend.set(bucket_key, json.dumps(new_bucket_data))
 
             space_remaining = bucket_capacity - new_level
+            # time_until_space is the time until ONE unit of space frees up
+            # (i.e. one unit leaks out), which is 1 / leak_rate.
             time_until_space = (
                 0.0
                 if space_remaining > 0
-                else (request_cost / leak_rate if leak_rate > 0 else float("inf"))
+                else (1 / leak_rate if leak_rate > 0 else float("inf"))
             )
 
             return True, {
