@@ -55,6 +55,10 @@ def get_client_info(request: HttpRequest) -> Dict[str, Any]:
     Returns:
         Dictionary with client information
     """
+    # These are purely diagnostic raw reads exposed for inspection/logging; they
+    # intentionally report the unprocessed transport values. Do NOT use "ip" /
+    # "forwarded_for" / "real_ip" from here for trust or rate-limit-identity
+    # decisions — use django_smart_ratelimit.policy.get_client_ip for that.
     client_info = {
         "ip": request.META.get("REMOTE_ADDR", "unknown"),
         "user_agent": request.META.get("HTTP_USER_AGENT", "unknown"),
@@ -171,17 +175,24 @@ def extract_user_identifier(request: HttpRequest) -> str:
 
     Returns:
         Unique identifier string
+
+    Note:
+        When no authenticated user is available the identifier falls back to the
+        client IP. That IP is resolved via
+        :func:`django_smart_ratelimit.policy.get_client_ip` (rather than reading
+        ``REMOTE_ADDR`` directly) so the rate-limit identity honors
+        ``RATELIMIT_TRUSTED_PROXIES`` / ``RATELIMIT_TRUST_FORWARDED_HEADERS`` and
+        is not trivially spoofable via forwarded headers.
     """
+    # Lazy import to avoid an import cycle with the policy package.
+    from .policy import get_client_ip
+
     if is_authenticated_user(request):
         user_id = getattr(request.user, "id", None)
-        return (
-            f"user:{user_id}"
-            if user_id
-            else f"ip:{request.META.get('REMOTE_ADDR', 'unknown')}"
-        )
+        return f"user:{user_id}" if user_id else f"ip:{get_client_ip(request)}"
 
-    # Fallback to IP address
-    return f"ip:{request.META.get('REMOTE_ADDR', 'unknown')}"
+    # Fallback to IP address (proxy-trust aware).
+    return f"ip:{get_client_ip(request)}"
 
 
 def _ip_in_network(ip: str, network: str) -> bool:
@@ -216,7 +227,17 @@ def is_internal_request(
 
     Returns:
         True if request is from internal IP, False otherwise
+
+    Note:
+        This is a bypass/trust decision, so the client IP is resolved via
+        :func:`django_smart_ratelimit.policy.get_client_ip` (proxy-trust aware)
+        rather than reading ``REMOTE_ADDR`` directly. CIDR/range matching reuses
+        :meth:`django_smart_ratelimit.policy.IPList.contains` so behavior matches
+        the rest of the package's allow/deny handling.
     """
+    # Lazy import to avoid an import cycle with the policy package.
+    from .policy import IPList, get_client_ip
+
     if internal_ips is None:
         internal_ips = [
             "127.0.0.1",
@@ -228,19 +249,25 @@ def is_internal_request(
             "fe80::/10",
         ]
 
-    client_ip = request.META.get("REMOTE_ADDR", "")
+    client_ip = get_client_ip(request)
 
-    if not client_ip:
+    if not client_ip or client_ip == "unknown":
         return False
 
-    for internal_ip in internal_ips:
-        if "/" in internal_ip:
-            if _ip_in_network(client_ip, internal_ip):
-                return True
-        elif client_ip == internal_ip:
-            return True
+    try:
+        ip_list = IPList(list(internal_ips))
+    except ValueError:
+        # An invalid entry in internal_ips: fall back to per-entry matching so
+        # one bad CIDR does not break the whole check (mirrors prior leniency).
+        for internal_ip in internal_ips:
+            try:
+                if IPList([internal_ip]).contains(client_ip):
+                    return True
+            except ValueError:
+                continue
+        return False
 
-    return False
+    return ip_list.contains(client_ip)
 
 
 def extract_jwt_claim(request: HttpRequest, claim: str) -> Optional[Any]:
@@ -253,6 +280,17 @@ def extract_jwt_claim(request: HttpRequest, claim: str) -> Optional[Any]:
 
     Returns:
         The claim value or None if not found/invalid
+
+    SECURITY WARNING:
+        The JWT is decoded with ``verify_signature=False`` — its signature is
+        NOT verified and its expiry/audience are NOT checked. The returned claim
+        is therefore fully attacker-controllable: a client can forge any value.
+        Do NOT use the result for authentication, authorization, or any trust
+        decision. It is suitable only as a best-effort rate-limit/identification
+        hint, and even then should be paired with the verified ``request.user``
+        (populated by your authentication layer) whenever the decision is
+        security-relevant. Signature verification must be handled by
+        authentication middleware before the claim is trusted.
     """
     try:
         import jwt

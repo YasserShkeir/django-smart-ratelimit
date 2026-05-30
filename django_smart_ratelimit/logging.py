@@ -719,10 +719,13 @@ class StructuredLoggingMiddleware:
             or uuid.uuid4().hex[:16]
         )
 
-        # Extract client IP
-        ip = request.META.get("HTTP_X_FORWARDED_FOR", "").split(",")[
-            0
-        ].strip() or request.META.get("REMOTE_ADDR", "")
+        # Extract client IP via the shared, proxy-trust-aware extractor so the
+        # IP we log matches the one used for enforcement and honors
+        # RATELIMIT_TRUSTED_PROXIES / RATELIMIT_TRUST_FORWARDED_HEADERS. Imported
+        # lazily to avoid an import cycle (policy -> ... -> logging).
+        from .policy import get_client_ip
+
+        ip = get_client_ip(request)
 
         # Extract user identifier
         user = None

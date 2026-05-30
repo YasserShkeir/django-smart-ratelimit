@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "django-smart-ratelimit"
-version = "3.1.0"
+version = "4.0.0"
 dynamic = []
 description = "A flexible and efficient rate limiting library for Django applications"
 readme = "README.md"
@@ -18,11 +18,10 @@ classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Framework :: Django",
     "Framework :: Django :: 3.2",
-    "Framework :: Django :: 4.0",
-    "Framework :: Django :: 4.1",
     "Framework :: Django :: 4.2",
     "Framework :: Django :: 5.0",
     "Framework :: Django :: 5.1",
+    "Framework :: Django :: 5.2",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
@@ -84,9 +83,9 @@ dev = [
     "flake8>=5.0",
     "flake8-docstrings>=1.7",
     "isort>=5.0",
-    "mypy>=1.0",
+    "mypy>=1.8,<2.2",
     "pre-commit>=2.20",
-    "django-stubs>=4.0",
+    "django-stubs>=5,<6",
     "types-redis>=4.0",
     "safety>=2.0",
     "bandit>=1.7",
@@ -94,8 +93,16 @@ dev = [
     "twine>=4.0",
     "PyJWT>=2.0",
     "djangorestframework>=3.12",
-    "bump2version>=1.0",
+    "redis>=4.0",
+    "hiredis>=2.0",
+    "pymongo>=4.0",
+    "prometheus-client>=0.14.0",
+    "opentelemetry-api>=1.20.0",
+    "opentelemetry-sdk>=1.20.0",
     "tox>=4.0",
+]
+docs = [
+    "mkdocs-material>=9.7.6",
 ]
 
 [project.urls]

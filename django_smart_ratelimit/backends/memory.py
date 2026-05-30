@@ -33,12 +33,19 @@ from .utils import (
 
 @dataclass
 class TokenBucketState:
-    """State for token bucket algorithm."""
+    """State for token bucket algorithm.
 
-    __slots__ = ("tokens", "last_refill")
+    ``expires_at`` is the timestamp after which an idle bucket can be pruned by
+    the periodic cleanup sweep. A bucket is considered idle-equivalent to a
+    fresh (full) bucket once enough time has passed for it to fully refill, so
+    pruning it has no observable effect on rate limiting.
+    """
+
+    __slots__ = ("tokens", "last_refill", "expires_at")
 
     tokens: float
     last_refill: float
+    expires_at: float
 
 
 class MemoryBackend(BaseBackend):
@@ -135,6 +142,29 @@ class MemoryBackend(BaseBackend):
         # Configuration
         self._algorithm = settings.default_algorithm
         self._key_prefix = settings.key_prefix
+
+    def _token_bucket_expiry(
+        self, current_time: float, bucket_size: int, refill_rate: float
+    ) -> float:
+        """
+        Compute the timestamp after which an idle token bucket may be pruned.
+
+        A bucket can be safely dropped once it would have fully refilled, since
+        at that point it is indistinguishable from a freshly created (full)
+        bucket. When ``refill_rate`` is non-positive the bucket never refills on
+        its own, so fall back to the configured cleanup interval as an idle TTL
+        to avoid leaking buckets that are never touched again.
+
+        Must be called with the lock held.
+        """
+        if refill_rate > 0:
+            # Seconds to go from empty to full; bounded below by one cleanup
+            # interval so very fast-refilling buckets are not pruned mid-use.
+            refill_seconds = bucket_size / refill_rate
+            idle_ttl = max(refill_seconds, self._cleanup_interval)
+        else:
+            idle_ttl = self._cleanup_interval
+        return current_time + idle_ttl
 
     def _start_cleanup_thread(self) -> None:
         """Start background cleanup thread."""
@@ -442,6 +472,9 @@ class MemoryBackend(BaseBackend):
                         self._token_buckets[bucket_key] = TokenBucketState(
                             tokens=initial_tokens,
                             last_refill=current_time,
+                            expires_at=self._token_bucket_expiry(
+                                current_time, bucket_size, refill_rate
+                            ),
                         )
                     else:
                         self._token_buckets.move_to_end(bucket_key)
@@ -467,6 +500,9 @@ class MemoryBackend(BaseBackend):
                         self._token_buckets[bucket_key] = TokenBucketState(
                             tokens=remaining_tokens,
                             last_refill=current_time,
+                            expires_at=self._token_bucket_expiry(
+                                current_time, bucket_size, refill_rate
+                            ),
                         )
 
                         # Use utility function to format metadata
@@ -492,6 +528,9 @@ class MemoryBackend(BaseBackend):
                         self._token_buckets[bucket_key] = TokenBucketState(
                             tokens=current_tokens,
                             last_refill=current_time,
+                            expires_at=self._token_bucket_expiry(
+                                current_time, bucket_size, refill_rate
+                            ),
                         )
 
                         metadata = format_token_bucket_metadata(
@@ -704,6 +743,21 @@ class MemoryBackend(BaseBackend):
 
                 # Remove partition
                 del self._partitions[p_id]
+
+        # Prune idle token buckets that have passed their expiry. These are
+        # LRU-evicted under memory pressure, but without this sweep an idle
+        # bucket below the LRU threshold would live forever. Buckets are kept
+        # in insertion/access order, so we can stop at the first non-expired
+        # entry only if we iterate oldest-first; expiry is not strictly
+        # monotonic with access order (it depends on bucket_size/refill_rate),
+        # so scan all entries to be correct.
+        expired_buckets = [
+            bucket_key
+            for bucket_key, state in self._token_buckets.items()
+            if state.expires_at <= now
+        ]
+        for bucket_key in expired_buckets:
+            del self._token_buckets[bucket_key]
 
         # If we have too many keys, use LRU cleanup
         # Since we use OrderedDict, we can efficiently pop the oldest items

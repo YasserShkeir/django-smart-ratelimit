@@ -1,8 +1,10 @@
 name: Publish to PyPI
 
+# Single trigger: pushing a version tag (vX.Y.Z) is the source of truth for a
+# release. The GitHub Release itself is created by the "Create GitHub Release"
+# step below, so we intentionally do NOT also trigger on `release: published`
+# (that previously caused the job to run twice for the same version).
 on:
-  release:
-    types: [published]
   push:
     tags:
       - "v*"
@@ -16,14 +18,12 @@ jobs:
     environment:
       name: pypi
       url: https://pypi.org/project/django-smart-ratelimit/
-    # Only run on main branch for tags or releases
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || github.event_name == 'release'
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: "3.12"
           cache: "pip"
@@ -40,7 +40,7 @@ jobs:
         run: python3 -m twine check dist/*
 
       - name: Publish to TestPyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
         with:
           repository-url: https://test.pypi.org/legacy/
           password: ${{ secrets.TEST_PYPI_API_TOKEN }}
@@ -49,15 +49,16 @@ jobs:
         continue-on-error: true
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
         with:
           user: __token__
           password: ${{ secrets.PYPI_API_TOKEN }}
+          # Idempotent: re-running for an already-published version is a no-op
+          # instead of an error.
           skip-existing: true
 
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v') && github.event_name == 'push'
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
           generate_release_notes: true
           draft: false

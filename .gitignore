@@ -215,6 +215,9 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 
+# pytest-benchmark generated data
+.benchmarks/
+
 # Documentation builds
 docs/_build/
 docs/build/

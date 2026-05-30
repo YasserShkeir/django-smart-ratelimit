@@ -29,7 +29,7 @@ Usage:
 import threading
 import time
 from collections import defaultdict
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from django.http import HttpRequest, HttpResponse
 
@@ -287,6 +287,22 @@ class _LabeledSimpleMetric:
         self._parent._observe_labeled(self._key, value)
 
 
+# Type aliases for the metric handles. At runtime each attribute holds either a
+# real prometheus_client metric (when the library is installed) or the Simple*
+# fallback below. We type them as a Union so mypy accepts both assignment paths
+# in _init_prometheus_client_metrics / _init_simple_metrics. The real types are
+# only referenced inside TYPE_CHECKING-safe Unions via the imported names, which
+# are always defined (prometheus_client is imported at module top with a guard).
+if HAS_PROMETHEUS_CLIENT:
+    CounterMetric = Union[Counter, SimpleCounter]
+    GaugeMetric = Union[Gauge, SimpleGauge]
+    HistogramMetric = Union[Histogram, SimpleHistogram]
+else:
+    CounterMetric = SimpleCounter  # type: ignore[misc]
+    GaugeMetric = SimpleGauge  # type: ignore[misc]
+    HistogramMetric = SimpleHistogram  # type: ignore[misc]
+
+
 def _get_prometheus_config() -> Dict[str, Any]:
     """Get Prometheus configuration from Django settings."""
     from django.conf import settings as django_settings
@@ -310,6 +326,16 @@ class PrometheusMetrics:
     _instance: Optional["PrometheusMetrics"] = None
     _lock = threading.Lock()
     _initialized: bool = False
+
+    # Metric handles. Each holds a real prometheus_client metric when the
+    # library is installed, otherwise the Simple* fallback. Annotated as Unions
+    # so both initialization paths type-check.
+    requests_total: CounterMetric
+    requests_denied_total: CounterMetric
+    request_duration_seconds: HistogramMetric
+    active_keys: GaugeMetric
+    backend_healthy: GaugeMetric
+    circuit_breaker_state: GaugeMetric
 
     def __new__(cls) -> "PrometheusMetrics":
         """Create or return the singleton PrometheusMetrics instance."""
@@ -505,16 +531,19 @@ class PrometheusMetrics:
         if HAS_PROMETHEUS_CLIENT:
             return generate_latest(self._registry).decode("utf-8")
 
-        # Collect from simple metrics
-        parts = []
-        for metric in [
-            self.requests_total,
-            self.requests_denied_total,
-            self.request_duration_seconds,
-            self.active_keys,
-            self.backend_healthy,
-            self.circuit_breaker_state,
-        ]:
+        # Collect from simple metrics. This branch only runs when
+        # prometheus_client is NOT installed, so every metric here is a Simple*
+        # instance whose collect() returns the Prometheus text format string.
+        parts: List[str] = []
+        simple_metrics: List[Union[SimpleCounter, SimpleGauge, SimpleHistogram]] = [
+            self.requests_total,  # type: ignore[list-item]
+            self.requests_denied_total,  # type: ignore[list-item]
+            self.request_duration_seconds,  # type: ignore[list-item]
+            self.active_keys,  # type: ignore[list-item]
+            self.backend_healthy,  # type: ignore[list-item]
+            self.circuit_breaker_state,  # type: ignore[list-item]
+        ]
+        for metric in simple_metrics:
             collected = metric.collect()
             if collected:
                 parts.append(collected)

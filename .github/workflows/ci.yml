@@ -25,9 +25,13 @@ jobs:
           cache: "pip"
 
       - name: Install dependencies
+        # Install the optional extras ([all]) alongside [dev] so that the
+        # optional-dependency modules (redis, mongodb, drf, jwt, prometheus,
+        # opentelemetry, ...) are importable and therefore actually type
+        # checked by mypy. With only [dev] those modules are skipped.
         run: |
           python -m pip install --upgrade pip
-          pip install -e .[dev]
+          pip install -e ".[all,dev]"
 
       - name: Run pre-commit hooks
         run: pre-commit run --all-files
@@ -47,13 +51,35 @@ jobs:
           cache: "pip"
 
       - name: Install dependencies
+        # Install the package with all extras so pip-audit scans the real
+        # dependency tree (including optional backends) rather than a bare env.
         run: |
           python -m pip install --upgrade pip
-          pip install safety bandit
+          pip install -e ".[all]"
+          # Pin bandit: its B105 heuristics shift between minor releases, so an
+          # unpinned bandit makes a green build non-reproducible.
+          pip install pip-audit "bandit==1.9.4"
 
-      - name: Run safety check
-        run: safety check
-        continue-on-error: true  # Safety can fail on transitive deps
+      - name: Run pip-audit (dependency vulnerability scan)
+        # Advisory, not blocking. This is a LIBRARY: it does not pin its dev /
+        # test / transitive tooling (black, cryptography, Django, ...), and the
+        # installed environment will always carry some advisories that are not
+        # this package's runtime risk and that downstream users control by
+        # choosing their own versions. So pip-audit surfaces findings for
+        # awareness without failing the PR. The allowlist below still lets you
+        # silence specific reviewed advisories. For a hard gate, run pip-audit
+        # on a schedule against the resolved runtime deps instead.
+        continue-on-error: true
+        run: |
+          ARGS=()
+          while IFS= read -r line || [ -n "$line" ]; do
+            id="$(printf '%s' "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+            case "$id" in
+              ''|\#*) continue ;;
+            esac
+            ARGS+=(--ignore-vuln "$id")
+          done < .github/pip-audit-allowlist.txt
+          pip-audit --strict "${ARGS[@]}"
 
       - name: Run bandit security check
         run: bandit -r django_smart_ratelimit/
@@ -133,7 +159,7 @@ jobs:
 
       - name: Run tests with coverage
         if: ${{ matrix.coverage }}
-        run: pytest -m "not benchmark" --cov=django_smart_ratelimit --cov-report=xml --cov-report=term-missing
+        run: pytest -m "not benchmark" --cov=django_smart_ratelimit --cov-report=xml --cov-report=term-missing --cov-fail-under=65
         env:
           REDIS_URL: redis://localhost:6379/0
           MONGODB_URL: mongodb://localhost:27017/test

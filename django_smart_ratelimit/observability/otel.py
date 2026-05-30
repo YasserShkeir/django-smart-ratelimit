@@ -48,7 +48,7 @@ Example:
 """
 
 import threading
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 # Try to import OpenTelemetry
 try:
@@ -59,8 +59,14 @@ try:
     HAS_OTEL = True
 except ImportError:
     HAS_OTEL = False
-    Tracer = Any
-    Meter = Any
+
+# Type aliases for the optional OTel handles. Under type checking mypy analyzes
+# the try-import as succeeding, so the real ``Tracer``/``Meter`` names resolve
+# via the forward-reference strings below. At runtime, when OTel is missing,
+# these names are never evaluated (Union with a string forward ref collapses to
+# ``Any``), so no NameError occurs and annotations remain valid either way.
+TracerType = Union["Tracer", Any]
+MeterType = Union["Meter", Any]
 
 
 # Global tracer and meter (set by instrument_rate_limit)
@@ -155,7 +161,7 @@ class RateLimitTracer:
     Falls back to no-op implementations if OpenTelemetry is not installed.
     """
 
-    def __init__(self, tracer: Optional[Tracer] = None) -> None:
+    def __init__(self, tracer: Optional["TracerType"] = None) -> None:
         """
         Initialize RateLimitTracer.
 
@@ -248,7 +254,7 @@ class RateLimitMeter:
     Falls back to no-op implementations if OpenTelemetry is not installed.
     """
 
-    def __init__(self, meter: Optional[Meter] = None) -> None:
+    def __init__(self, meter: Optional["MeterType"] = None) -> None:
         """
         Initialize RateLimitMeter.
 
@@ -301,7 +307,9 @@ class RateLimitMeter:
             duration_ms: Check duration in milliseconds
         """
         decision = "allowed" if allowed else "denied"
-        attrs_decision = {
+        # Explicitly typed so mypy does not widen the mixed str/bool values to
+        # object; OTel's add(attributes=...) accepts str | bool | int | float.
+        attrs_decision: Dict[str, Union[str, bool, int, float]] = {
             "decision": decision,
             "backend": backend,
             "algorithm": algorithm,

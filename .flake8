@@ -10,4 +10,5 @@ exclude =
     dist,
     venv,
     .venv,
-    env
+    env,
+    examples

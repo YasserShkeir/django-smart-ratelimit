@@ -49,15 +49,26 @@ repos:
           [
             "--max-line-length=88",
             "--extend-ignore=E203,W503,U101,D401,U100,D200,D400,E501,D105,D104,D102,D202,D205,E402",
-            "--per-file-ignores=tests/*:D100,D101,D103,D107,F541",
+            "--per-file-ignores=tests/*:D100,D101,D103,D107,F541,examples/*:D100,D101,D103,D107",
           ]
-        exclude: ^\.venv/
+        exclude: ^(\.venv/|examples/)
 
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.19.1
     hooks:
       - id: mypy
-        additional_dependencies: [django-stubs, types-redis, pytest]
+        # Include the optional integrations so the observability modules are
+        # type-checked the SAME way the CI mypy job sees them (with the real
+        # prometheus_client / opentelemetry types present). Keeping the two mypy
+        # invocations consistent avoids "unused type: ignore" drift.
+        additional_dependencies:
+          - django-stubs
+          - types-redis
+          - pytest
+          - prometheus-client
+          - opentelemetry-api
+          - opentelemetry-sdk
+          - djangorestframework
         exclude: ^\.venv/
 
   - repo: https://github.com/commitizen-tools/commitizen

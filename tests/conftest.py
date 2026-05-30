@@ -20,6 +20,35 @@ def pytest_configure(config):  # noqa: U100
         django.setup()
 
 
+def pytest_collection_modifyitems(config, items):  # noqa: U100
+    """Auto-apply location-based markers so ``-m`` selection works.
+
+    The ``slow``, ``integration`` and ``unit`` markers are declared in
+    ``pyproject.toml`` but were never applied to anything, which made
+    ``pytest -m integration`` (or ``-m "not slow"``) silently select nothing.
+
+    This hook tags every collected item by its location:
+
+    - tests under ``tests/integration/`` -> ``integration``
+    - tests under ``tests/performance/`` -> ``slow`` (these are sleep-heavy /
+      benchmark style and should be deselectable in fast runs)
+    - tests under ``tests/unit/`` -> ``unit``
+
+    Markers already present on an item (e.g. an explicit ``@pytest.mark.slow``)
+    are preserved; this only adds the location marker when it is missing.
+    """
+    location_markers = (
+        (os.path.join("tests", "integration") + os.sep, "integration"),
+        (os.path.join("tests", "performance") + os.sep, "slow"),
+        (os.path.join("tests", "unit") + os.sep, "unit"),
+    )
+    for item in items:
+        path = str(item.fspath)
+        for fragment, marker in location_markers:
+            if fragment in path and marker not in {m.name for m in item.iter_markers()}:
+                item.add_marker(getattr(pytest.mark, marker))
+
+
 @pytest.fixture
 def django_user_model():
     """Return the Django user model."""

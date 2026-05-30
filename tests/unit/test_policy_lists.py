@@ -10,9 +10,10 @@ import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from django.test import RequestFactory, SimpleTestCase
+from django.test import RequestFactory, SimpleTestCase, override_settings
 
 from django_smart_ratelimit.policy.lists import (
+    _MAX_URL_RESPONSE_BYTES,
     FileBackedIPList,
     IPList,
     URLBackedIPList,
@@ -669,3 +670,228 @@ class CheckListsTests(SimpleTestCase):
         should_skip, reason = check_lists(request, deny_list=deny_list)
         self.assertFalse(should_skip)
         self.assertEqual(reason, "deny_list")
+
+
+class FailClosedDenyListTests(SimpleTestCase):
+    """Test cases for the fail-closed deny-list behavior in check_lists."""
+
+    def setUp(self):
+        """Set up test fixtures."""
+        self.factory = RequestFactory()
+
+    def _request(self, ip="8.8.8.8"):
+        request = self.factory.get("/")
+        request.META["REMOTE_ADDR"] = ip
+        return request
+
+    def test_filebacked_missing_file_sets_load_failed(self):
+        """A deny-list file that never loads marks the list load_failed."""
+        path = "/tmp/nonexistent_deny_" + str(time.time()) + ".txt"
+        deny_list = FileBackedIPList(path)
+        self.assertTrue(deny_list.load_failed)
+        self.assertEqual(len(deny_list.networks), 0)
+
+    @override_settings(RATELIMIT_POLICY_FAIL_CLOSED=True)
+    def test_fail_closed_denies_when_initial_load_failed(self):
+        """When fail-closed is on and the deny source never loaded, deny."""
+        path = "/tmp/nonexistent_deny_" + str(time.time()) + ".txt"
+        deny_list = FileBackedIPList(path)
+        should_skip, reason = check_lists(self._request(), deny_list=deny_list)
+        self.assertFalse(should_skip)
+        self.assertEqual(reason, "deny_list")
+
+    @override_settings(RATELIMIT_POLICY_FAIL_CLOSED=False)
+    def test_fail_open_allows_when_initial_load_failed(self):
+        """Default (fail-open): an unloaded deny source allows everyone."""
+        path = "/tmp/nonexistent_deny_" + str(time.time()) + ".txt"
+        deny_list = FileBackedIPList(path)
+        should_skip, reason = check_lists(self._request(), deny_list=deny_list)
+        self.assertFalse(should_skip)
+        self.assertEqual(reason, "")
+
+    def test_fail_closed_default_is_fail_open(self):
+        """With no setting configured, behavior is fail-open (backward compat)."""
+        path = "/tmp/nonexistent_deny_" + str(time.time()) + ".txt"
+        deny_list = FileBackedIPList(path)
+        should_skip, reason = check_lists(self._request(), deny_list=deny_list)
+        self.assertFalse(should_skip)
+        self.assertEqual(reason, "")
+
+    @override_settings(RATELIMIT_POLICY_FAIL_CLOSED=True)
+    def test_fail_closed_not_triggered_for_loaded_deny_list(self):
+        """A successfully-loaded deny list is unaffected by fail-closed."""
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
+            f.write("203.0.113.0/24\n")
+            f.flush()
+            path = f.name
+
+        try:
+            deny_list = FileBackedIPList(path)
+            self.assertFalse(deny_list.load_failed)
+            # An IP not in the deny list continues to normal limiting.
+            should_skip, reason = check_lists(
+                self._request("8.8.8.8"), deny_list=deny_list
+            )
+            self.assertFalse(should_skip)
+            self.assertEqual(reason, "")
+            # An IP in the deny list is blocked as usual.
+            should_skip, reason = check_lists(
+                self._request("203.0.113.42"), deny_list=deny_list
+            )
+            self.assertFalse(should_skip)
+            self.assertEqual(reason, "deny_list")
+        finally:
+            Path(path).unlink()
+
+    @override_settings(RATELIMIT_POLICY_FAIL_CLOSED=True)
+    def test_fail_closed_does_not_affect_allow_list(self):
+        """An allow list that failed to load does not fail closed (deny)."""
+        path = "/tmp/nonexistent_allow_" + str(time.time()) + ".txt"
+        allow_list = FileBackedIPList(path)
+        self.assertTrue(allow_list.load_failed)
+        # No deny list -> allow-list load failure must not deny the request.
+        should_skip, reason = check_lists(self._request(), allow_list=allow_list)
+        self.assertFalse(should_skip)
+        self.assertEqual(reason, "")
+
+    @override_settings(RATELIMIT_POLICY_FAIL_CLOSED=True)
+    def test_successful_refresh_clears_load_failed(self):
+        """A deny list that recovers via refresh stops failing closed."""
+        path = "/tmp/recovering_deny_" + str(time.time()) + ".txt"
+        deny_list = FileBackedIPList(path, refresh_interval=0)
+        self.assertTrue(deny_list.load_failed)
+
+        # Create the file now and force a refresh.
+        try:
+            with open(path, "w") as f:
+                f.write("203.0.113.0/24\n")
+            deny_list.force_refresh()
+            self.assertFalse(deny_list.load_failed)
+
+            should_skip, reason = check_lists(self._request(), deny_list=deny_list)
+            self.assertFalse(should_skip)
+            self.assertEqual(reason, "")
+        finally:
+            Path(path).unlink()
+
+    @override_settings(RATELIMIT_POLICY_FAIL_CLOSED=True)
+    def test_transient_refresh_failure_keeps_last_good_and_does_not_fail_closed(self):
+        """A transient refresh failure keeps last-good and does not fail closed."""
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as f:
+            f.write("203.0.113.0/24\n")
+            f.flush()
+            path = f.name
+
+        try:
+            deny_list = FileBackedIPList(path, refresh_interval=0)
+            self.assertFalse(deny_list.load_failed)
+
+            # Delete the file to simulate a transient source failure, then
+            # refresh: last-good is kept and load_failed stays False.
+            Path(path).unlink()
+            deny_list.force_refresh()
+            self.assertFalse(deny_list.load_failed)
+
+            # Fail-closed must NOT trigger because we still serve last-good.
+            should_skip, reason = check_lists(
+                self._request("203.0.113.42"), deny_list=deny_list
+            )
+            self.assertFalse(should_skip)
+            self.assertEqual(reason, "deny_list")
+        finally:
+            if Path(path).exists():
+                Path(path).unlink()
+
+
+class URLBackedIPListHardeningTests(SimpleTestCase):
+    """Test cases for URLBackedIPList defense-in-depth hardening."""
+
+    def _mock_response(self, body: bytes):
+        mock_response = MagicMock()
+        mock_response.read.return_value = body
+        mock_response.__enter__ = MagicMock(return_value=mock_response)
+        mock_response.__exit__ = MagicMock(return_value=None)
+        return mock_response
+
+    @patch("urllib.request.urlopen")
+    def test_http_feed_logs_warning(self, mock_urlopen):
+        """A plain http:// feed URL logs a non-TLS warning."""
+        mock_urlopen.return_value = self._mock_response(b"10.0.0.0/8\n")
+        with self.assertLogs(
+            "django_smart_ratelimit.policy.lists", level="WARNING"
+        ) as cm:
+            URLBackedIPList("http://example.com/ips.txt")
+        self.assertTrue(any("http://" in msg for msg in cm.output))
+        self.assertTrue(any("TLS" in msg for msg in cm.output))
+
+    @patch("urllib.request.urlopen")
+    def test_https_feed_does_not_warn(self, mock_urlopen):
+        """An https:// feed URL does not log the non-TLS warning."""
+        mock_urlopen.return_value = self._mock_response(b"10.0.0.0/8\n")
+        # assertNoLogs is 3.10+, so inspect records via assertLogs on a no-op.
+        import logging as _logging
+
+        logger = _logging.getLogger("django_smart_ratelimit.policy.lists")
+        records = []
+        handler = _logging.Handler()
+        handler.emit = records.append  # type: ignore[assignment]
+        logger.addHandler(handler)
+        try:
+            URLBackedIPList("https://example.com/ips.txt")
+        finally:
+            logger.removeHandler(handler)
+        self.assertFalse(
+            any(r.levelno >= _logging.WARNING for r in records),
+            "https feed should not emit a non-TLS warning",
+        )
+
+    @patch("urllib.request.urlopen")
+    def test_read_size_cap_rejects_oversized_response(self, mock_urlopen):
+        """A response over the size cap is rejected (initial load fails)."""
+        oversized = b"10.0.0.0/8\n" * ((_MAX_URL_RESPONSE_BYTES // 11) + 100)
+        # The code reads MAX+1 bytes; simulate read(n) honoring its argument.
+        mock_response = MagicMock()
+        mock_response.read.side_effect = lambda n=None: (
+            oversized[:n] if n is not None else oversized
+        )
+        mock_response.__enter__ = MagicMock(return_value=mock_response)
+        mock_response.__exit__ = MagicMock(return_value=None)
+        mock_urlopen.return_value = mock_response
+
+        with self.assertLogs("django_smart_ratelimit.policy.lists", level="ERROR"):
+            ip_list = URLBackedIPList("https://example.com/ips.txt")
+        # Oversized initial load leaves the list empty and flagged as failed.
+        self.assertEqual(len(ip_list.networks), 0)
+        self.assertTrue(ip_list.load_failed)
+
+    @patch("urllib.request.urlopen")
+    def test_read_called_with_size_limit(self, mock_urlopen):
+        """The response is read with the byte cap (read(MAX+1))."""
+        mock_response = MagicMock()
+        mock_response.read.return_value = b"10.0.0.0/8\n"
+        mock_response.__enter__ = MagicMock(return_value=mock_response)
+        mock_response.__exit__ = MagicMock(return_value=None)
+        mock_urlopen.return_value = mock_response
+
+        URLBackedIPList("https://example.com/ips.txt")
+        mock_response.read.assert_called_once_with(_MAX_URL_RESPONSE_BYTES + 1)
+
+    @patch("urllib.request.urlopen")
+    def test_response_at_cap_is_accepted(self, mock_urlopen):
+        """A response exactly at the cap is accepted, not rejected."""
+        body = b"10.0.0.0/8\n"
+        padding = b"# " + b"x" * (_MAX_URL_RESPONSE_BYTES - len(body) - 3) + b"\n"
+        at_cap = body + padding
+        self.assertEqual(len(at_cap), _MAX_URL_RESPONSE_BYTES)
+
+        mock_response = MagicMock()
+        mock_response.read.side_effect = lambda n=None: (
+            at_cap[:n] if n is not None else at_cap
+        )
+        mock_response.__enter__ = MagicMock(return_value=mock_response)
+        mock_response.__exit__ = MagicMock(return_value=None)
+        mock_urlopen.return_value = mock_response
+
+        ip_list = URLBackedIPList("https://example.com/ips.txt")
+        self.assertFalse(ip_list.load_failed)
+        self.assertTrue(ip_list.contains("10.0.0.1"))

@@ -86,6 +86,20 @@ def get_jwt_key(request: HttpRequest, jwt_field: str = "sub") -> str:
 
     Returns:
         JWT-based key string or falls back to IP
+
+    SECURITY WARNING:
+        The JWT is decoded with ``verify_signature=False`` — its signature is
+        NOT verified and its expiry/audience are NOT checked. Every claim
+        (including ``sub``) is therefore fully attacker-controllable: a client
+        can forge any value to land in (or evade) an arbitrary rate-limit
+        bucket, enabling both quota evasion and targeted exhaustion of another
+        user's bucket. Do NOT treat this key as an authenticated identity.
+
+        For anything security-relevant, pair this with the verified
+        ``request.user`` (populated by your authentication layer) — e.g. use
+        :func:`get_user_key` for authenticated traffic and only fall back to a
+        JWT/IP key for anonymous requests. Signature verification must be done
+        by authentication middleware before the claim is trusted.
     """
     try:
         import jwt

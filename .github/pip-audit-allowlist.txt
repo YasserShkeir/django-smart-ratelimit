@@ -1,0 +1,20 @@
+# pip-audit advisory allowlist
+#
+# The CI "security" job runs `pip-audit --strict` in BLOCKING mode: any known
+# vulnerability in the resolved dependency tree fails the build. Use this file
+# only to temporarily accept an advisory that cannot be fixed yet (e.g. no
+# patched release exists, or it is a confirmed false positive for our usage).
+#
+# Format: one advisory ID per line (GHSA-xxxx-... or PYSEC-YYYY-NNN).
+# Lines starting with `#` and blank lines are ignored.
+#
+# Rules:
+#   - Add a comment above each ID with: why it is safe to ignore, and a link
+#     to a tracking issue.
+#   - Keep this list as short as possible; re-review on every dependency bump.
+#   - Prefer upgrading the affected dependency over adding an entry here.
+#
+# Example (do not leave real entries here once resolved):
+#   # GHSA-xxxx-yyyy-zzzz: <package> <version> — no fix released yet,
+#   # not reachable from our code. Tracking: https://github.com/.../issues/NNN
+#   GHSA-xxxx-yyyy-zzzz
