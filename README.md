@@ -7,17 +7,22 @@
 [![Django Versions](https://img.shields.io/badge/django-3.2%20%7C%204.x%20%7C%205.x-blue.svg)](https://pypi.org/project/django-smart-ratelimit/)
 [![License](https://img.shields.io/pypi/l/django-smart-ratelimit.svg)](https://github.com/YasserShkeir/django-smart-ratelimit/blob/main/LICENSE)
 
-A high-performance, stateless rate limiting library for Django. Protects your APIs from abuse with atomic Redis operations, multiple algorithms, circuit breaking, and full async support -- optimized for distributed systems.
+A high-performance rate limiting library for Django. Protects your APIs from abuse with atomic Redis operations, multiple algorithms, circuit breaking, and full async support -- optimized for distributed systems.
 
 ## Key Features
 
-- **Stateless and Modern** -- Dual-mode support (sync and async) with no database dependencies
+- **Sync and Async** -- Dual-mode support with native `@ratelimit` and `@aratelimit` decorators
 - **Enterprise Reliability** -- Built-in circuit breaker, automatic failover, and fail-open strategies
 - **Multiple Algorithms** -- Token bucket, sliding window, fixed window, and leaky bucket
-- **Flexible Backends** -- Redis (recommended), async Redis, in-memory, MongoDB, or custom backends
+- **Flexible Backends** -- Redis (recommended), async Redis, in-memory, MongoDB, Django ORM (database), or custom backends
 - **Precise Control** -- Rate limit by IP, user, header, or any custom callable
-- **Prometheus Metrics** -- Built-in `/metrics` endpoint for monitoring
-- **Structured JSON Logging** -- ELK/Datadog/Splunk-compatible structured log output
+- **Shadow Mode** -- Evaluate and log decisions without enforcing them for safe, zero-risk rollouts ([docs](https://django-smart-ratelimit.readthedocs.io/en/latest/decorator/))
+- **Cost-Based (Weighted) Limiting** -- Charge expensive requests more of the budget via a per-request `cost` ([docs](https://django-smart-ratelimit.readthedocs.io/en/latest/decorator/))
+- **CIDR Allow/Deny Lists** -- IPv4/IPv6 allowlists and denylists from inline CIDRs, files, or URL feeds ([docs](https://django-smart-ratelimit.readthedocs.io/en/latest/configuration/))
+- **DRF Throttle Adapter** -- Drop-in `BaseThrottle` classes for Django REST Framework ([docs](https://django-smart-ratelimit.readthedocs.io/en/latest/installation/))
+- **Observability** -- Prometheus `/metrics`, OpenTelemetry spans and metrics, and structured JSON logging ([docs](https://django-smart-ratelimit.readthedocs.io/en/latest/installation/))
+- **Type-Safe Enums** -- Optional `Algorithm` and `RateLimitKey` enums for autocomplete and typo-proof config
+- **Configurable Proxy Trust** -- `RATELIMIT_TRUSTED_PROXIES` for spoof-resistant client IP extraction behind load balancers (new in v3.1)
 - **Adaptive Rate Limiting** -- Dynamic limits based on CPU, memory, latency, and custom load indicators
 
 ## Quick Start
@@ -104,15 +109,19 @@ If `RATELIMIT_BACKEND` is unset, the in-memory backend is used by default.
 
 ## Documentation
 
-Detailed documentation is available in the `docs/` folder:
+Full documentation is hosted on Read the Docs:
 
 | Topic | Description |
 | :--- | :--- |
-| [Full Documentation](docs/index.md) | Start here for the complete guide |
-| [Migration Guide](docs/migration.md) | Steps for upgrading from `django-ratelimit` |
-| [Algorithms](docs/algorithms.md) | Deep dive into token bucket, sliding window, and more |
-| [Configuration](docs/configuration.md) | Advanced settings, backends, and circuit breakers |
-| [Design Philosophy](docs/design.md) | Architecture decisions and comparison with alternatives |
+| [Full Documentation](https://django-smart-ratelimit.readthedocs.io/en/latest/) | Start here for the complete guide |
+| [Installation](https://django-smart-ratelimit.readthedocs.io/en/latest/installation/) | Optional extras: Redis, MongoDB, DRF, Prometheus, OpenTelemetry |
+| [Decorator API](https://django-smart-ratelimit.readthedocs.io/en/latest/decorator/) | Every argument, including shadow mode and cost-based limiting |
+| [Migration Guide](https://django-smart-ratelimit.readthedocs.io/en/latest/migration/) | Steps for upgrading from `django-ratelimit` |
+| [Algorithms](https://django-smart-ratelimit.readthedocs.io/en/latest/algorithms/) | Deep dive into token bucket, sliding window, and more |
+| [Backends](https://django-smart-ratelimit.readthedocs.io/en/latest/backends/) | Redis, async Redis, memory, MongoDB, and the Django ORM database backend |
+| [Configuration](https://django-smart-ratelimit.readthedocs.io/en/latest/configuration/) | Advanced settings, CIDR lists, proxy trust, and circuit breakers |
+| [Deployment](https://django-smart-ratelimit.readthedocs.io/en/latest/deployment/) | Running in production behind proxies and load balancers |
+| [Design Philosophy](https://django-smart-ratelimit.readthedocs.io/en/latest/design/) | Architecture decisions and comparison with alternatives |
 
 ## Compatibility
 

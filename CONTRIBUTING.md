@@ -1,8 +1,8 @@
 # Contributing to Django Smart Ratelimit
 
-Thank you for your interest in contributing to Django Smart Ratelimit. This core library provides a high-performance, stateless rate limiting solution for the Django ecosystem.
+Thank you for your interest in contributing to Django Smart Ratelimit. This library provides a high-performance rate limiting solution for the Django ecosystem.
 
-> **Note on Architecture**: This repository contains the core library. Database-backed features (models, admin, DB backend) are part of the Pro package (`django-smart-ratelimit-pro`). This guide focuses on contributing to the core.
+> **Note on Architecture**: This repository contains the open-source core library. It works with cache/memory backends out of the box and also ships an optional Django ORM (database) backend, with the supporting models and migrations, for deployments that prefer SQL persistence over Redis.
 
 ## Code of Conduct
 
@@ -61,7 +61,7 @@ By participating in this project, you agree to maintain a respectful and inclusi
 
 ## Testing
 
-The test suite includes 760+ tests. All contributions must pass tests.
+The test suite includes 1200+ tests. All contributions must pass tests.
 
 ### Test Structure
 
@@ -111,12 +111,10 @@ We use mypy for static type checking. All new functions must have type hints. Do
 
 4. **Submit**: Open a PR against `main`.
 
-## Breaking Changes (v1.0.0+)
+## Backend Contributions
 
-Since v1.0.0, the core library is stateless.
-
-- Do not introduce Django models or database migrations in this package.
-- Do not add dependencies that are not strictly necessary for a lightweight core.
-- If you need to store state (e.g., for a new backend), ensure it implements the standard `BaseBackend` interface.
+- Keep the core lightweight: do not add dependencies that are not strictly necessary, and gate optional integrations (Redis, MongoDB, DRF, Prometheus, OpenTelemetry) behind optional extras.
+- New storage backends must implement the standard `BaseBackend` interface so they are interchangeable with the existing Redis, memory, MongoDB, and database backends.
+- The database backend ships its own Django models and migrations; if you change them, include a migration and keep PostgreSQL, MySQL, and SQLite working.
 
 Thank you for contributing.

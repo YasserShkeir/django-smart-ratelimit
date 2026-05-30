@@ -1,9 +1,9 @@
 # Django Smart Ratelimit - Core Features Roadmap
 
-**Last Updated:** 2026-04-08
-**Current Version:** 2.2.1
+**Last Updated:** 2026-05-30
+**Current Version:** 3.1.0
 
-This document tracks the feature status for Django Smart Ratelimit (Core). For database-backed features, analytics, and enterprise capabilities, see the [Pro Roadmap](../django-smart-ratelimit-pro/FEATURES_ROADMAP.md).
+This document tracks the feature status for Django Smart Ratelimit. The core library works with cache/memory backends out of the box and also ships an optional Django ORM (database) backend for SQL-backed persistence.
 
 ## Quick Status Overview
 
@@ -44,13 +44,13 @@ This document tracks the feature status for Django Smart Ratelimit (Core). For d
 - [x] **Fixed Window**: Clock-aligned rate limiting windows
 - [x] **Leaky Bucket**: Queue-based smoothing
 
-### Backends (Stateless)
+### Backends
 
 - [x] **Memory**: High-speed, local instance
 - [x] **Redis**: Distributed, atomic (Lua scripts)
 - [x] **MongoDB**: NoSQL distributed storage
 - [x] **MultiBackend**: Failover chaining
-- [x] **Database Backend**: Django ORM for persistence
+- [x] **Database Backend**: Django ORM persistence (PostgreSQL, MySQL, SQLite)
 - [ ] **Memcached**: Simple key-value store adapter (planned)
 
 ### Performance and Async
@@ -66,9 +66,10 @@ This document tracks the feature status for Django Smart Ratelimit (Core). For d
 - [x] **Fail Open**: Configurable pass-through on error
 - [x] **Health Checks**: `manage.py ratelimit_health`
 
-### Stateless Monitoring
+### Monitoring and Observability
 
-- [x] **Prometheus Metrics**: Expose `/metrics` endpoint for scraping (no database required)
+- [x] **Prometheus Metrics**: Expose `/metrics` endpoint for scraping
+- [x] **OpenTelemetry**: Spans and metrics via `instrument_rate_limit()`
 - [x] **Structured JSON Logging**: ELK/Datadog/Splunk-compatible log output
 
 ### Adaptive Rate Limiting
@@ -121,39 +122,28 @@ These features are planned for future releases. They are not blockers for curren
 | Feature | Description | Rationale |
 | --- | --- | --- |
 | Memcached Backend | Simple key-value adapter | Redis/Memory cover most deployments |
-
-### Moved to Pro
-
-The following features were originally planned for Core but are better suited for Pro due to their enterprise/stateful nature:
-
-| Feature | Reason for Pro |
-| --- | --- |
-| Batch Operations | Complex use case, enterprise performance needs |
-| Advanced Connection Pooling | Enterprise-scale configuration |
+| Batch Operations | Pipelined checks for multiple keys | Niche performance use case |
+| Advanced Connection Pooling | Enterprise-scale Redis pool tuning | Default pooling covers most deployments |
 
 ---
 
 ## Architecture Decisions
 
-### Core vs Pro Separation
+### Backend Flexibility
 
-**Core (Open Source):**
+The library is backend-agnostic: every backend implements the same `BaseBackend`
+interface, so you can choose the storage that fits your deployment.
 
-- Stateless rate limiting
-- In-memory and cache-based backends
-- Algorithm implementations
-- Basic reliability (circuit breaker, fail-open)
-- Prometheus metrics and structured logging
+- **Cache/memory backends** (memory, Redis, async Redis, MongoDB) for fast,
+  distributed rate limiting with no database involvement.
+- **Database backend** (Django ORM) for deployments that prefer SQL persistence
+  over running Redis. It ships its own models and migrations and supports
+  PostgreSQL, MySQL, and SQLite.
+- **MultiBackend** for failover chaining across the above.
 
-**Pro (Enterprise):**
-
-- Database-backed persistence
-- Dynamic configuration via Admin
-- User tier integration
-- Analytics and dashboards
-- Multi-tenant support
-
-> **Principle**: Core should have zero database dependencies and work purely with cache/memory backends.
+> **Principle**: keep the core lightweight and gate optional integrations
+> (Redis, MongoDB, DRF, Prometheus, OpenTelemetry) behind optional extras, while
+> letting users pick the backend that matches their infrastructure.
 
 ---
 
@@ -161,6 +151,6 @@ The following features were originally planned for Core but are better suited fo
 
 We welcome contributions. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup.
 
-For core contributions: bug fixes, performance improvements, documentation improvements, and test coverage expansion.
+Contributions of all kinds are welcome: bug fixes, performance improvements, documentation improvements, and test coverage expansion.
 
-For new features, please open a discussion first to determine if it belongs in Core or Pro.
+For larger new features, please open a discussion first so we can agree on scope and where the feature fits.

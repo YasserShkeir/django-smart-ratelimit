@@ -493,6 +493,14 @@ def rate_limit(
         if algorithm is not None or algorithm_config is not None:
             validate_rate_config(_rate, algorithm, algorithm_config)
 
+        # Parse CIDR allow/deny lists ONCE at decoration time instead of on
+        # every request. parse_ip_list returns IPList / file- / URL-backed
+        # objects that refresh themselves on lookup, so reuse stays correct.
+        from .policy import parse_ip_list
+
+        _allow_list = parse_ip_list(allow_list) if allow_list is not None else None
+        _deny_list = parse_ip_list(deny_list) if deny_list is not None else None
+
         if iscoroutinefunction(func):
 
             @functools.wraps(func)
@@ -526,7 +534,7 @@ def rate_limit(
                 # skips the backend entirely. In shadow mode a deny still logs
                 # but passes through so operators can tune the list safely.
                 policy = apply_policy_lists(
-                    _request, allow_list=allow_list, deny_list=deny_list
+                    _request, allow_list=_allow_list, deny_list=_deny_list
                 )
                 if policy == POLICY_ALLOW:
                     return await func(*args, **kwargs)
@@ -733,7 +741,7 @@ def rate_limit(
                 # backend work so deny-listed IPs never touch the cache. In
                 # shadow mode a deny still logs but passes through.
                 policy = apply_policy_lists(
-                    _request, allow_list=allow_list, deny_list=deny_list
+                    _request, allow_list=_allow_list, deny_list=_deny_list
                 )
                 if policy == POLICY_ALLOW:
                     return func(*args, **kwargs)

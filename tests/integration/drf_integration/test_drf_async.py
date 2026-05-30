@@ -86,33 +86,77 @@ class TestDRFAsyncRateLimiting:
 
     @override_settings(RATELIMIT_BACKEND="memory")
     async def test_aratelimit_different_keys(self):
-        """Test aratelimit separates different IPs."""
-        # Skip this test for now - IP-based isolation works correctly in
-        # sequential sync tests but may have race conditions in async testing.
-        # The core functionality is tested in sync tests and concurrent test.
+        """Two different REMOTE_ADDRs keep independent counters.
+
+        Requests are issued sequentially (not via ``asyncio.gather``) so key
+        isolation is asserted deterministically.
+
+        NOTE: ``AsyncRequestFactory.get(path, REMOTE_ADDR=...)`` silently drops
+        the ``REMOTE_ADDR`` kwarg (it always yields ``127.0.0.1``), which would
+        collapse both clients onto one bucket and hide the very behavior under
+        test. ``REMOTE_ADDR`` is therefore set on ``request.META`` directly.
+        """
+        rf = AsyncRequestFactory()
+
+        @aratelimit(rate="1/m", key="ip", block=True)
+        async def async_view(request):
+            return HttpResponse("OK")
+
+        def make(remote_addr):
+            req = rf.get("/test/")
+            req.META["REMOTE_ADDR"] = remote_addr
+            return req
+
+        # IP A: first request allowed, second blocked (limit 1/m).
+        assert (await async_view(make("10.0.0.61"))).status_code == 200
+        assert (await async_view(make("10.0.0.61"))).status_code == 429
+
+        # IP B has its own counter and is unaffected by IP A exhausting its
+        # limit: its first request must still succeed.
+        assert (await async_view(make("10.0.0.62"))).status_code == 200
+        # ...and IP B is then independently limited.
+        assert (await async_view(make("10.0.0.62"))).status_code == 429
 
     @override_settings(RATELIMIT_BACKEND="memory")
     async def test_aratelimit_with_token_bucket(self):
-        """Test aratelimit with token bucket algorithm allows burst."""
-        # Token bucket has complex state that persists across tests.
-        # The key behavior (burst allowed) is verified in sync tests.
-        # Just verify that token bucket decorator doesn't error.
+        """Async limiter allows a burst up to the limit, then returns 429.
+
+        ``rate`` and ``bucket_size`` are set to the same value (5) so the
+        allowance is deterministic: exactly five rapid requests pass before the
+        sixth is blocked.
+
+        NOTE: ``aratelimit`` does not yet implement the token-bucket algorithm
+        natively (``algorithm`` / ``algorithm_config`` are accepted but not
+        honored by the async path), so the burst is driven by ``rate``. Keeping
+        ``bucket_size == rate`` makes this test correct regardless of whether
+        async token-bucket support is added later; see the report note.
+        ``REMOTE_ADDR`` is set on ``request.META`` because the async factory
+        ignores the kwarg form.
+        """
         rf = AsyncRequestFactory()
 
         @aratelimit(
-            rate="10/m",
+            rate="5/m",
             key="ip",
             algorithm="token_bucket",
-            algorithm_config={"bucket_size": 10},
+            algorithm_config={"bucket_size": 5},
             block=True,
         )
         async def bucket_view(request):
             return HttpResponse("OK")
 
-        request = rf.get("/test/", REMOTE_ADDR="10.99.0.1")
-        resp = await bucket_view(request)
-        # At least first request should succeed
-        assert resp.status_code == 200
+        def make():
+            req = rf.get("/test/")
+            req.META["REMOTE_ADDR"] = "10.99.0.1"
+            return req
+
+        # Burst of five requests should all be allowed.
+        for i in range(5):
+            resp = await bucket_view(make())
+            assert resp.status_code == 200, f"burst request {i + 1} should pass"
+
+        # The sixth request exhausts the allowance and must be blocked.
+        assert (await bucket_view(make())).status_code == 429
 
     @override_settings(RATELIMIT_BACKEND="memory")
     async def test_aratelimit_method_specific(self):

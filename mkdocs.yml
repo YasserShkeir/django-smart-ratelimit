@@ -20,8 +20,10 @@ nav:
       - Backends: backends.md
       - Algorithms: algorithms.md
       - Decorator: decorator.md
+      - DRF: drf.md
       - Utilities: utilities.md
       - Error Handling: error_handling.md
+      - Observability: observability.md
       - Deployment: deployment.md
   - Design: design.md
 

@@ -75,6 +75,24 @@ from django.http import HttpRequest
 
 logger = logging.getLogger(__name__)
 
+# Maximum number of bytes to read from a URL-backed feed response. Bounds memory
+# use against an oversized or hostile feed (defense in depth).
+_MAX_URL_RESPONSE_BYTES = 5 * 1024 * 1024  # 5 MB
+
+
+def _fail_closed_enabled() -> bool:
+    """Return whether deny-list sources should fail closed on initial-load failure.
+
+    Reads ``RATELIMIT_POLICY_FAIL_CLOSED`` from Django settings (default
+    ``False`` for backward compatibility). When ``True``, a deny list whose
+    source could not be loaded at all (its initial load failed, leaving the
+    list empty) causes :func:`check_lists` to deny the request rather than
+    silently allowing everyone.
+    """
+    from django.conf import settings
+
+    return bool(getattr(settings, "RATELIMIT_POLICY_FAIL_CLOSED", False))
+
 
 class IPList:
     """
@@ -101,6 +119,12 @@ class IPList:
         >>> allowed.contains('8.8.8.8')
         False
     """
+
+    #: True when a backing source (file/URL) could not be loaded AT ALL on its
+    #: initial load, leaving the list empty. Plain in-memory ``IPList`` instances
+    #: are always considered loaded. Used by :func:`check_lists` to fail closed
+    #: for deny lists when ``RATELIMIT_POLICY_FAIL_CLOSED`` is enabled.
+    load_failed: bool = False
 
     def __init__(self, cidrs: List[str]) -> None:
         """Initialize IPList with CIDR ranges."""
@@ -170,10 +194,13 @@ class FileBackedIPList(IPList):
 
     Note:
         A missing file (or invalid CIDR content) on the initial load is logged
-        as a warning and leaves the list empty rather than raising — so a
-        transiently-unavailable file does not crash application startup. Use
-        ``force_refresh()`` to reload, and check ``networks`` if you need to
-        confirm entries were loaded.
+        as an error and leaves the list empty rather than raising — so a
+        transiently-unavailable file does not crash application startup. When
+        this happens ``load_failed`` is set to True; for a deny list this means
+        :func:`check_lists` will fail closed if ``RATELIMIT_POLICY_FAIL_CLOSED``
+        is enabled. Use ``force_refresh()`` to reload (a successful reload
+        clears ``load_failed``), and check ``networks`` if you need to confirm
+        entries were loaded.
 
     Examples:
         >>> blocklist = FileBackedIPList('/etc/ratelimit/blocklist.txt', refresh_interval=300)
@@ -191,9 +218,23 @@ class FileBackedIPList(IPList):
         self.last_refresh = 0.0
         self._lock = threading.RLock()
         self.networks: List[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+        # Becomes True once any load (initial or refresh) succeeds; used to tell
+        # an initial-load failure apart from a transient refresh failure.
+        self._ever_loaded = False
+        # True only while the *initial* load has not yet succeeded. A later
+        # successful refresh clears it; a transient refresh failure that keeps
+        # last-good does NOT set it.
+        self.load_failed = False
 
         # Load initial list
         self.force_refresh()
+        if not self._ever_loaded:
+            self.load_failed = True
+            logger.error(
+                "Deny/allow-list source %s failed its initial load; list is empty. "
+                "Enable RATELIMIT_POLICY_FAIL_CLOSED to deny on this condition.",
+                self.path,
+            )
 
     def _read_file(self) -> List[str]:
         """
@@ -249,6 +290,9 @@ class FileBackedIPList(IPList):
 
                 self.networks = networks
                 self.last_refresh = time.time()
+                self._ever_loaded = True
+                # A successful (re)load clears any prior initial-load failure.
+                self.load_failed = False
                 logger.debug(
                     f"Refreshed IP list from {self.path}: {len(networks)} networks"
                 )
@@ -326,15 +370,36 @@ class URLBackedIPList(IPList):
         if not url.startswith(("http://", "https://")):
             raise ValueError(f"URL must start with http:// or https://: {url}")
 
+        if url.startswith("http://"):
+            logger.warning(
+                "URL-backed IP list feed %s uses plain http:// (no TLS); the feed "
+                "can be tampered with in transit. Use https:// for integrity.",
+                url,
+            )
+
         self.url = url
         self.refresh_interval = refresh_interval
         self.http_timeout = http_timeout
         self.last_refresh = 0.0
         self._lock = threading.RLock()
         self.networks: List[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+        # Becomes True once any load (initial or refresh) succeeds; used to tell
+        # an initial-load failure apart from a transient refresh failure.
+        self._ever_loaded = False
+        # True only while the *initial* load has not yet succeeded. A later
+        # successful refresh clears it; a transient refresh failure that keeps
+        # last-good does NOT set it.
+        self.load_failed = False
 
         # Load initial list
         self.force_refresh()
+        if not self._ever_loaded:
+            self.load_failed = True
+            logger.error(
+                "Deny/allow-list source %s failed its initial load; list is empty. "
+                "Enable RATELIMIT_POLICY_FAIL_CLOSED to deny on this condition.",
+                self.url,
+            )
 
     def _fetch_url(self) -> List[str]:
         """
@@ -353,7 +418,15 @@ class URLBackedIPList(IPList):
             with urllib.request.urlopen(  # nosec B310 - URL is opt-in by caller via source=
                 request, timeout=self.http_timeout
             ) as response:
-                content = response.read().decode("utf-8")
+                # Cap the read to bound memory against an oversized/hostile feed.
+                # Read one extra byte so we can detect (and reject) truncation.
+                raw = response.read(_MAX_URL_RESPONSE_BYTES + 1)
+                if len(raw) > _MAX_URL_RESPONSE_BYTES:
+                    raise ValueError(
+                        f"IP list from {self.url} exceeds the "
+                        f"{_MAX_URL_RESPONSE_BYTES}-byte limit; refusing to load"
+                    )
+                content = raw.decode("utf-8")
 
             cidrs = []
             for line in content.splitlines():
@@ -392,6 +465,9 @@ class URLBackedIPList(IPList):
 
                 self.networks = networks
                 self.last_refresh = time.time()
+                self._ever_loaded = True
+                # A successful (re)load clears any prior initial-load failure.
+                self.load_failed = False
                 logger.debug(
                     f"Refreshed IP list from {self.url}: {len(networks)} networks"
                 )
@@ -573,9 +649,14 @@ def get_client_ip(request: HttpRequest) -> str:
 
     remote_addr = (request.META.get("REMOTE_ADDR") or "").strip()
 
-    trusted = _get_trusted_proxies()
-    if trusted is not None:
-        if remote_addr and trusted.contains(remote_addr):
+    # If trusted-proxy mode is requested at all, stay in it even when the value
+    # is unparseable: forwarded headers are honored ONLY for a request arriving
+    # from a VALID trusted proxy, and everything else (including a misconfigured
+    # proxy list) uses REMOTE_ADDR. A configuration typo therefore fails SECURE
+    # rather than silently reverting to trusting client-supplied headers.
+    if getattr(settings, "RATELIMIT_TRUSTED_PROXIES", None):
+        trusted = _get_trusted_proxies()
+        if trusted is not None and remote_addr and trusted.contains(remote_addr):
             client = _client_from_trusted_chain(request, trusted)
             if client:
                 return client
@@ -630,9 +711,20 @@ def check_lists(
     Check if request IP is in allow/deny lists.
 
     Checks precedence:
+        0. If ``RATELIMIT_POLICY_FAIL_CLOSED`` is True and the deny_list source
+           failed its INITIAL load (the list is empty because it could not be
+           loaded at all) -> returns (False, "deny_list") [fail closed]
         1. If IP is in deny_list -> returns (False, "deny_list") [force block]
         2. If IP is in allow_list -> returns (True, "allow_list") [skip rate limiting]
         3. Otherwise -> returns (False, "") [continue normal rate limiting]
+
+    Fail-closed behavior:
+        By default a deny list whose source cannot be loaded at all (e.g. a
+        missing file or unreachable feed on the initial load) is empty and
+        therefore allows everyone — a fail-OPEN posture. Set
+        ``RATELIMIT_POLICY_FAIL_CLOSED = True`` to instead deny requests while
+        the deny-list source is unavailable. A transient refresh failure that
+        keeps the last-good list does NOT trigger fail-closed.
 
     Args:
         request: Django HTTP request object
@@ -659,6 +751,20 @@ def check_lists(
         ...     pass
     """
     client_ip = extract_client_ip(request)
+
+    # Fail closed: if the deny-list source could not be loaded at all on its
+    # initial load, an empty deny list would otherwise silently allow everyone.
+    if (
+        deny_list is not None
+        and getattr(deny_list, "load_failed", False)
+        and _fail_closed_enabled()
+    ):
+        logger.error(
+            "Deny-list source unavailable and RATELIMIT_POLICY_FAIL_CLOSED is "
+            "enabled; denying request from %s",
+            client_ip,
+        )
+        return (False, "deny_list")
 
     # Deny takes precedence
     if deny_list and deny_list.contains(client_ip):

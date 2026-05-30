@@ -85,7 +85,7 @@ class MongoDBBackend(BaseBackend):
             "collection": "rate_limit_entries",
             "counter_collection": "rate_limit_counters",
             "username": None,
-            "password": None,  # nosec B105
+            "password": None,
             "auth_source": None,
             "replica_set": None,
             "tls": False,
@@ -244,10 +244,20 @@ class MongoDBBackend(BaseBackend):
     def _incr_sliding_window(self, key: str, period: int) -> int:
         """Increment counter for sliding window algorithm.
 
-        TODO(follow-up): the insert + count_documents pair below is not atomic.
-        Concurrent hits can interleave and under-count under load. Consider an
-        aggregation pipeline or a transaction to make insert-and-count a single
-        atomic operation. Deferred to avoid a risky rewrite in this release.
+        The ``insert_one`` + ``count_documents`` pair below is intentionally
+        non-atomic. Concurrent hits can interleave between the insert and the
+        count, so a caller may observe a count that excludes an in-flight
+        sibling insert (a transient under-count under high contention).
+
+        Making insert-and-count a single atomic operation requires a multi-
+        document transaction, which MongoDB only supports on a replica set (or
+        sharded cluster) -- it is unavailable on a standalone ``mongod``, which
+        is the topology the test suite and many small deployments run against.
+        We therefore keep the two-step form so the backend works on standalone
+        servers; the resulting under-count is bounded by concurrency and
+        self-corrects on the next request. Deployments that need exact counts
+        under heavy concurrency should run a replica set and wrap these calls in
+        a session transaction.
         """
         if self._collection is None:
             raise ImproperlyConfigured("MongoDB collection not initialized")

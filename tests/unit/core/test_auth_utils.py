@@ -6,7 +6,7 @@ from unittest.mock import Mock
 
 from django.contrib.auth.models import AnonymousUser, User
 from django.http import HttpRequest
-from django.test import TestCase
+from django.test import RequestFactory, TestCase, override_settings
 
 from django_smart_ratelimit import (
     get_client_info,
@@ -18,7 +18,10 @@ from django_smart_ratelimit import (
     is_superuser,
     should_bypass_rate_limit,
 )
-from django_smart_ratelimit.auth_utils import is_internal_request
+from django_smart_ratelimit.auth_utils import (
+    extract_user_identifier,
+    is_internal_request,
+)
 
 
 class AuthUtilsTests(TestCase):
@@ -339,3 +342,48 @@ class AuthUtilsTests(TestCase):
         request = HttpRequest()
         # No REMOTE_ADDR
         self.assertFalse(is_internal_request(request))
+
+    def test_is_internal_request_invalid_internal_entry_is_lenient(self):
+        """A bad CIDR in internal_ips must not break valid-entry matching."""
+        request = HttpRequest()
+        request.META["REMOTE_ADDR"] = "10.0.0.5"
+        # "not-a-cidr" is invalid; the valid 10.0.0.0/8 entry must still match.
+        self.assertTrue(
+            is_internal_request(request, internal_ips=["not-a-cidr", "10.0.0.0/8"])
+        )
+
+
+class ProxyTrustAwareIdentityTests(TestCase):
+    """is_internal_request / extract_user_identifier honor proxy-trust config."""
+
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    @override_settings(RATELIMIT_TRUSTED_PROXIES=["203.0.113.7"])
+    def test_internal_request_ignores_spoofed_forwarded_header(self):
+        """Spoofed X-Forwarded-For must not flip an internal-bypass decision.
+
+        With a trusted-proxy list set and the request NOT arriving via that
+        proxy, the forwarded header is ignored and REMOTE_ADDR (a public IP)
+        decides the result.
+        """
+        request = self.factory.get("/")
+        request.META["REMOTE_ADDR"] = "198.51.100.23"  # public, not internal
+        request.META["HTTP_X_FORWARDED_FOR"] = "127.0.0.1"  # spoofed "internal"
+        self.assertFalse(is_internal_request(request))
+
+    @override_settings(RATELIMIT_TRUSTED_PROXIES=["198.51.100.23"])
+    def test_internal_request_trusts_forwarded_via_trusted_proxy(self):
+        """When the request arrives via a trusted proxy, the chain is honored."""
+        request = self.factory.get("/")
+        request.META["REMOTE_ADDR"] = "198.51.100.23"  # the trusted proxy
+        request.META["HTTP_X_FORWARDED_FOR"] = "10.0.0.5"  # real client, internal
+        self.assertTrue(is_internal_request(request))
+
+    @override_settings(RATELIMIT_TRUSTED_PROXIES=["203.0.113.7"])
+    def test_user_identifier_ignores_spoofed_forwarded_header(self):
+        """Anonymous identity uses the proxy-trust-aware client IP."""
+        request = self.factory.get("/")
+        request.META["REMOTE_ADDR"] = "198.51.100.23"
+        request.META["HTTP_X_FORWARDED_FOR"] = "1.2.3.4"  # spoofed
+        self.assertEqual(extract_user_identifier(request), "ip:198.51.100.23")

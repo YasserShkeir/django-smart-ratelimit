@@ -25,9 +25,13 @@ jobs:
           cache: "pip"
 
       - name: Install dependencies
+        # Install the optional extras ([all]) alongside [dev] so that the
+        # optional-dependency modules (redis, mongodb, drf, jwt, prometheus,
+        # opentelemetry, ...) are importable and therefore actually type
+        # checked by mypy. With only [dev] those modules are skipped.
         run: |
           python -m pip install --upgrade pip
-          pip install -e .[dev]
+          pip install -e ".[all,dev]"
 
       - name: Run pre-commit hooks
         run: pre-commit run --all-files
@@ -47,13 +51,31 @@ jobs:
           cache: "pip"
 
       - name: Install dependencies
+        # Install the package with all extras so pip-audit scans the real
+        # dependency tree (including optional backends) rather than a bare env.
         run: |
           python -m pip install --upgrade pip
-          pip install safety bandit
+          pip install -e ".[all]"
+          pip install pip-audit bandit
 
-      - name: Run safety check
-        run: safety check
-        continue-on-error: true  # Safety can fail on transitive deps
+      - name: Run pip-audit (dependency vulnerability scan)
+        # Blocking: a known vulnerability in our dependency tree fails CI.
+        # To temporarily accept an unfixable/false-positive advisory, add its
+        # ID to .github/pip-audit-allowlist.txt (one GHSA/PYSEC ID per line,
+        # `#` comments allowed) with a justification and a tracking issue.
+        # Keep the allowlist as small as possible and review it on every
+        # dependency bump. A comment-only/empty allowlist yields no
+        # `--ignore-vuln` flags, so pip-audit stays fully blocking by default.
+        run: |
+          ARGS=()
+          while IFS= read -r line || [ -n "$line" ]; do
+            id="$(printf '%s' "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+            case "$id" in
+              ''|\#*) continue ;;
+            esac
+            ARGS+=(--ignore-vuln "$id")
+          done < .github/pip-audit-allowlist.txt
+          pip-audit --strict "${ARGS[@]}"
 
       - name: Run bandit security check
         run: bandit -r django_smart_ratelimit/
@@ -133,7 +155,7 @@ jobs:
 
       - name: Run tests with coverage
         if: ${{ matrix.coverage }}
-        run: pytest -m "not benchmark" --cov=django_smart_ratelimit --cov-report=xml --cov-report=term-missing
+        run: pytest -m "not benchmark" --cov=django_smart_ratelimit --cov-report=xml --cov-report=term-missing --cov-fail-under=70
         env:
           REDIS_URL: redis://localhost:6379/0
           MONGODB_URL: mongodb://localhost:27017/test

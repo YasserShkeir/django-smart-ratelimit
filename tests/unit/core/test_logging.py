@@ -650,6 +650,31 @@ class TestStructuredLoggingMiddleware(TestCase):
 
         assert captured_context["ip"] == "10.0.0.1"
 
+    @override_settings(
+        RATELIMIT_LOGGING={"ENABLED": True, "FORMAT": "json"},
+        RATELIMIT_TRUSTED_PROXIES=["203.0.113.7"],
+    )
+    def test_logged_ip_honors_trusted_proxies(self):
+        """Logged IP routes through policy.get_client_ip and honors trust config.
+
+        With a trusted-proxy allow-list configured and the request NOT arriving
+        via that proxy, a spoofed X-Forwarded-For must be ignored: the logged IP
+        must be REMOTE_ADDR, matching what enforcement would use.
+        """
+        captured_context = {}
+
+        def get_response(request):
+            captured_context.update(get_request_context())
+            return HttpResponse("OK")
+
+        middleware = StructuredLoggingMiddleware(get_response)
+        request = self.factory.get("/api/test/")
+        request.META["REMOTE_ADDR"] = "198.51.100.23"
+        request.META["HTTP_X_FORWARDED_FOR"] = "1.2.3.4"
+        middleware(request)
+
+        assert captured_context["ip"] == "198.51.100.23"
+
     @override_settings(RATELIMIT_LOGGING={"ENABLED": True, "FORMAT": "json"})
     def test_stores_request_id_on_request(self):
         def get_response(request):

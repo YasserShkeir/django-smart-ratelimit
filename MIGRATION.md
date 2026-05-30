@@ -1,3 +1,46 @@
+# Migration Guide: v3.x → v4.0.0
+
+django-smart-ratelimit 4.0.0 is a consolidation release. Your `@rate_limit`,
+`RateLimitMiddleware`, and DRF throttle call-sites keep working unchanged. The
+breaking changes are limited to packaging metadata and two security-default
+tightenings; review the short list below.
+
+## TL;DR
+
+```bash
+pip install django-smart-ratelimit==4.0.0
+```
+
+For most projects, no code changes are required.
+
+## Things to verify
+
+1. **Invalid `RATELIMIT_TRUSTED_PROXIES` now fails secure.** If you set this
+   setting, double-check the values parse as IP/CIDR strings. Previously a typo'd
+   value silently reverted to trusting client-supplied `X-Forwarded-For`; now a
+   request that does not arrive from a *valid* trusted proxy uses `REMOTE_ADDR`.
+   This only affects deployments that already set (and mis-set) the option.
+2. **Client-IP in logs and internal-request checks** now honors
+   `RATELIMIT_TRUSTED_PROXIES`. If you relied on `is_internal_request` /
+   `extract_user_identifier` reading the raw `X-Forwarded-For` regardless of proxy
+   trust, configure `RATELIMIT_TRUSTED_PROXIES` accordingly.
+3. **Removed `requirements.txt` (root).** If your tooling installed the library's
+   dependencies from the repo's root `requirements.txt`, install the package
+   extras instead (e.g. `pip install -e .[all,dev]`, or `[docs]` for docs builds).
+4. **Dropped EOL Django 4.0 / 4.1 trove classifiers.** No runtime impact; the
+   supported matrix is Django 3.2, 4.2, 5.0, 5.1, 5.2.
+
+## New things you may want to adopt
+
+- **DRF throttle parity:** set `allow_list` / `deny_list` / `shadow` on a
+  `SmartRateLimitThrottle` subclass for CIDR policy lists and shadow rollouts.
+- **`RATELIMIT_POLICY_FAIL_CLOSED = True`** to deny when a deny-list source fails
+  to load, instead of failing open.
+
+Nothing else is required to upgrade.
+
+---
+
 # Migration Guide: v2.x → v3.0.0
 
 django-smart-ratelimit 3.0.0 is a **mostly additive** major release. All

@@ -662,6 +662,134 @@ class MemoryBackendTest(
         self.assertEqual(final_count, frequency_count)
 
 
+class MemoryBackendTokenBucketExpiryTest(unittest.TestCase):
+    """Tests for time-based expiry of idle token buckets."""
+
+    def _make_backend(self):
+        """Create a backend without the background cleanup thread."""
+        return MemoryBackend(enable_background_cleanup=False, cleanup_interval=1)
+
+    @staticmethod
+    def _bucket_key(backend, key):
+        """Build the internal token-bucket key the backend stores under."""
+        from django_smart_ratelimit.backends.utils import normalize_key
+
+        normalized = normalize_key(key, backend._key_prefix)
+        return f"{normalized}:token_bucket"
+
+    def test_idle_token_bucket_is_pruned_on_cleanup(self):
+        """An idle bucket past its expiry should be removed by the sweep."""
+        backend = self._make_backend()
+        try:
+            with patch(
+                "django_smart_ratelimit.backends.memory.get_current_timestamp"
+            ) as mock_time:
+                # Create a bucket at t=1000.
+                mock_time.return_value = 1000.0
+                backend.token_bucket_check(
+                    key="idle",
+                    bucket_size=10,
+                    refill_rate=1.0,
+                    initial_tokens=0,
+                    tokens_requested=1,
+                )
+                bucket_key = self._bucket_key(backend, "idle")
+                self.assertIn(bucket_key, backend._token_buckets)
+
+                # Bucket fully refills in 10s (bucket_size / refill_rate),
+                # so expiry is t=1010. Advance well past it and force cleanup.
+                mock_time.return_value = 2000.0
+                backend._last_cleanup = 0.0  # ensure the sweep runs
+                with backend._lock:
+                    backend._cleanup_if_needed()
+
+                self.assertNotIn(bucket_key, backend._token_buckets)
+        finally:
+            backend.shutdown()
+
+    def test_active_token_bucket_survives_cleanup(self):
+        """A bucket that has not yet expired must not be pruned."""
+        backend = self._make_backend()
+        try:
+            with patch(
+                "django_smart_ratelimit.backends.memory.get_current_timestamp"
+            ) as mock_time:
+                mock_time.return_value = 1000.0
+                backend.token_bucket_check(
+                    key="active",
+                    bucket_size=10,
+                    refill_rate=1.0,
+                    initial_tokens=10,
+                    tokens_requested=1,
+                )
+                bucket_key = self._bucket_key(backend, "active")
+
+                # Only 2s elapse: expiry is t=1010, so the bucket is still live.
+                mock_time.return_value = 1002.0
+                backend._last_cleanup = 0.0
+                with backend._lock:
+                    backend._cleanup_if_needed()
+
+                self.assertIn(bucket_key, backend._token_buckets)
+        finally:
+            backend.shutdown()
+
+    def test_access_refreshes_token_bucket_expiry(self):
+        """Re-checking a bucket should push its expiry forward (idle TTL)."""
+        backend = self._make_backend()
+        try:
+            with patch(
+                "django_smart_ratelimit.backends.memory.get_current_timestamp"
+            ) as mock_time:
+                mock_time.return_value = 1000.0
+                backend.token_bucket_check(
+                    key="refresh",
+                    bucket_size=10,
+                    refill_rate=1.0,
+                    initial_tokens=10,
+                    tokens_requested=1,
+                )
+                bucket_key = self._bucket_key(backend, "refresh")
+                first_expiry = backend._token_buckets[bucket_key].expires_at
+
+                # A later access updates expires_at relative to the new now.
+                mock_time.return_value = 1005.0
+                backend.token_bucket_check(
+                    key="refresh",
+                    bucket_size=10,
+                    refill_rate=1.0,
+                    initial_tokens=10,
+                    tokens_requested=1,
+                )
+                second_expiry = backend._token_buckets[bucket_key].expires_at
+
+                self.assertGreater(second_expiry, first_expiry)
+        finally:
+            backend.shutdown()
+
+    def test_non_refilling_bucket_uses_cleanup_interval_ttl(self):
+        """A zero refill_rate bucket falls back to the cleanup-interval TTL."""
+        backend = self._make_backend()
+        try:
+            with patch(
+                "django_smart_ratelimit.backends.memory.get_current_timestamp"
+            ) as mock_time:
+                mock_time.return_value = 1000.0
+                backend.token_bucket_check(
+                    key="norefill",
+                    bucket_size=10,
+                    refill_rate=0.0,
+                    initial_tokens=5,
+                    tokens_requested=1,
+                )
+                bucket_key = self._bucket_key(backend, "norefill")
+                expires_at = backend._token_buckets[bucket_key].expires_at
+                # TTL falls back to the cleanup interval (1s here).
+                self.assertEqual(expires_at, 1000.0 + backend._cleanup_interval)
+        finally:
+            backend.shutdown()
+
+
 class MemoryBackendShutdownTest(unittest.TestCase):
     """Tests for the background cleanup thread lifecycle."""
 

@@ -164,6 +164,13 @@ class SmartRateLimitThrottle(_ThrottleBase):
         self.cost = getattr(self, "cost", 1)
         self.key_func = getattr(self, "key_func", None)
 
+        # Optional parity with the @rate_limit decorator (v4): CIDR allow/deny
+        # policy lists and shadow mode. Set these as class attributes on a
+        # throttle subclass to enable them.
+        self.allow_list = getattr(self, "allow_list", None)
+        self.deny_list = getattr(self, "deny_list", None)
+        self.shadow = bool(getattr(self, "shadow", False))
+
         # Rate will be resolved in allow_request from either:
         # 1. self.rate attribute
         # 2. DRF settings THROTTLE_RATES[scope]
@@ -301,6 +308,36 @@ class SmartRateLimitThrottle(_ThrottleBase):
         if not key:
             return True  # No key = skip throttling
 
+        # CIDR allow/deny policy lists + shadow mode (parity with @rate_limit).
+        from django_smart_ratelimit.pipeline import (
+            POLICY_ALLOW,
+            POLICY_DENY,
+            apply_policy_lists,
+            handle_shadow_decision,
+        )
+
+        if self.allow_list is not None or self.deny_list is not None:
+            policy = apply_policy_lists(
+                request, allow_list=self.allow_list, deny_list=self.deny_list
+            )
+            if policy == POLICY_ALLOW:
+                return True
+            if policy == POLICY_DENY:
+                if self.shadow:
+                    handle_shadow_decision(
+                        allowed=False,
+                        shadow=True,
+                        request=request,
+                        key="deny_list",
+                        limit=0,
+                        remaining=0,
+                        algorithm=self.algorithm,
+                        backend="policy",
+                        cost=0,
+                    )
+                    return True
+                return False
+
         # Get rate
         try:
             rate_str = self._get_rate(request, view)
@@ -334,6 +371,22 @@ class SmartRateLimitThrottle(_ThrottleBase):
             # limit means this request pushed us to the boundary — it should
             # be the last allowed one.
             allowed = (count - cost) < limit
+
+            # Shadow mode: a would-be block is downgraded to an allow + log line
+            # so a new throttle can be validated in production before enforcing.
+            if self.shadow:
+                decision = handle_shadow_decision(
+                    allowed=allowed,
+                    shadow=True,
+                    request=request,
+                    key=key,
+                    limit=limit,
+                    remaining=max(0, limit - count),
+                    algorithm=self.algorithm,
+                    backend=type(backend).__name__,
+                    cost=cost,
+                )
+                allowed = decision.allow
 
             # Always store reset time for wait() method — both success & denial
             # paths may need Retry-After information.

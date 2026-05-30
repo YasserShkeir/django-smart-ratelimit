@@ -5,6 +5,80 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.0] - 2026-05-30
+
+A consolidation release that pays down accumulated debt surfaced by a full-repo
+audit: dead code removed, evaluation paths brought to feature parity, the hot
+path made faster, proxy-trust hardened, and the type/CI/security tooling tightened.
+Existing `@rate_limit`, `RateLimitMiddleware`, and the DRF throttles keep working;
+the breaking changes are packaging-metadata and security-default tightening, all
+listed below. See `MIGRATION.md` for upgrade notes.
+
+### Added
+
+- **DRF throttle parity with the decorator.** `SmartRateLimitThrottle` (and its
+  subclasses) now support `allow_list` / `deny_list` CIDR policy lists and
+  `shadow` mode as class attributes, so a deny-list or a shadow rollout works the
+  same way under DRF throttling as it does under `@rate_limit`.
+- **`RATELIMIT_POLICY_FAIL_CLOSED`** setting (default `False`): when `True`, a
+  deny-list whose backing file/URL fails its initial load denies requests instead
+  of failing open.
+- **Time-based expiry for in-memory token buckets** so idle buckets are reclaimed
+  proactively rather than only under LRU pressure.
+- New documentation pages for the **DRF integration** and **observability**
+  (OpenTelemetry + Prometheus), a runnable **`examples/`** tree, and a `[docs]`
+  install extra.
+
+### Changed
+
+- **Performance:** `get_settings()` is now cached (and invalidated on the Django
+  `setting_changed` signal), removing a per-request rebuild that scanned the
+  settings module; CIDR allow/deny lists are parsed once at decoration time
+  instead of on every request. Together these roughly halve the decorator's
+  per-request overhead.
+- The standalone async `@aratelimit` decorator is documented as window-counting
+  only; use `@rate_limit` on an `async def` view for token/leaky bucket semantics.
+- The `[dev]` extra is now self-sufficient (installs the optional backends/observability
+  deps needed to run the full test suite); `mypy` and `django-stubs` are pinned to
+  compatible ranges; `bump2version` was dropped in favor of commitizen.
+
+### Security
+
+- **Invalid `RATELIMIT_TRUSTED_PROXIES` now fails secure.** A misconfigured
+  (unparseable) trusted-proxy list keeps the request in trusted-proxy mode and
+  uses `REMOTE_ADDR`, rather than silently reverting to trusting client-supplied
+  forwarded headers.
+- Client-IP reads in `logging` and `auth_utils` (`is_internal_request`,
+  `extract_user_identifier`) now route through `policy.get_client_ip`, so logged
+  and bypass-decision IPs honor `RATELIMIT_TRUSTED_PROXIES`.
+- `URLBackedIPList` hardening: a warning on non-TLS (`http://`) feeds and a
+  bounded response read.
+- `get_jwt_key` / `extract_jwt_claim` docstrings now state loudly that the token
+  is not signature-verified and the claim is attacker-controllable.
+
+### Removed
+
+- **EOL `Framework :: Django :: 4.0` and `:: 4.1` classifiers** (the test matrix
+  no longer covers them); added `:: 5.2`.
+- The stale root `requirements.txt` (its roles moved to package extras / the
+  readthedocs config) and a dead `.bandit` config file.
+- Dead, zero-reference infrastructure in `backends/utils.py` (an unused backend
+  registry, connection-pool/metrics-collector/health-monitor/operation-timer
+  helpers, and `merge_rate_limit_data`).
+
+### Fixed
+
+- The ~12 latent type errors in `prometheus.py` / `observability/otel.py` that
+  only appear when the optional `prometheus-client` / `opentelemetry` packages
+  are installed; the CI `mypy` job now type-checks with those extras present.
+
+### CI / tooling
+
+- `mypy` runs with the optional integrations installed (so the observability
+  modules are actually type-checked) and is pinned; the deprecated `safety check`
+  is replaced by `pip-audit`; publish-workflow actions are pinned to commit SHAs;
+  coverage is gated with `--cov-fail-under`.
+
 ## [3.1.0] - 2026-05-30
 
 ### Added

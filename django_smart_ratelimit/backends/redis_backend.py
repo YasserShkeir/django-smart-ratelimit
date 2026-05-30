@@ -207,7 +207,7 @@ class RedisBackend(BaseBackend):
             "host": "localhost",
             "port": 6379,
             "db": 0,
-            "password": None,  # nosec B105
+            "password": None,
             "socket_timeout": 5,
             "socket_connect_timeout": 5,
             "decode_responses": True,
@@ -892,7 +892,7 @@ class AsyncRedisBackend(BaseBackend):
             "host": "localhost",
             "port": 6379,
             "db": 0,
-            "password": None,  # nosec B105
+            "password": None,
             "decode_responses": True,
             **redis_config,
         }

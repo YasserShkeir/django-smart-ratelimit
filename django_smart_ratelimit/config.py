@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional
 
 from django.conf import settings as django_settings
 from django.core.exceptions import ImproperlyConfigured
+from django.test.signals import setting_changed
 
 
 @dataclass
@@ -159,17 +160,25 @@ class RateLimitSettings:
         )
 
 
-# Global settings instance (lazy loaded)
+# Explicitly-configured settings (via configure(), mainly for tests).
 _settings: Optional[RateLimitSettings] = None
+# Lazily-built cache of settings loaded from Django. Rebuilding scans
+# dir(django_settings) for RATELIMIT_CONFIG_* on every call, so caching it
+# removes a measurable per-request cost. The cache is invalidated whenever a
+# RATELIMIT_* setting changes (which covers override_settings/the pytest-django
+# settings fixture in tests); in production, settings do not change, so the
+# object is built once.
+_cached_settings: Optional[RateLimitSettings] = None
 
 
 def get_settings() -> RateLimitSettings:
-    """Get the current rate limit settings."""
-    # Always reload to support override_settings in tests
-    # In production, we might want to cache this, but for now correctness is priority
-    if _settings is None:
-        return RateLimitSettings.from_django_settings()
-    return _settings
+    """Get the current rate limit settings (cached)."""
+    if _settings is not None:
+        return _settings
+    global _cached_settings
+    if _cached_settings is None:
+        _cached_settings = RateLimitSettings.from_django_settings()
+    return _cached_settings
 
 
 def configure(settings: RateLimitSettings) -> None:
@@ -180,5 +189,24 @@ def configure(settings: RateLimitSettings) -> None:
 
 def reset_settings() -> None:
     """Reset settings to reload from Django."""
-    global _settings
+    global _settings, _cached_settings
     _settings = None
+    _cached_settings = None
+
+
+def _invalidate_settings_cache(
+    *, setting: Optional[str] = None, **_kwargs: Any
+) -> None:
+    """Drop the cached settings when a RATELIMIT_* setting changes.
+
+    Connected to Django's ``setting_changed`` signal so ``override_settings``
+    and the pytest-django ``settings`` fixture stay correct while production
+    keeps the cache warm.
+    """
+    global _cached_settings
+    if setting is None or setting.startswith("RATELIMIT"):
+        _cached_settings = None
+
+
+# Invalidate the cache on any relevant settings change.
+setting_changed.connect(_invalidate_settings_cache)
