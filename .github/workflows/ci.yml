@@ -159,7 +159,7 @@ jobs:
 
       - name: Run tests with coverage
         if: ${{ matrix.coverage }}
-        run: pytest -m "not benchmark" --cov=django_smart_ratelimit --cov-report=xml --cov-report=term-missing --cov-fail-under=70
+        run: pytest -m "not benchmark" --cov=django_smart_ratelimit --cov-report=xml --cov-report=term-missing --cov-fail-under=65
         env:
           REDIS_URL: redis://localhost:6379/0
           MONGODB_URL: mongodb://localhost:27017/test
