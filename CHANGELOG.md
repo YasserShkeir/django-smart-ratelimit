@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.1] - 2026-05-30
+
+### Fixed
+
+- **Redis token bucket with `refill_rate=0`.** The native Redis Lua script
+  computed the key TTL as `bucket_size / refill_rate`, which is infinite when
+  `refill_rate=0` (a never-refilling bucket — a valid config the memory and
+  database backends already handle). Redis then raised "value is not an integer
+  or out of range" on `EXPIRE`, and the decorator silently fell back to window
+  counting. The script now uses a fixed TTL and avoids the divide-by-zero. Found
+  via a manual cross-backend sweep of the token-bucket feature.
+
 ## [4.0.0] - 2026-05-30
 
 A consolidation release that pays down accumulated debt surfaced by a full-repo
