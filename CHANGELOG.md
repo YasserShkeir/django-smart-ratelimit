@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.2] - 2026-05-31
+
+### Fixed
+
+- **MongoDB `get_reset_time()` returned a wrong epoch on non-UTC hosts.** PyMongo
+  reads stored datetimes back as naive (UTC) values; calling `.timestamp()` on a
+  naive datetime makes Python assume the host's *local* timezone, skewing the
+  result by the host's UTC offset. The `X-RateLimit-Reset` header and the DRF
+  throttle `Retry-After` were therefore off by hours whenever the server's clock
+  was not set to UTC. The value is now made UTC-aware before conversion. (The
+  existing window-expiry comparison already used the UTC-aware helper, so only
+  the returned timestamp was affected.)
+- **Redis `reset()` did not clear fixed-window or token-bucket keys.** Clock-
+  aligned fixed-window counters are stored at `<key>:<bucket>` and token buckets
+  at `<key>:token_bucket`, but `reset()` deleted only the bare key, so a reset
+  left those counters in place. It now also scans and deletes the suffixed key
+  family. (Sliding-window keys, stored under the bare key, were already cleared.)
+
+Both bugs were surfaced by the new real-backend end-to-end suite (`tests/e2e/`),
+which exercises every public-usage API against live Redis, MongoDB, and the test
+database — no backend mocking — across all four algorithms. Mock-based unit tests
+could not have caught either, since neither the timezone round-trip nor the real
+key layout is exercised against a mock.
+
 ## [4.0.1] - 2026-05-30
 
 ### Fixed

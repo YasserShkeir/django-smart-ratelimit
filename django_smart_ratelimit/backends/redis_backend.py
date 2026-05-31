@@ -494,7 +494,16 @@ class RedisBackend(BaseBackend):
 
         start_time = get_current_timestamp()
         try:
-            self.redis.delete(normalized_key)
+            # Delete the bare key (sliding-window ZSET) plus any suffixed keys:
+            # clock-aligned fixed-window counters live at "<key>:<bucket>" and
+            # token buckets at "<key>:token_bucket", so a bare delete would not
+            # actually clear them. Scan + delete the whole family.
+            keys_to_delete = [normalized_key]
+            try:
+                keys_to_delete.extend(self.redis.scan_iter(match=f"{normalized_key}:*"))
+            except Exception:  # pragma: no cover - scan unsupported (e.g. mocks)
+                pass
+            self.redis.delete(*keys_to_delete)
             log_backend_operation(
                 "redis_reset",
                 f"Reset key {key}",

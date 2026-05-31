@@ -423,7 +423,12 @@ class MongoDBBackend(BaseBackend):
                     and self._ensure_utc_aware(counter["window_end"])
                     > get_current_datetime()
                 ):
-                    return int(counter["window_end"].timestamp())
+                    # PyMongo returns naive (UTC) datetimes; make them UTC-aware
+                    # before .timestamp() so the epoch is correct on hosts whose
+                    # local timezone is not UTC.
+                    return int(
+                        self._ensure_utc_aware(counter["window_end"]).timestamp()
+                    )
                 return None
             else:
                 # For sliding window, find the earliest expiry time
@@ -436,7 +441,7 @@ class MongoDBBackend(BaseBackend):
                     and self._ensure_utc_aware(entry["expires_at"])
                     > get_current_datetime()
                 ):
-                    return int(entry["expires_at"].timestamp())
+                    return int(self._ensure_utc_aware(entry["expires_at"]).timestamp())
                 return None
         except Exception as e:
             logger.error(f"Error getting reset time for key {key}: {e}")
