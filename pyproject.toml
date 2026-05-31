@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "django-smart-ratelimit"
-version = "4.0.1"
+version = "4.0.2"
 dynamic = []
 description = "A flexible and efficient rate limiting library for Django applications"
 readme = "README.md"
@@ -150,6 +150,7 @@ markers = [
     "integration: marks tests as integration tests",
     "unit: marks tests as unit tests",
     "asyncio: marks tests as async tests",
+    "e2e: real-backend end-to-end scenario tests (live Redis/Mongo/DB)",
 ]
 
 [tool.coverage.run]
