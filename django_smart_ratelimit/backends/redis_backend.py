@@ -502,7 +502,7 @@ class RedisBackend(BaseBackend):
             try:
                 keys_to_delete.extend(self.redis.scan_iter(match=f"{normalized_key}:*"))
             except Exception:  # pragma: no cover - scan unsupported (e.g. mocks)
-                pass
+                pass  # nosec B110 - best-effort; bare key still deleted below
             self.redis.delete(*keys_to_delete)
             log_backend_operation(
                 "redis_reset",
