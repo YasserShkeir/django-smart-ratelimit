@@ -201,19 +201,27 @@ def test_fixed_window_get_count_and_reset_on_real_store(real_backend):
 
 
 def test_fixed_window_short_window_rolls_over(real_backend):
-    """Fixed window 2/1s: a new clock window restores the budget.
+    """Fixed window 2/2s: a new clock window restores the budget.
 
-    Exhaust the 1-second window, observe the block, then sleep past the next
-    clock boundary and confirm the counter has rolled over so requests pass
-    again — the canonical fixed-window reset behavior on the real store.
+    Exhaust the window, observe the block, then sleep past the next clock
+    boundary and confirm the counter has rolled over so requests pass again —
+    the canonical fixed-window reset behavior on the real store.
+
+    The window is clock-aligned, so a 3-request burst that straddles a boundary
+    would split across two windows and spuriously pass (flaky on a slow backend).
+    Align to just past a boundary first so all three requests land in ONE window.
     """
     ov = _set_backend_algorithm(Algorithm.FIXED_WINDOW)
     try:
-        view = _ok_view(key="ip", rate="2/1s", algorithm=Algorithm.FIXED_WINDOW)
+        period = 2
+        view = _ok_view(key="ip", rate=f"2/{period}s", algorithm=Algorithm.FIXED_WINDOW)
         ip = "203.0.113.24"
+        # Start the burst just after a clock-aligned boundary so all three
+        # requests share one window (leaving ~period seconds before the next).
+        time.sleep(period - (time.time() % period) + 0.05)
         assert exhaust(view, 3, ip=ip) == [200, 200, 429]
-        # Sleep well past a 1s clock-aligned bucket boundary.
-        time.sleep(1.2)
+        # Sleep past the next clock-aligned boundary so the window rolls over.
+        time.sleep(period + 0.2)
         assert 200 in exhaust(view, 2, ip=ip)
     finally:
         ov.disable()
