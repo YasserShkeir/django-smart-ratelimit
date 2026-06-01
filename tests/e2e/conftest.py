@@ -19,7 +19,9 @@ Helpers:
     - ``exhaust(view, n, ...)``: drive a view/callable n times and collect codes.
 """
 
+import os
 from contextlib import contextmanager
+from urllib.parse import urlparse
 
 import pytest
 
@@ -33,10 +35,26 @@ ASYNC_REDIS = "django_smart_ratelimit.backends.redis_backend.AsyncRedisBackend"
 MONGODB = "django_smart_ratelimit.backends.mongodb.MongoDBBackend"
 DATABASE = "django_smart_ratelimit.backends.database.DatabaseBackend"
 
-REDIS_HOST = "localhost"
-REDIS_PORT = 6379
-MONGO_HOST = "localhost"
-MONGO_PORT = 27017
+
+def _host_port(env_var, default_host, default_port):
+    """Derive (host, port) from a service URL env var, falling back to defaults.
+
+    CI exports REDIS_URL / MONGODB_URL; honoring them lets the e2e suite target a
+    non-localhost service instead of silently skipping it. Parsing failures fall
+    back to the localhost defaults so a malformed URL never breaks collection.
+    """
+    raw = os.environ.get(env_var)
+    if not raw:
+        return default_host, default_port
+    try:
+        parsed = urlparse(raw)
+        return (parsed.hostname or default_host, parsed.port or default_port)
+    except Exception:
+        return default_host, default_port
+
+
+REDIS_HOST, REDIS_PORT = _host_port("REDIS_URL", "localhost", 6379)
+MONGO_HOST, MONGO_PORT = _host_port("MONGODB_URL", "localhost", 27017)
 
 
 def redis_available():
@@ -64,9 +82,35 @@ def mongo_available():
 REDIS_UP = redis_available()
 MONGO_UP = mongo_available()
 
+# CI safety valve: a green run that silently skipped every Redis/Mongo scenario
+# looks identical to a run that exercised them. Set RATELIMIT_E2E_REQUIRE_SERVICES=1
+# (in CI, where the service containers must be present) to turn those skips into a
+# hard collection error instead. Default unset -> skip gracefully, as before.
+if os.environ.get("RATELIMIT_E2E_REQUIRE_SERVICES", "").lower() in ("1", "true", "yes"):
+    _missing = [n for n, up in (("Redis", REDIS_UP), ("MongoDB", MONGO_UP)) if not up]
+    if _missing:
+        raise RuntimeError(
+            "RATELIMIT_E2E_REQUIRE_SERVICES is set but these services are "
+            f"unavailable: {', '.join(_missing)}. The e2e suite would otherwise "
+            "silently skip their scenarios."
+        )
+
 # Mark factories so tests/files can build their own parametrizations.
 skip_without_redis = pytest.mark.skipif(not REDIS_UP, reason="live Redis unavailable")
 skip_without_mongo = pytest.mark.skipif(not MONGO_UP, reason="live MongoDB unavailable")
+
+
+@pytest.fixture(autouse=True)
+def _clear_backend_cache_between_tests():
+    """Safety net: drop any cached backend after every e2e test.
+
+    Tests that go through ``use_backend`` / the ``*_real_backend`` fixtures
+    already clear the cache, but this guards a future test that grabs
+    ``get_backend()`` directly from leaking a stale cached instance into the next
+    test on the shared live stores.
+    """
+    yield
+    clear_backend_cache()
 
 
 def flush_store(name):
