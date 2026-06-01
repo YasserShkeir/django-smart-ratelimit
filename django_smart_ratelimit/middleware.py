@@ -69,10 +69,16 @@ class RateLimitMiddleware:
         self.block = middleware_config.get("BLOCK", True)
         self.skip_paths = middleware_config.get("SKIP_PATHS", [])
         self.rate_limits = middleware_config.get("RATE_LIMITS", {})
-        # v3: optional CIDR-based allow/deny lists. Accept any of:
-        # an IPList instance, iterable of CIDR strings, file path, or URL.
-        self.allow_list = middleware_config.get("ALLOW_LIST", None)
-        self.deny_list = middleware_config.get("DENY_LIST", None)
+        # v3: optional CIDR-based allow/deny lists. Accept any of: an IPList
+        # instance, iterable of CIDR strings, file path, or URL. Parse ONCE here
+        # rather than on every request, so (a) a URL/file-backed feed is not
+        # re-fetched/re-read per request (it refreshes on its own interval), and
+        # (b) a malformed inline CIDR raises at startup instead of silently
+        # disabling the list (failing open) on every request.
+        from .policy import parse_ip_list
+
+        self.allow_list = parse_ip_list(middleware_config.get("ALLOW_LIST", None))
+        self.deny_list = parse_ip_list(middleware_config.get("DENY_LIST", None))
         # v3: when True, rate-limit decisions are logged but not enforced.
         self.shadow = bool(middleware_config.get("SHADOW", False))
 

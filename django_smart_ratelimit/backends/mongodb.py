@@ -292,8 +292,17 @@ class MongoDBBackend(BaseBackend):
         if self._counter_collection is None:
             raise ImproperlyConfigured("MongoDB counter collection not initialized")
 
-        # Use align_to_clock setting (defaults to True in get_window_times)
-        window_start, window_end = get_window_times(period)
+        # Force clock alignment for the fixed-window COUNTER. This counter doc is
+        # keyed on (key, window_start), so every request in a window must compute
+        # the SAME window_start to share one document. With align_to_clock=False,
+        # get_window_times() returns window_start=now() at microsecond precision —
+        # a fresh value on every call — so the upsert filter never matches an
+        # existing doc, a new count=1 document is inserted per request, and the
+        # limit is never enforced (it also grows the collection unbounded). A
+        # clock-aligned window_start is stable within the window, giving correct
+        # fixed-window semantics; this matches the database backend, which also
+        # always clock-aligns its fixed-window counter.
+        window_start, window_end = get_window_times(period, align_to_clock=True)
         expires_at = window_end + timedelta(seconds=60)  # Keep for a bit longer
 
         # Use upsert to atomically increment or create counter.

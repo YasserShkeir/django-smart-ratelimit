@@ -20,6 +20,7 @@ from .circuit_breaker_state import (
     MemoryCircuitBreakerState,
     RedisCircuitBreakerState,
 )
+from .exceptions import CircuitBreakerError as _BaseCircuitBreakerError
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +35,18 @@ class CircuitBreakerState(Enum):
     HALF_OPEN = "half_open"  # Testing if backend recovered
 
 
-class CircuitBreakerError(Exception):
-    """Raised when circuit breaker prevents operation."""
+class CircuitBreakerError(_BaseCircuitBreakerError):
+    """Raised when circuit breaker prevents operation.
+
+    Subclasses :class:`django_smart_ratelimit.exceptions.CircuitBreakerError`
+    (the class re-exported from the package root) so that user code catching the
+    public ``CircuitBreakerError`` actually catches what the circuit breaker
+    raises. Historically these were two unrelated classes -- the package exported
+    the ``exceptions`` one while the breaker raised this one -- so an ``except
+    CircuitBreakerError`` on the public export never fired. This class keeps the
+    extra ``next_attempt_time`` field; all other context fields and ``__str__``
+    come from the base.
+    """
 
     def __init__(
         self,
@@ -57,19 +68,14 @@ class CircuitBreakerError(Exception):
             last_failure_time: Timestamp of the last failure
             recovery_time: Seconds until recovery attempt allowed
         """
-        super().__init__(message)
+        super().__init__(
+            message,
+            breaker_name=breaker_name,
+            failure_count=failure_count,
+            last_failure_time=last_failure_time,
+            recovery_time=recovery_time,
+        )
         self.next_attempt_time = next_attempt_time
-        self.breaker_name = breaker_name
-        self.failure_count = failure_count
-        self.last_failure_time = last_failure_time
-        self.recovery_time = recovery_time
-        self.next_attempt_time = next_attempt_time
-
-    def __str__(self) -> str:
-        """Return string representation of the error."""
-        if self.recovery_time:
-            return f"{self.args[0]} (retry in {self.recovery_time:.1f}s)"
-        return self.args[0]
 
 
 class CircuitBreakerConfig:
