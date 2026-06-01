@@ -166,9 +166,14 @@ class SmartRateLimitThrottle(_ThrottleBase):
 
         # Optional parity with the @rate_limit decorator (v4): CIDR allow/deny
         # policy lists and shadow mode. Set these as class attributes on a
-        # throttle subclass to enable them.
-        self.allow_list = getattr(self, "allow_list", None)
-        self.deny_list = getattr(self, "deny_list", None)
+        # throttle subclass to enable them. Parse ONCE here (not per request) so
+        # a URL/file-backed feed is not re-fetched on every request and a
+        # malformed inline CIDR raises at construction rather than silently
+        # failing open on each request.
+        from ..policy import parse_ip_list
+
+        self.allow_list = parse_ip_list(getattr(self, "allow_list", None))
+        self.deny_list = parse_ip_list(getattr(self, "deny_list", None))
         self.shadow = bool(getattr(self, "shadow", False))
 
         # Rate will be resolved in allow_request from either:
@@ -351,26 +356,57 @@ class SmartRateLimitThrottle(_ThrottleBase):
 
         try:
             cost = self.get_cost(request, view)
-            # Prefer backends that accept a cost argument (v3 contract).
-            # Whether cost is supported is decided by inspecting the backend's
-            # ``incr`` signature (cached per backend type) -- NOT by catching
-            # TypeError from the call, which would misclassify a TypeError
-            # raised from inside the backend as "no cost support". Older
-            # backends fall back to a loop of single-token increments so
-            # weighted throttling still works end-to-end.
-            if _backend_incr_supports_cost(backend):
-                count = backend.incr(key, period, cost)  # type: ignore[call-arg]
-            else:
-                count = backend.incr(key, period)
-                for _ in range(max(0, cost - 1)):
-                    count = backend.incr(key, period)
 
-            # ``count`` is the post-incr value; the request is allowed iff the
-            # count BEFORE this request (count - cost) was below the limit.
-            # Using ``< limit`` (not ``<= limit``) because a count equal to
-            # limit means this request pushed us to the boundary — it should
-            # be the last allowed one.
-            allowed = (count - cost) < limit
+            # Honor the throttle's declared ``algorithm``. The bucket algorithms
+            # have distinct (burst) semantics, so they must dispatch to the same
+            # TokenBucket/LeakyBucket logic the @rate_limit decorator uses rather
+            # than to the backend's plain window counter. Window algorithms keep
+            # the counter path (the backend's configured window type).
+            if self.algorithm == "token_bucket":
+                from ..algorithms import TokenBucketAlgorithm
+
+                tb = TokenBucketAlgorithm(getattr(self, "algorithm_config", None))
+                try:
+                    allowed, metadata = tb.is_allowed(
+                        backend, key, limit, period, tokens_requested=cost
+                    )
+                except TypeError:
+                    allowed, metadata = tb.is_allowed(backend, key, limit, period)
+                remaining = int(metadata.get("tokens_remaining", 0)) if metadata else 0
+            elif self.algorithm == "leaky_bucket":
+                from ..algorithms import LeakyBucketAlgorithm
+
+                lb = LeakyBucketAlgorithm(getattr(self, "algorithm_config", None))
+                try:
+                    allowed, metadata = lb.is_allowed(
+                        backend, key, limit, period, request_cost=cost
+                    )
+                except TypeError:
+                    allowed, metadata = lb.is_allowed(backend, key, limit, period)
+                remaining = int(metadata.get("space_remaining", 0)) if metadata else 0
+            else:
+                # sliding_window / fixed_window: counter via the backend.
+                # Prefer backends that accept a cost argument (v3 contract).
+                # Whether cost is supported is decided by inspecting the backend's
+                # ``incr`` signature (cached per backend type) -- NOT by catching
+                # TypeError from the call, which would misclassify a TypeError
+                # raised from inside the backend as "no cost support". Older
+                # backends fall back to a loop of single-token increments so
+                # weighted throttling still works end-to-end.
+                if _backend_incr_supports_cost(backend):
+                    count = backend.incr(key, period, cost)  # type: ignore[call-arg]
+                else:
+                    count = backend.incr(key, period)
+                    for _ in range(max(0, cost - 1)):
+                        count = backend.incr(key, period)
+
+                # ``count`` is the post-incr value; the request is allowed iff the
+                # count BEFORE this request (count - cost) was below the limit.
+                # Using ``< limit`` (not ``<= limit``) because a count equal to
+                # limit means this request pushed us to the boundary — it should
+                # be the last allowed one.
+                allowed = (count - cost) < limit
+                remaining = max(0, limit - count)
 
             # Shadow mode: a would-be block is downgraded to an allow + log line
             # so a new throttle can be validated in production before enforcing.
@@ -381,7 +417,7 @@ class SmartRateLimitThrottle(_ThrottleBase):
                     request=request,
                     key=key,
                     limit=limit,
-                    remaining=max(0, limit - count),
+                    remaining=remaining,
                     algorithm=self.algorithm,
                     backend=type(backend).__name__,
                     cost=cost,

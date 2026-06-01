@@ -5,6 +5,68 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.3] - 2026-06-02
+
+A correctness and security patch fixing real bugs surfaced by a deep, adversarially
+verified review of the library source. Every fix ships with a regression test
+(`tests/e2e/test_deep_review_regressions_e2e.py`). No public API changed.
+
+### Security
+
+- **`get_tenant_key` no longer trusts a client-supplied tenant over the
+  authenticated user.** It read `?tenant_id=` (and a request header) *before* the
+  authenticated user's tenant, so an authenticated user could rate-limit as — and
+  exhaust the bucket of — any tenant they named, or sidestep their own limit by
+  varying the value. The authenticated user's tenant is now authoritative; the
+  query parameter/header is consulted only when the request carries no
+  authenticated tenant.
+- **A malformed inline CIDR in `ALLOW_LIST` / `DENY_LIST` now fails fast.**
+  Previously a single bad entry (e.g. `10.0.0.0/33`) made `apply_policy_lists`
+  swallow the parse error and drop the whole list, silently failing **open** on
+  every request even under fail-closed expectations. The middleware and DRF
+  throttle now parse their policy lists **once at construction**, so a malformed
+  entry raises immediately and a URL/file-backed feed is no longer re-fetched on
+  every request (the decorator already parsed once).
+- **IPv4-mapped IPv6 addresses now match IPv4 list entries.** A deny entry
+  `1.2.3.4` was bypassed when the client address arrived as `::ffff:1.2.3.4`;
+  `IPList.contains` now normalizes the mapped form before matching.
+
+### Fixed
+
+- **MongoDB `fixed_window` enforced nothing when `RATELIMIT_ALIGN_WINDOW_TO_CLOCK`
+  was `False`.** The counter document was keyed on a per-request microsecond
+  timestamp, so every request inserted a fresh `count=1` document (and grew the
+  collection unbounded). The fixed-window counter is now always clock-aligned, as
+  the database backend already is.
+- **The DRF throttle ignored its declared `algorithm`.** `SmartRateLimitThrottle`
+  always window-counted via `backend.incr`, so `algorithm="token_bucket"` /
+  `"leaky_bucket"` silently behaved as a sliding window. The throttle now
+  dispatches to the same token/leaky-bucket logic the decorator uses (honoring an
+  optional `algorithm_config`).
+- **`CircuitBreakerError` was two unrelated classes.** The package exported
+  `exceptions.CircuitBreakerError` while the breaker raised
+  `circuit_breaker.CircuitBreakerError`, so `except CircuitBreakerError` on the
+  public export never caught an open circuit. The raised class is now a subclass
+  of the exported one (all context fields preserved).
+- **Sync token-bucket / leaky-bucket 429s carried no rate-limit headers.** The
+  blocking path returned a bare 429 with no `Retry-After` / `X-RateLimit-*`,
+  unlike the window algorithms and the async path. Headers are now emitted on
+  these 429s too.
+- **Redis `fixed_window` 429s carried no `Retry-After` / `X-RateLimit-Reset`.**
+  `get_reset_time` read the bare key while the clock-aligned counter lives under a
+  time-bucketed key, so it returned `None`; the decorator now computes the
+  deterministic window reset (and resolves the backend algorithm regardless of
+  whether the backend names it `algorithm` or `_algorithm`).
+
+### Notes
+
+- The deep review also confirmed two design-level issues left for a future
+  release: the database `sliding_window` increment is non-atomic under concurrency
+  on Postgres/MySQL (over-admission; SQLite serializes writes so it is unaffected),
+  and `MultiBackend` can double-count an `incr` across a failover. A separate
+  finding — that `PrometheusMetricsMiddleware` records denials as allowed — remains
+  documented as a strict `xfail` from v4.0.2.
+
 ## [4.0.2] - 2026-05-31
 
 ### Fixed

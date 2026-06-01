@@ -216,15 +216,23 @@ def get_tenant_key(request: HttpRequest, tenant_field: str = "tenant_id") -> str
     """
     tenant_id = None
 
-    # Try to get tenant from various sources
-    tenant_id = request.GET.get(tenant_field)
+    # An authenticated user's tenant is authoritative and MUST win over any
+    # client-supplied value. A query parameter (and, to a lesser degree, a
+    # request header) is attacker-controlled, so trusting it first lets an
+    # authenticated user rate-limit as -- and exhaust the bucket of -- any
+    # tenant they name (?tenant_id=victim), and lets them sidestep their own
+    # limit by varying the value. Resolve the user's tenant first.
+    if hasattr(request, "user") and request.user.is_authenticated:
+        tenant_id = getattr(request.user, tenant_field, None)
 
+    # Fall back to a (typically proxy-set) header, then a query parameter, only
+    # when the request carries no authenticated tenant.
     if not tenant_id:
         header_name = f'HTTP_{tenant_field.upper().replace("-", "_")}'
         tenant_id = request.META.get(header_name)
 
-    if not tenant_id and hasattr(request, "user") and request.user.is_authenticated:
-        tenant_id = getattr(request.user, tenant_field, None)
+    if not tenant_id:
+        tenant_id = request.GET.get(tenant_field)
 
     if tenant_id:
         base_key = user_or_ip_key(request)

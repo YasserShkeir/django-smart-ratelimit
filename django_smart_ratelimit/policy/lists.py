@@ -164,14 +164,25 @@ class IPList:
         """
         try:
             ip_obj = ipaddress.ip_address(ip)
-            for network in self.networks:
-                if ip_obj in network:
-                    return True
-            return False
         except ValueError:
             # Invalid IP format
             logger.debug(f"Invalid IP address format: {ip}")
             return False
+
+        # Match the address as presented, but also normalize an IPv4-mapped
+        # IPv6 address (e.g. ``::ffff:1.2.3.4``) to its IPv4 form. Without this,
+        # a deny/allow entry written as ``1.2.3.4`` would be silently bypassed
+        # when the client address arrives in mapped form (and vice versa).
+        candidates = [ip_obj]
+        mapped = getattr(ip_obj, "ipv4_mapped", None)
+        if mapped is not None:
+            candidates.append(mapped)
+
+        for candidate in candidates:
+            for network in self.networks:
+                if candidate.version == network.version and candidate in network:
+                    return True
+        return False
 
 
 class FileBackedIPList(IPList):

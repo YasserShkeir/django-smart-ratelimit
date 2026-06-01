@@ -202,12 +202,29 @@ def _get_reset_time(backend_instance: Any, limit_key: str, period: int) -> int:
         if hasattr(backend_instance, "get_stable_reset_time"):
             return backend_instance.get_stable_reset_time(limit_key, period)
 
+        # Resolve the backend's algorithm robustly: backends are inconsistent
+        # about the attribute name (memory/database use ``_algorithm``, redis
+        # uses ``algorithm``, mongodb keeps it in ``config['algorithm']``).
+        backend_algo = (
+            getattr(backend_instance, "_algorithm", None)
+            or getattr(backend_instance, "algorithm", None)
+            or (getattr(backend_instance, "config", None) or {}).get("algorithm")
+        )
+
         # For sliding window algorithms, provide stable reset time
         # by calculating when the oldest request in the window will expire
-        if (
-            hasattr(backend_instance, "_algorithm")
-            and backend_instance._algorithm == "sliding_window"
-        ):
+        if backend_algo == "sliding_window":
+            return _calculate_stable_reset_time_sliding_window(
+                period, align_to_clock, limit_key=limit_key
+            )
+
+        # Fixed window: the backend's TTL-based reset can be unavailable -- e.g.
+        # Redis in clock-aligned mode stores the counter under a time-bucketed
+        # key, so the bare key has no TTL and get_reset_time() returns None. In
+        # that case compute the deterministic window reset (the clock-aligned
+        # boundary, or the first-request anchor) so the 429 still carries a
+        # correct Retry-After / X-RateLimit-Reset instead of nothing.
+        if backend_algo == "fixed_window" and not reset_time:
             return _calculate_stable_reset_time_sliding_window(
                 period, align_to_clock, limit_key=limit_key
             )
@@ -1068,10 +1085,15 @@ def _handle_token_bucket_algorithm(
 
         if not is_allowed:
             if block:
-                return _create_rate_limit_response(
+                # Carry the same machine-readable headers on the 429 that the
+                # allowed path and the sliding/fixed-window block path emit, so
+                # clients can back off correctly under a token-bucket limit.
+                response = _create_rate_limit_response(
                     request=_request,
                     response_callback=response_callback,
                 )
+                add_token_bucket_headers(response, metadata, limit, period)
+                return response
             else:
                 # Add rate limit headers but don't block
                 if _request:
@@ -1160,10 +1182,14 @@ def _handle_leaky_bucket_algorithm(
 
         if not is_allowed:
             if block:
-                return _create_rate_limit_response(
+                # Emit the rate-limit headers on the 429 as well (parity with the
+                # allowed path and the window-algorithm block path).
+                response = _create_rate_limit_response(
                     request=_request,
                     response_callback=response_callback,
                 )
+                add_rate_limit_headers(response, limit, remaining, reset_time)
+                return response
             # Non-blocking: mark the request and continue.
             if _request:
                 _request.rate_limit_exceeded = True
