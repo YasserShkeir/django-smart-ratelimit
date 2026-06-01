@@ -1,14 +1,34 @@
 """Multi-backend support for Django Smart Ratelimit."""
 
+import atexit
 import itertools
 import logging
 import threading
 import time
+import weakref
 from typing import Any, Dict, List, Optional, Tuple
 
 from ..messages import LOG_BACKEND_INIT_FAILED
 from .base import BaseBackend
 from .factory import BackendFactory
+
+# Track live MultiBackend instances so their daemon health-check threads can be
+# stopped at interpreter exit. A leaked daemon thread that logs to stderr during
+# interpreter teardown can abort the process (_enter_buffered_busy); this lets a
+# single atexit hook quiesce them all (cached or directly constructed).
+_LIVE_MULTI_BACKENDS: "weakref.WeakSet" = weakref.WeakSet()
+
+
+def _shutdown_all_multi_backends() -> None:
+    """Stop every live MultiBackend's health thread (atexit best-effort)."""
+    for backend in list(_LIVE_MULTI_BACKENDS):
+        try:
+            backend.shutdown()
+        except Exception:  # pragma: no cover - best-effort teardown
+            pass
+
+
+atexit.register(_shutdown_all_multi_backends)
 from .utils import (
     estimate_backend_memory_usage,
     log_backend_operation,
@@ -205,6 +225,7 @@ class MultiBackend(BaseBackend):
         self._backend_cycle = itertools.cycle(self.backends)
         self._backend_health: Dict[int, bool] = {id(b[1]): True for b in self.backends}
         self._shutdown = threading.Event()
+        self._health_thread: Optional[threading.Thread] = None
 
         # Start health check thread
         self.health_check_interval = kwargs.get(
@@ -213,6 +234,23 @@ class MultiBackend(BaseBackend):
         )
         if self.health_check_interval > 0:
             self._start_health_check(self.health_check_interval)
+
+        # Register for atexit cleanup so the daemon health thread is stopped
+        # before interpreter teardown.
+        _LIVE_MULTI_BACKENDS.add(self)
+
+    def shutdown(self) -> None:
+        """Stop the background health-check thread and join it.
+
+        Invoked by ``clear_backend_cache()`` and by the module ``atexit`` hook.
+        Without it the daemon health thread runs until interpreter exit and can
+        write to stderr during teardown, occasionally aborting the process with
+        ``_enter_buffered_busy``. Safe to call more than once.
+        """
+        self._shutdown.set()
+        thread = getattr(self, "_health_thread", None)
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=2)
 
     def _start_health_check(self, interval: int = 30) -> None:
         """Start background health check thread."""

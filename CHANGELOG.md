@@ -30,6 +30,11 @@ fix ships with a regression test (`tests/e2e/test_review3_regressions_e2e.py`).
   per-key history was kept in a dict with no cap on the number of keys, so per-IP limiting
   on a public endpoint leaked memory proportional to unique clients. Keys are now
   LRU-bounded (aggregate counters remain exact).
+- **`MultiBackend` leaked its background health-check thread.** The daemon thread had no
+  stop hook, so it ran until interpreter exit and could write to stderr during teardown
+  (an intermittent process abort, `_enter_buffered_busy`). `MultiBackend` now has a
+  `shutdown()` method, and both it and `MemoryBackend` register for `atexit` cleanup, so
+  their daemon threads are stopped before interpreter teardown.
 
 ### Changed
 

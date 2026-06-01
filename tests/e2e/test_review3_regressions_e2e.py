@@ -174,6 +174,58 @@ def test_ratelimit_cleanup_rejects_nonpositive_batch_size():
 # ---------------------------------------------------------------------------
 
 
+def test_multi_backend_shutdown_stops_health_thread():
+    """MultiBackend.shutdown() stops the daemon health-check thread.
+
+    The thread previously had no stop hook, so it ran until interpreter exit and
+    could write to stderr during teardown (an intermittent SIGABRT in CI). It is
+    now stoppable and registered for atexit cleanup.
+    """
+    from django_smart_ratelimit.backends.multi import (
+        _LIVE_MULTI_BACKENDS,
+        MultiBackend,
+    )
+
+    with override_settings(
+        RATELIMIT_BACKENDS=[
+            {
+                "name": "m1",
+                "backend": "django_smart_ratelimit.backends.memory.MemoryBackend",
+                "config": {},
+            },
+            {
+                "name": "m2",
+                "backend": "django_smart_ratelimit.backends.memory.MemoryBackend",
+                "config": {},
+            },
+        ],
+        RATELIMIT_HEALTH_CHECK_INTERVAL=1,
+    ):
+        backend = MultiBackend()
+        assert backend in _LIVE_MULTI_BACKENDS
+        assert backend._health_thread is not None
+        assert backend._health_thread.is_alive()
+        backend.shutdown()
+        backend._health_thread.join(timeout=2)
+        assert not backend._health_thread.is_alive()
+
+
+def test_memory_backend_shutdown_stops_cleanup_thread():
+    """MemoryBackend.shutdown() stops its daemon cleanup thread (atexit-registered)."""
+    from django_smart_ratelimit.backends.memory import (
+        _LIVE_MEMORY_BACKENDS,
+        MemoryBackend,
+    )
+
+    backend = MemoryBackend(enable_background_cleanup=True)
+    assert backend in _LIVE_MEMORY_BACKENDS
+    assert backend._cleanup_thread is not None
+    assert backend._cleanup_thread.is_alive()
+    backend.shutdown()
+    backend._cleanup_thread.join(timeout=2)
+    assert not backend._cleanup_thread.is_alive()
+
+
 @skip_without_mongo
 def test_mongodb_backend_honors_uri():
     """A configured ``uri`` is used to connect (was silently ignored)."""
