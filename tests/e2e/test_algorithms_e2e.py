@@ -37,8 +37,11 @@ from django_smart_ratelimit.backends import clear_backend_cache, get_backend
 from django_smart_ratelimit.enums import Algorithm
 
 from .conftest import (
+    MEMORY,
+    REDIS,
     exhaust,
     make_request,
+    skip_without_redis,
     use_backend,
 )
 
@@ -482,3 +485,98 @@ def test_leaky_bucket_isolated_per_key_database():
         )
         assert exhaust(view, 3, ip="192.0.2.44") == [200, 200, 429]
         assert exhaust(view, 2, ip="192.0.2.45") == [200, 200]
+
+
+# ===========================================================================
+# TOKEN BUCKET  (database backend — native token_bucket_check)
+# ===========================================================================
+
+
+@pytest.mark.django_db
+def test_token_bucket_burst_then_block_database():
+    """Token bucket on the database backend uses the native token_bucket_check.
+
+    bucket_size=3, refill_rate=0: the first 3 requests burst through and the
+    rest are blocked. The database backend implements a native, row-locked
+    ``token_bucket_check`` (it does NOT silently fall back to window counting),
+    so this exercises the DB bucket path directly — the analogue of the
+    Redis/memory native-bucket tests above.
+    """
+    with use_backend("database"):
+        backend = get_backend()
+        assert hasattr(backend, "token_bucket_check")
+
+        view = _ok_view(
+            key="ip",
+            rate="3/m",
+            algorithm=Algorithm.TOKEN_BUCKET,
+            algorithm_config={"bucket_size": 3, "refill_rate": 0},
+        )
+        assert exhaust(view, 5, ip="192.0.2.51") == [200, 200, 200, 429, 429]
+
+
+@pytest.mark.django_db
+def test_token_bucket_isolated_per_key_database():
+    """Native DB token buckets are independent per key.
+
+    Two IPs each get their own capacity-2 bucket; draining one leaves the other
+    with its full allowance.
+    """
+    with use_backend("database"):
+        view = _ok_view(
+            key="ip",
+            rate="2/m",
+            algorithm=Algorithm.TOKEN_BUCKET,
+            algorithm_config={"bucket_size": 2, "refill_rate": 0},
+        )
+        assert exhaust(view, 3, ip="192.0.2.52") == [200, 200, 429]
+        assert exhaust(view, 2, ip="192.0.2.53") == [200, 200]
+
+
+# ===========================================================================
+# MULTI BACKEND  (bucket algorithms degrade to window counting)
+# ===========================================================================
+
+
+@skip_without_redis
+def test_multibackend_token_bucket_falls_back_to_window():
+    """A MultiBackend has no native bucket op, so token_bucket degrades to window.
+
+    ``MultiBackend`` delegates ``incr()`` / ``get_count()`` to its child backends
+    but does not implement ``token_bucket_check``, so the decorator catches the
+    ``NotImplementedError`` and falls back to plain window counting (the same
+    graceful degradation MongoDB uses). This test PINS that documented behavior:
+    with ``rate=2/m`` the ``bucket_size=5`` config is ignored and exactly 2
+    requests pass per window — NOT a 5-token burst. If ``MultiBackend`` ever
+    gains native bucket routing, update this test to assert burst semantics.
+    """
+    redis_module = pytest.importorskip("redis")
+    client = redis_module.Redis(host="localhost", port=6379, db=0)
+    client.flushdb()
+    ov = override_settings(
+        RATELIMIT_BACKEND="django_smart_ratelimit.backends.multi.MultiBackend",
+        RATELIMIT_BACKENDS=[
+            {
+                "name": "primary",
+                "backend": REDIS,
+                "config": {"host": "localhost", "port": 6379, "db": 0},
+            },
+            {"name": "fallback", "backend": MEMORY, "config": {}},
+        ],
+        RATELIMIT_MULTI_BACKEND_STRATEGY="first_healthy",
+    )
+    ov.enable()
+    clear_backend_cache()
+    try:
+        view = _ok_view(
+            key="ip",
+            rate="2/m",
+            algorithm=Algorithm.TOKEN_BUCKET,
+            algorithm_config={"bucket_size": 5, "refill_rate": 0},
+        )
+        # Native bucket_size=5 would allow a 5-burst; window fallback allows 2.
+        assert exhaust(view, 5, ip="192.0.2.61") == [200, 200, 429, 429, 429]
+    finally:
+        clear_backend_cache()
+        client.flushdb()
+        ov.disable()

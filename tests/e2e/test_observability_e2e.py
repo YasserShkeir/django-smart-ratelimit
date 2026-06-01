@@ -4,19 +4,25 @@ These scenarios drive REAL rate-limited traffic against REAL storage (live
 Redis / live MongoDB / in-process memory) and then assert on the three
 observability integrations the library ships:
 
-* Prometheus (``django_smart_ratelimit.prometheus``): with ``RATELIMIT_PROMETHEUS``
-  enabled, real requests are recorded through ``PrometheusMetrics.record_request``
-  and scraped back via ``generate_metrics()`` / ``prometheus_metrics_view``. We
-  assert request/denied counters increase, that the low-cardinality labels
-  (``backend`` / ``result``) are present, and that the per-key value is NEVER a
-  label (cardinality safety).
+* Prometheus (``django_smart_ratelimit.prometheus``): real requests are recorded
+  through the public ``PrometheusMetrics.record_request`` API (the supported
+  manual-instrumentation path) and scraped back via ``generate_metrics()`` /
+  ``prometheus_metrics_view``. We assert request/denied counters increase, that
+  the low-cardinality labels (``backend`` / ``result``) are present, and that the
+  per-key value is NEVER a label (cardinality safety). A SEPARATE test
+  (``test_prometheus_middleware_auto_emits_denials``) drives traffic through the
+  shipped ``PrometheusMetricsMiddleware`` to check fully-automatic instrumentation
+  end-to-end; it currently ``xfail``s on a real middleware bug (see its reason).
 * OpenTelemetry (``django_smart_ratelimit.observability``): ``instrument_rate_limit``
   is called and ``record_check`` is exercised from real decorator traffic. We
   assert it never raises; OTel-specific span/metric assertions are made only
   when the SDK is installed.
-* Structured logging (``django_smart_ratelimit.logging``): with
-  ``RATELIMIT_LOGGING`` configured for JSON, a real block is triggered and we
-  assert a parseable single-line JSON log record is emitted (via ``caplog``).
+* Structured logging (``django_smart_ratelimit.logging``): the public logging
+  API (``log_rate_limit_check`` + ``JSONFormatter``) is exercised on real
+  rate-limit decisions and asserted to produce parseable single-line JSON (via
+  ``caplog``). A separate test (``test_request_path_auto_emits_structured_logs``)
+  drives real traffic and asserts the enforcement path emits log records on its
+  own, with no manual logging call.
 
 The backend is never mocked: the ``@rate_limit`` decorator hits the real store
 selected by the ``real_backend`` fixture, and we read the observable result
@@ -42,6 +48,7 @@ from django_smart_ratelimit.logging import (
 )
 from django_smart_ratelimit.prometheus import (
     PrometheusMetrics,
+    PrometheusMetricsMiddleware,
     get_prometheus_metrics,
     prometheus_metrics_view,
 )
@@ -132,7 +139,51 @@ def _build_view(rate, key="ip"):
 
 
 class TestPrometheusRealTraffic:
-    """Prometheus metrics scraped after real rate-limited traffic."""
+    """Prometheus exposition scraped after real rate-limited traffic.
+
+    These tests record each real decision through the public
+    ``PrometheusMetrics.record_request`` API (the supported manual path) and
+    assert the scraped exposition is correct. Fully-automatic instrumentation via
+    ``PrometheusMetricsMiddleware`` is covered by
+    ``test_prometheus_middleware_auto_emits_denials`` below.
+    """
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason=(
+            "BUG: PrometheusMetricsMiddleware reads request.ratelimit.limited, but "
+            "the decorator attaches a RateLimitContext that exposes .allowed (and "
+            "leaves .backend unset). So every request -- including denials -- is "
+            'recorded as result="allowed", backend="unknown", and auto-'
+            "instrumentation cannot distinguish allowed from denied. Remove this "
+            "xfail when the middleware is fixed to read .allowed / a real backend."
+        ),
+    )
+    def test_prometheus_middleware_auto_emits_denials(self, real_backend):
+        """TRUE auto-emit: traffic through the shipped middleware, no manual call.
+
+        Installs ``PrometheusMetricsMiddleware`` around a real 2/min ``@rate_limit``
+        view, drives 5 real requests (2 allowed, 3 denied on the live store), and
+        scrapes the singleton WITHOUT any ``record_request`` call. Correct behavior
+        is 2 allowed + 3 denied; this currently xfails (see reason).
+        """
+        PrometheusMetrics.reset()
+        view = _build_view("2/m")
+        middleware = PrometheusMetricsMiddleware(lambda request: view(request))
+        ip = "198.51.100.210"
+
+        codes = [middleware(make_request(ip=ip)).status_code for _ in range(5)]
+        assert codes == [200, 200, 429, 429, 429]
+
+        text = get_prometheus_metrics().generate_metrics()
+        allowed = _counter_value(
+            text, "django_ratelimit_requests_total", result="allowed"
+        )
+        denied = _counter_value(
+            text, "django_ratelimit_requests_total", result="denied"
+        )
+        assert allowed == 2.0
+        assert denied == 3.0
 
     def test_request_and_denied_counters_increase_on_real_backend(self, real_backend):
         """Public API endpoint: 3/min per IP.
@@ -565,10 +616,37 @@ def _parse_json_records(caplog, logger_name="django_smart_ratelimit"):
 
 
 class TestStructuredLoggingRealBlock:
-    """Structured JSON logging on real rate-limit decisions."""
+    """Structured JSON logging API exercised on real rate-limit decisions.
+
+    These tests drive a real decision on the live store and then format it
+    through the public logging API (``log_rate_limit_check`` /
+    ``log_circuit_breaker_event`` + ``JSONFormatter``), asserting the JSON is
+    correct and single-line. That the ENFORCEMENT path emits logs on its own
+    (without a manual logging call) is asserted separately by
+    ``test_request_path_auto_emits_structured_logs``.
+    """
 
     def teardown_method(self):
         clear_request_context()
+
+    def test_request_path_auto_emits_structured_logs(self, real_backend, caplog):
+        """TRUE auto-emit: real enforcement logs with NO manual logging call.
+
+        Unlike the other tests in this class (which call the public logging API
+        directly), this drives real traffic through the decorator and asserts the
+        library ITSELF emitted log records describing the backend operation --
+        proving the request path is instrumented, with the test making no log
+        call of its own.
+        """
+        view = _build_view("2/m")
+        with caplog.at_level(logging.DEBUG, logger="django_smart_ratelimit"):
+            codes = exhaust(view, 3, ip="198.51.100.195")
+
+        assert codes == [200, 200, 429]
+        auto = [
+            r for r in caplog.records if r.name.startswith("django_smart_ratelimit")
+        ]
+        assert len(auto) >= 2, "enforcement path should auto-emit log records"
 
     def test_real_block_emits_parseable_json_log(self, real_backend, caplog, settings):
         """Login endpoint: 2/min per IP. The block emits a JSON log line.

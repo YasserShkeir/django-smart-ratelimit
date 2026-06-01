@@ -26,9 +26,11 @@ import time
 
 import pytest
 
+from django.core.exceptions import ImproperlyConfigured
 from django.http import HttpResponse, JsonResponse
 from django.test import override_settings
 
+from django_smart_ratelimit.backends import clear_backend_cache
 from django_smart_ratelimit.middleware import RateLimitMiddleware
 
 from .conftest import AuthedUser, exhaust, make_request
@@ -577,3 +579,52 @@ def test_reset_header_is_a_future_timestamp(real_backend):
     reset = int(resp.headers["X-RateLimit-Reset"])
     assert reset >= before
     assert reset <= int(time.time()) + 120
+
+
+# ---------------------------------------------------------------------------
+# Backend-outage behavior. The middleware has its own error-handling path,
+# distinct from the decorator's, so it gets its own real-outage coverage: point
+# it at a dead Redis port and verify the documented fail-open vs fail-closed
+# modes. (Port 6399 is deliberately not listening; these tests need no live
+# service and run on every environment.)
+# ---------------------------------------------------------------------------
+
+_DEAD_REDIS = {
+    "RATELIMIT_BACKEND": "django_smart_ratelimit.backends.redis_backend.RedisBackend",
+    "RATELIMIT_REDIS": {"host": "127.0.0.1", "port": 6399, "db": 0},
+    "RATELIMIT_MIDDLEWARE": {"DEFAULT_RATE": "1/m", "BLOCK": True},
+}
+
+
+def test_middleware_fail_open_serves_traffic_when_backend_is_down():
+    """FAIL_OPEN=True: an unreachable backend must not take the site down.
+
+    With the backend dead and ``RATELIMIT_FAIL_OPEN=True`` the middleware lets
+    the request through (200) instead of blocking or erroring — rate limiting
+    must never become a hard dependency in fail-open mode.
+    """
+    with override_settings(RATELIMIT_FAIL_OPEN=True, **_DEAD_REDIS):
+        clear_backend_cache()
+        try:
+            middleware = RateLimitMiddleware(ok_view)
+            resp = middleware(make_request(ip="198.51.100.150", path="/"))
+            assert resp.status_code == 200
+        finally:
+            clear_backend_cache()
+
+
+def test_middleware_fail_closed_refuses_to_start_when_backend_is_down():
+    """FAIL_OPEN=False: an unreachable backend fails loudly, not silently open.
+
+    With ``RATELIMIT_FAIL_OPEN=False`` the Redis backend's eager connection check
+    raises ``ImproperlyConfigured`` at construction, so the middleware cannot
+    start against a dead backend rather than quietly serving traffic through an
+    unprotected limiter.
+    """
+    with override_settings(RATELIMIT_FAIL_OPEN=False, **_DEAD_REDIS):
+        clear_backend_cache()
+        try:
+            with pytest.raises(ImproperlyConfigured):
+                RateLimitMiddleware(ok_view)
+        finally:
+            clear_backend_cache()
