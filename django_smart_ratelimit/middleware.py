@@ -82,6 +82,15 @@ class RateLimitMiddleware:
         # v3: when True, rate-limit decisions are logged but not enforced.
         self.shadow = bool(middleware_config.get("SHADOW", False))
 
+        # Validate every configured rate at startup (fail fast). Previously a
+        # malformed DEFAULT_RATE or RATE_LIMITS entry was only parsed per request,
+        # so a typo produced a hard 500 on every matching request in production
+        # rather than surfacing at deploy time. parse_rate raises
+        # ImproperlyConfigured on a bad rate string.
+        parse_rate(self.default_rate)
+        for _pattern, _rate in self.rate_limits.items():
+            parse_rate(_rate)
+
         # Initialize backend
         self.backend = get_backend(self.backend_name)
 

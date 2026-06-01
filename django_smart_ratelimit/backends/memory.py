@@ -6,7 +6,9 @@ with thread-safe operations. It's ideal for development, testing, and
 single-server deployments.
 """
 
+import atexit
 import threading
+import weakref
 from collections import OrderedDict, defaultdict
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
@@ -14,6 +16,23 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 from ..exceptions import BackendError
 from ..messages import ERROR_BACKEND_UNAVAILABLE
 from .base import BaseBackend
+
+# Track live MemoryBackend instances so their daemon cleanup threads can be
+# stopped at interpreter exit (a leaked daemon thread writing to stderr during
+# teardown can abort the process with _enter_buffered_busy).
+_LIVE_MEMORY_BACKENDS: "weakref.WeakSet" = weakref.WeakSet()
+
+
+def _shutdown_all_memory_backends() -> None:
+    """Stop every live MemoryBackend's cleanup thread (atexit best-effort)."""
+    for backend in list(_LIVE_MEMORY_BACKENDS):
+        try:
+            backend.shutdown()
+        except Exception:  # pragma: no cover - best-effort teardown
+            pass  # nosec B110 - never let teardown of one backend block others
+
+
+atexit.register(_shutdown_all_memory_backends)
 from .utils import (
     calculate_expiry,
     calculate_sliding_window_count,
@@ -138,6 +157,10 @@ class MemoryBackend(BaseBackend):
 
         if enable_background_cleanup:
             self._start_cleanup_thread()
+
+        # Register for atexit cleanup so the daemon cleanup thread is stopped
+        # before interpreter teardown even for directly-constructed instances.
+        _LIVE_MEMORY_BACKENDS.add(self)
 
         # Configuration
         self._algorithm = settings.default_algorithm

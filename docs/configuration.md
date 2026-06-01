@@ -241,10 +241,17 @@ RATELIMIT_COLLECT_METRICS = True
 ```python
 # Configure middleware behavior
 RATELIMIT_MIDDLEWARE = {
-    'enabled': True,
-    'excluded_paths': ['/health/', '/metrics/'],
+    'DEFAULT_RATE': '100/m',
+    'SKIP_PATHS': ['/health/', '/metrics/'],  # paths the middleware never limits
 }
+
+# Enable/disable rate limiting globally (the middleware honors this, NOT a
+# per-middleware "enabled" key):
+RATELIMIT_ENABLE = True
 ```
+
+> The middleware reads `SKIP_PATHS` (not `excluded_paths`) and the top-level
+> `RATELIMIT_ENABLE` setting (not a `'enabled'` key inside `RATELIMIT_MIDDLEWARE`).
 
 ## Custom Configuration
 

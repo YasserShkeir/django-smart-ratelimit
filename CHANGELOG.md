@@ -5,6 +5,60 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.4] - 2026-06-02
+
+A third review pass focused on the paths the first two didn't deeply cover (async,
+under-reviewed modules, observability internals, ops, input validation, docs). The
+core sync path was confirmed clean; this fixes the real issues found elsewhere. Each
+fix ships with a regression test (`tests/e2e/test_review3_regressions_e2e.py`).
+
+### Fixed
+
+- **Async Redis backend diverged from the sync backend.** `AsyncRedisBackend` defaulted
+  `key_prefix` to `"rl:"` and `algorithm` to `"sliding_window"` and never read settings,
+  while the sync `RedisBackend` reads `RATELIMIT_KEY_PREFIX` / `RATELIMIT_ALGORITHM`. So a
+  client alternating between a sync `@rate_limit` endpoint and an async `@aratelimit`
+  endpoint for the same key got two independent counters (~2x the intended limit), a
+  custom `RATELIMIT_KEY_PREFIX` was silently dropped on the async path, and the two paths
+  could run different algorithms. The async backend now reads the same settings and applies
+  the fixed-window clock-alignment key suffix, so sync and async share one keyspace.
+- **`RateLimitConfigManager` mutated the shared settings config dict.** For a config loaded
+  from `RATELIMIT_CONFIG_*`, a per-call override (`get_config(name, rate=...)`) updated the
+  cached settings dict in place, leaking that override into every subsequent lookup of the
+  same config. It now copies before applying overrides.
+- **`MetricsCollector` could grow without bound.** With `RATELIMIT_COLLECT_METRICS=True`,
+  per-key history was kept in a dict with no cap on the number of keys, so per-IP limiting
+  on a public endpoint leaked memory proportional to unique clients. Keys are now
+  LRU-bounded (aggregate counters remain exact).
+- **`MultiBackend` leaked its background health-check thread.** The daemon thread had no
+  stop hook, so it ran until interpreter exit and could write to stderr during teardown
+  (an intermittent process abort, `_enter_buffered_busy`). `MultiBackend` now has a
+  `shutdown()` method, and both it and `MemoryBackend` register for `atexit` cleanup, so
+  their daemon threads are stopped before interpreter teardown.
+
+### Changed
+
+- **`parse_rate` rejects a negative limit** (e.g. `"-5/m"`) with a clear
+  `ImproperlyConfigured` instead of silently becoming a deny-everything limiter with a
+  negative `X-RateLimit-Limit` header.
+- **`RateLimitMiddleware` validates `DEFAULT_RATE` and `RATE_LIMITS` at startup.** A
+  malformed rate string now raises at construction (fail fast) rather than returning a 500
+  on every matching request.
+- **The MongoDB backend honors a full connection `uri`.** A configured `uri` was previously
+  ignored and the backend connected to `host`/`port` (defaulting to localhost); it now
+  takes precedence. Docs updated; the middleware `SKIP_PATHS` / `RATELIMIT_ENABLE`
+  documentation was corrected (the old docs named non-existent `excluded_paths` / `enabled`
+  middleware keys).
+- **`ratelimit_cleanup --batch-size`** now rejects a non-positive value with a clear error
+  instead of crashing (negative) or silently deleting nothing (zero).
+
+### Notes
+
+- Still deferred (design-level, tracked): database `sliding_window` atomicity under
+  Postgres/MySQL concurrency, `MultiBackend` failover double-count, the `PrometheusMetrics`
+  auto-instrument `xfail`, and assorted LOW items (async middleware header merge, clock-step
+  bucket clamp, etc.).
+
 ## [4.0.3] - 2026-06-02
 
 A correctness and security patch fixing real bugs surfaced by a deep, adversarially

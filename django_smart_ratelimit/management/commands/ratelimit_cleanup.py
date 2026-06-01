@@ -5,7 +5,7 @@ import time
 from argparse import ArgumentParser
 from typing import Any, Dict
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 
@@ -76,6 +76,13 @@ class Command(BaseCommand):
         stale_days: int = options.get("stale_days", 7)
         json_output: bool = options.get("json", False)
         verbose: bool = options.get("verbose", False)
+
+        # A non-positive batch size either crashed (negative list slice) or
+        # silently deleted nothing while reporting rows as found. Reject it.
+        if batch_size <= 0:
+            raise CommandError(
+                f"--batch-size must be a positive integer, got {batch_size}"
+            )
 
         start_time = time.time()
 

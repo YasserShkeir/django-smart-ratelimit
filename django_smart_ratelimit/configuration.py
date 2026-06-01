@@ -92,9 +92,12 @@ class RateLimitConfigManager:
         if config_name in self._default_configs:
             config = self._default_configs[config_name].copy()
         else:
-            # Try to load from Django settings
+            # Try to load from Django settings. Copy it: settings.custom_configs
+            # is cached on the shared settings object, so update()-ing it in place
+            # below would permanently rewrite the user's RATELIMIT_CONFIG_* dict,
+            # leaking one request's per-call overrides into every later lookup.
             settings = get_settings()
-            config = settings.custom_configs.get(config_name.lower(), {})
+            config = dict(settings.custom_configs.get(config_name.lower(), {}))
 
         # Apply overrides
         config.update(overrides)

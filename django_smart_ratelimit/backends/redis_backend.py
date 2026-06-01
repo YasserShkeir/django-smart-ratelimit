@@ -928,8 +928,17 @@ class AsyncRedisBackend(BaseBackend):
 
         self.url = kwargs.get("url") or redis_config.get("url")
         # self.client is now managed via thread_local property
-        self.key_prefix = kwargs.get("key_prefix", "rl:")
-        self.algorithm = kwargs.get("algorithm", "sliding_window")
+        # Default key_prefix and algorithm FROM SETTINGS so the async backend
+        # matches the sync RedisBackend. Previously they defaulted to the literals
+        # "rl:" / "sliding_window" and ignored RATELIMIT_KEY_PREFIX /
+        # RATELIMIT_ALGORITHM, so sync and async endpoints wrote to different
+        # keyspaces (a client alternating between them got ~2x the limit) and
+        # could enforce different algorithms under a single setting.
+        from django_smart_ratelimit.config import get_settings as _get_settings
+
+        _settings = _get_settings()
+        self.key_prefix = kwargs.get("key_prefix") or _settings.key_prefix
+        self.algorithm = kwargs.get("algorithm") or _settings.default_algorithm
 
         # Scripts
         self.sliding_window_sha = ""
@@ -1026,13 +1035,19 @@ class AsyncRedisBackend(BaseBackend):
             if self.algorithm == "sliding_window":
                 sha_attr = "sliding_window_sha"
                 script = RedisBackend.SLIDING_WINDOW_SCRIPT
+                eval_key = normalized_key
             else:
                 sha_attr = "fixed_window_sha"
                 script = RedisBackend.FIXED_WINDOW_SCRIPT
+                # Append the clock-aligned time-bucket suffix, exactly like the
+                # sync RedisBackend._incr_unsafe does, so async fixed-window keys
+                # rotate at the same wall-clock boundaries as sync ones (without
+                # this, async windows never clock-align and diverge from sync).
+                eval_key = normalized_key + get_time_bucket_key_suffix(period)
 
             sha = getattr(self, sha_attr)
             try:
-                res = await client.evalsha(sha, 1, normalized_key, period, 999999, now)
+                res = await client.evalsha(sha, 1, eval_key, period, 999999, now)
             except redis.exceptions.NoScriptError:
                 # Script evicted (Redis restart). Reload and retry.
                 log_backend_operation(
@@ -1043,9 +1058,7 @@ class AsyncRedisBackend(BaseBackend):
                 )
                 new_sha = await self._load_script(client, script)
                 setattr(self, sha_attr, new_sha)
-                res = await client.evalsha(
-                    new_sha, 1, normalized_key, period, 999999, now
-                )
+                res = await client.evalsha(new_sha, 1, eval_key, period, 999999, now)
 
             # Report Success
             if self._circuit_breaker:

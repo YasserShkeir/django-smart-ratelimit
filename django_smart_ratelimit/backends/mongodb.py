@@ -79,6 +79,7 @@ class MongoDBBackend(BaseBackend):
 
         # Default configuration
         self.config = {
+            "uri": None,  # full connection URI; overrides host/port when set
             "host": "localhost",
             "port": 27017,
             "database": "ratelimit",
@@ -158,6 +159,14 @@ class MongoDBBackend(BaseBackend):
                 uri_parts.append(f"?{'&'.join(options)}")
 
             uri = "".join(uri_parts)
+
+            # An explicit full connection URI takes precedence over the
+            # host/port/options assembled above. Previously a configured ``uri``
+            # was silently ignored and the backend connected to host/port
+            # (defaulting to localhost), so production deployments using ``uri``
+            # silently talked to the wrong server.
+            if self.config.get("uri"):
+                uri = self.config["uri"]
 
             # Create client with connection options
             # Use w=1 for standalone MongoDB, w="majority" for replica sets

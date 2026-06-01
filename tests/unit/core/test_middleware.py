@@ -229,7 +229,12 @@ class RateLimitMiddlewareTests(BaseBackendTestCase):
 
     @patch("django_smart_ratelimit.middleware.get_backend")
     def test_middleware_parse_rate_error(self, mock_get_backend):
-        """Test middleware handles invalid rate format during _request."""
+        """Invalid rate format now fails fast at middleware construction.
+
+        Previously a malformed DEFAULT_RATE was only detected during request
+        processing (a 500 on every matching request); the middleware now
+        validates configured rates in __init__ and raises immediately.
+        """
         mock_backend = Mock()
         mock_get_backend.return_value = mock_backend
 
@@ -237,12 +242,9 @@ class RateLimitMiddlewareTests(BaseBackendTestCase):
             return HttpResponse("OK")
 
         with override_settings(RATELIMIT_MIDDLEWARE={"DEFAULT_RATE": "invalid_rate"}):
-            middleware = RateLimitMiddleware(get_response)
-            _request = self.factory.get("/")
-
-            # The error should happen during _request processing
+            # The error now surfaces at construction (fail fast), not per-request.
             with self.assertRaises(Exception):
-                middleware(_request)
+                RateLimitMiddleware(get_response)
 
     @patch("django_smart_ratelimit.middleware.get_backend")
     def test_middleware_load_invalid_key_function(self, mock_get_backend):
