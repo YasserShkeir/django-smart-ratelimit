@@ -10,7 +10,7 @@ import logging
 import sys
 import threading
 import time
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple, Union
@@ -613,10 +613,15 @@ class MetricsCollector:
         return cls._instance
 
     def _initialize(self) -> None:
-        self._metrics: Dict[str, List[RequestMetrics]] = defaultdict(list)
+        # LRU-bounded by key: per-IP (etc.) limiting produces unbounded unique
+        # keys, so without a cap on the NUMBER of keys this dict grows forever
+        # (a slow OOM). Keys are evicted least-recently-used past _max_keys; the
+        # aggregate _counters remain exact regardless.
+        self._metrics: "OrderedDict[str, List[RequestMetrics]]" = OrderedDict()
         self._counters: Dict[str, int] = defaultdict(int)
         self._lock = threading.Lock()
         self._max_history = 1000
+        self._max_keys = 10000
 
     def record_request(
         self,
@@ -640,11 +645,23 @@ class MetricsCollector:
                 duration_ms=duration_ms,
                 backend=backend,
             )
-            self._metrics[key].append(metrics)
+            metrics_list = self._metrics.get(key)
+            if metrics_list is None:
+                metrics_list = []
+                self._metrics[key] = metrics_list
+            else:
+                # Mark this key most-recently-used for LRU eviction.
+                self._metrics.move_to_end(key)
+            metrics_list.append(metrics)
 
-            # Trim old entries
-            if len(self._metrics[key]) > self._max_history:
-                self._metrics[key] = self._metrics[key][-self._max_history :]
+            # Trim old entries for this key.
+            if len(metrics_list) > self._max_history:
+                del metrics_list[: -self._max_history]
+
+            # Evict least-recently-used keys beyond the cap so the collector
+            # cannot grow without bound under high key cardinality.
+            while len(self._metrics) > self._max_keys:
+                self._metrics.popitem(last=False)
 
     def get_stats(self) -> Dict[str, Any]:
         """Get current statistics."""

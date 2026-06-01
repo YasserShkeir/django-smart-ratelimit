@@ -277,6 +277,10 @@ def parse_rate(rate: str) -> Tuple[int, int]:
     try:
         limit_str, period_str = rate.split("/")
         limit = int(limit_str)
+        if limit < 0:
+            # A negative limit silently became a deny-everything limiter with a
+            # nonsensical negative X-RateLimit-Limit header. Reject it clearly.
+            raise ValueError(f"Rate limit must be non-negative, got: {limit}")
 
         period_map = {
             "s": 1,  # second
