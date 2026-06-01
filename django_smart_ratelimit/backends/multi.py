@@ -25,7 +25,7 @@ def _shutdown_all_multi_backends() -> None:
         try:
             backend.shutdown()
         except Exception:  # pragma: no cover - best-effort teardown
-            pass
+            pass  # nosec B110 - never let teardown of one backend block others
 
 
 atexit.register(_shutdown_all_multi_backends)
