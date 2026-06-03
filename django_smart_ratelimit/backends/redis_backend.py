@@ -308,7 +308,7 @@ class RedisBackend(BaseBackend):
         try:
             # Get or create connection pool
             self._pool = self._get_or_create_pool(url, **self.config)
-            self.redis = redis.Redis(connection_pool=self._pool)
+            self.init_client()
 
             # Initial verification
             self._check_connection(raise_exception=True)
@@ -359,6 +359,10 @@ class RedisBackend(BaseBackend):
             level="info",
         )
 
+    def init_client(self) -> None:
+        """Initialize Redis client."""
+        self.redis = redis.Redis(connection_pool=self._pool)
+
     @classmethod
     def _get_or_create_pool(cls, url: Optional[str], **kwargs: Any) -> Any:
         """Get or create a connection pool."""
@@ -402,7 +406,7 @@ class RedisBackend(BaseBackend):
                 self._pool.disconnect()  # Reset connections
             # Redis client automatically uses the pool, so resetting pool is enough?
             # Or create new client?
-            self.redis = redis.Redis(connection_pool=self._pool)
+            self.init_client()
         except Exception:
             # log but don't crash
             pass  # nosec B110 - intentional resilient error handling
@@ -1192,7 +1196,8 @@ class AsyncRedisBackend(BaseBackend):
             if self.url:
                 self.client = aioredis.from_url(self.url, **clean_config)
             else:
-                self.client = aioredis.Redis(**clean_config)
+                self._clean_config = clean_config
+                self.init_client()
 
             # Load scripts
             try:
@@ -1207,6 +1212,11 @@ class AsyncRedisBackend(BaseBackend):
                 pass  # nosec B110 - intentional resilient error handling
 
         return self.client
+
+    def init_client(self) -> None:
+        """Initialize Redis client."""
+        from redis import asyncio
+        self.client = asyncio.Redis(**self._clean_config)
 
     async def _load_script(self, client, script_content: str) -> str:
         """Load Lua script into Redis."""
