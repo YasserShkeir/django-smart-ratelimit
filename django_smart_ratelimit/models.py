@@ -10,7 +10,9 @@ Supported databases:
 - SQLite 3.35+ (for development/testing)
 """
 
+import re
 from datetime import datetime
+from typing import Any
 
 from django.db import models
 from django.utils import timezone
@@ -506,3 +508,113 @@ class RateLimitLeakyBucket(models.Model):
             if deleted < batch_size:
                 break
         return total_deleted
+
+
+class RateLimitRule(models.Model):
+    """Dynamic rate limit configuration stored in the database.
+
+    Rules let operators define and change rate limits at runtime (via the Django
+    admin or the ORM) without a redeploy. The :class:`RuleEngine` matches a
+    request against the active rules by ``path_pattern`` / ``method`` and applies
+    the highest-``priority`` match.
+    """
+
+    ALGORITHM_CHOICES = [
+        ("fixed_window", "Fixed Window"),
+        ("sliding_window", "Sliding Window"),
+        ("token_bucket", "Token Bucket"),
+        ("leaky_bucket", "Leaky Bucket"),
+    ]
+
+    name: "models.CharField[str, str]" = models.CharField(max_length=100, unique=True)
+    description: "models.TextField[str, str]" = models.TextField(blank=True)
+
+    # Target configuration
+    path_pattern: "models.CharField[str, str]" = models.CharField(
+        max_length=255,
+        help_text="URL pattern (regex) this rule applies to, e.g. '^/api/'.",
+    )
+    method: "models.CharField[str, str]" = models.CharField(
+        max_length=50,
+        default="ALL",
+        help_text="HTTP methods (comma-separated, e.g. 'GET,POST') or 'ALL'.",
+    )
+
+    # Rate limit configuration
+    rate: "models.CharField[str, str]" = models.CharField(
+        max_length=50,
+        help_text="Rate limit string, e.g. '100/m', '1000/h', '10/30s'.",
+    )
+    key: "models.CharField[str, str]" = models.CharField(
+        max_length=100,
+        default="ip",
+        help_text="Key function (ip, user, header:X-API-Key, ...).",
+    )
+    algorithm: "models.CharField[str, str]" = models.CharField(
+        max_length=50,
+        default="fixed_window",
+        choices=ALGORITHM_CHOICES,
+    )
+
+    # Behavior
+    block: "models.BooleanField[bool, bool]" = models.BooleanField(
+        default=True,
+        help_text="Block requests when the limit is exceeded.",
+    )
+
+    # Metadata
+    is_active: "models.BooleanField[bool, bool]" = models.BooleanField(default=True)
+    priority: "models.IntegerField[int, int]" = models.IntegerField(
+        default=0,
+        help_text="Higher-priority rules are evaluated first.",
+    )
+    created_at: "models.DateTimeField[datetime, datetime]" = models.DateTimeField(
+        auto_now_add=True
+    )
+    updated_at: "models.DateTimeField[datetime, datetime]" = models.DateTimeField(
+        auto_now=True
+    )
+
+    class Meta:
+        """Order by priority (desc) then name; index active rules."""
+
+        ordering = ["-priority", "name"]
+        verbose_name = "rate limit rule"
+        verbose_name_plural = "rate limit rules"
+        indexes = [
+            models.Index(
+                fields=["is_active", "-priority"], name="ratelimit_rule_active"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.rate} {self.path_pattern})"
+
+    def clean(self) -> None:
+        """Validate the rate string and the path regex at save time."""
+        from django.core.exceptions import ImproperlyConfigured, ValidationError
+
+        from .backends.utils import parse_rate
+
+        try:
+            parse_rate(self.rate)
+        except ImproperlyConfigured as exc:
+            raise ValidationError({"rate": str(exc)})
+
+        try:
+            re.compile(self.path_pattern)
+        except re.error as exc:
+            raise ValidationError(
+                {"path_pattern": f"Invalid regular expression: {exc}"}
+            )
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Full-clean before saving so ORM writes are validated too."""
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def methods(self) -> list:
+        """Return the parsed list of HTTP methods, or ['ALL']."""
+        if self.method.strip().upper() == "ALL":
+            return ["ALL"]
+        return [m.strip().upper() for m in self.method.split(",") if m.strip()]
