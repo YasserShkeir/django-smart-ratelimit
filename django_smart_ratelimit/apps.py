@@ -24,3 +24,12 @@ class DjangoSmartRatelimitConfig(AppConfig):
                 reset_settings()
 
         setting_changed.connect(reload_settings)
+
+        # Wire dynamic-rule cache invalidation (Phase 2). Guarded so the app can
+        # still load if models aren't ready in some startup paths.
+        try:
+            from django_smart_ratelimit.rules import connect_signals
+
+            connect_signals()
+        except Exception:  # pragma: no cover - defensive app startup
+            pass  # nosec B110 - rule-signal wiring must not block app startup

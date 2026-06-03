@@ -6,7 +6,7 @@ or specific patterns based on configuration.
 """
 
 import time
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Tuple
 
 from asgiref.sync import iscoroutinefunction
 
@@ -98,6 +98,10 @@ class RateLimitMiddleware:
         # v3: when True, rate-limit decisions are logged but not enforced.
         self.shadow = bool(middleware_config.get("SHADOW", False))
 
+        # v4.2: when True, a matching database-backed RateLimitRule overrides the
+        # static RATE_LIMITS / DEFAULT_RATE configuration for the request.
+        self.use_dynamic_rules = bool(getattr(settings, "use_dynamic_rules", False))
+
         # Validate every configured rate at startup (fail fast). Previously a
         # malformed DEFAULT_RATE or RATE_LIMITS entry was only parsed per request,
         # so a typo produced a hard 500 on every matching request in production
@@ -111,6 +115,43 @@ class RateLimitMiddleware:
         self.backend = get_backend(self.backend_name)
 
         self.async_mode = iscoroutinefunction(self.get_response)
+
+    def _resolve_rule_key(self, rule: Any, request: HttpRequest) -> str:
+        """Resolve the per-client key value for a dynamic rule's ``key`` spec."""
+        spec = (getattr(rule, "key", "") or "ip").strip()
+        if spec.startswith("header:"):
+            header = spec.split(":", 1)[1].strip()
+            meta = "HTTP_" + header.upper().replace("-", "_")
+            return request.META.get(meta, "") or "anonymous"
+        if spec == "user":
+            user = getattr(request, "user", None)
+            if user is not None and getattr(user, "is_authenticated", False):
+                return f"user:{user.pk}"
+            return get_ip_key(request)
+        return get_ip_key(request)
+
+    def _resolve_request_limit(self, request: HttpRequest) -> Tuple[str, str, bool]:
+        """Return ``(rate, key, block)`` for a request.
+
+        A matching database-backed ``RateLimitRule`` (when
+        ``RATELIMIT_USE_DYNAMIC_RULES`` is on) takes precedence over the static
+        ``RATE_LIMITS`` / ``DEFAULT_RATE`` configuration.
+        """
+        if self.use_dynamic_rules:
+            from .rules import rule_engine
+
+            rule = rule_engine.get_rule_for_request(request)
+            if rule is not None:
+                key = f"rule:{rule.name}:{self._resolve_rule_key(rule, request)}"
+                return rule.rate, key, rule.block
+
+        rate = get_rate_for_path(request.path, self.rate_limits, self.default_rate)
+        base_key = self.key_function(request)
+        if rate != self.default_rate:
+            key = f"{base_key}:{request.path.strip('/')}"
+        else:
+            key = base_key
+        return rate, key, self.block
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
         """Process the request and apply rate limiting."""
@@ -162,23 +203,9 @@ class RateLimitMiddleware:
                 add_rate_limit_headers(response, 0, 0, int(time.time()))
                 return response
 
-        # Get rate limit for this path
-        rate = get_rate_for_path(request.path, self.rate_limits, self.default_rate)
-
-        # Check if this is a path-specific rate limit (not the default)
-        # If so, include the path in the key to avoid cross-contamination
-        # between different rate limits
-        is_path_specific = rate != self.default_rate
-
-        # Generate key
-        base_key = self.key_function(request)
-        if is_path_specific:
-            # Include path in key for path-specific limits
-            key = f"{base_key}:{request.path.strip('/')}"
-        else:
-            key = base_key
-
-        # Parse rate
+        # Resolve the limit for this request: a matching dynamic DB rule takes
+        # precedence over the static RATE_LIMITS / DEFAULT_RATE config.
+        rate, key, block = self._resolve_request_limit(request)
         limit, period = parse_rate(rate)
 
         # Check rate limit
@@ -208,7 +235,7 @@ class RateLimitMiddleware:
                 algorithm=getattr(self.backend, "_algorithm", "sliding_window"),
                 backend=type(self.backend).__name__,
             )
-            if not decision.allow and self.block:
+            if not decision.allow and block:
                 message = get_rate_limit_error_message(include_details=True)
                 response = HttpResponseTooManyRequests(message)
                 add_rate_limit_headers(response, limit, 0, int(time.time() + period))
@@ -295,23 +322,9 @@ class RateLimitMiddleware:
                 add_rate_limit_headers(response, 0, 0, int(time.time()))
                 return response
 
-        # Get rate limit for this path
-        rate = get_rate_for_path(request.path, self.rate_limits, self.default_rate)
-
-        # Check if this is a path-specific rate limit (not the default)
-        # If so, include the path in the key to avoid cross-contamination
-        # between different rate limits
-        is_path_specific = rate != self.default_rate
-
-        # Generate key
-        base_key = self.key_function(request)
-        if is_path_specific:
-            # Include path in key for path-specific limits
-            key = f"{base_key}:{request.path.strip('/')}"
-        else:
-            key = base_key
-
-        # Parse rate
+        # Resolve the limit for this request: a matching dynamic DB rule takes
+        # precedence over the static RATE_LIMITS / DEFAULT_RATE config.
+        rate, key, block = self._resolve_request_limit(request)
         limit, period = parse_rate(rate)
 
         # Check rate limit
@@ -340,7 +353,7 @@ class RateLimitMiddleware:
                 algorithm=getattr(self.backend, "_algorithm", "sliding_window"),
                 backend=type(self.backend).__name__,
             )
-            if not decision.allow and self.block:
+            if not decision.allow and block:
                 message = get_rate_limit_error_message(include_details=True)
                 response = HttpResponseTooManyRequests(message)
                 add_rate_limit_headers(response, limit, 0, int(time.time() + period))

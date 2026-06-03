@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.2.0] - 2026-06-03
+
+Roadmap Phase 2: **dynamic, database-backed rate-limit rules** — define and change
+limits at runtime (Django admin or ORM) without a redeploy. Opt-in and fully
+backward compatible.
+
+### Added
+
+- **`RateLimitRule` model** — a rule targets requests by `path_pattern` (regex) and
+  `method`, and carries a `rate`, `key`, `algorithm`, `block`, `is_active` and
+  `priority`. The `rate` string and `path_pattern` regex are validated on save.
+  Migration `0004`.
+- **`RuleEngine`** (`django_smart_ratelimit.rules`) — matches a request to the
+  highest-priority active rule, with a short cache (bounded by
+  `RATELIMIT_RULE_CACHE_TIMEOUT`, default 60s) that is invalidated automatically on
+  rule save/delete, so edits take effect immediately.
+- **Django admin** — `RateLimitRuleAdmin` (create/edit rules, bulk enable/disable
+  actions) and a read-only `RateLimitCounterAdmin` for monitoring live counters.
+- **Middleware integration** — set `RATELIMIT_USE_DYNAMIC_RULES = True`; a matching
+  `RateLimitRule` then overrides the static `RATE_LIMITS` / `DEFAULT_RATE` for that
+  request (honoring the rule's rate, key, and `block`). When no rule matches, the
+  static configuration applies as before.
+- **`ratelimit_reload_rules`** management command to force a rule-cache reload.
+
+### Settings
+
+- `RATELIMIT_USE_DYNAMIC_RULES` (default `False`) and `RATELIMIT_RULE_CACHE_TIMEOUT`
+  (default `60`).
+
 ## [4.1.0] - 2026-06-03
 
 Closes the design-level backlog carried since v4.0.2: correct Prometheus

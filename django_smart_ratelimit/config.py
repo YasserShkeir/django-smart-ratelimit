@@ -78,6 +78,10 @@ class RateLimitSettings:
     # Performance
     collect_metrics: bool = False
 
+    # Dynamic database-backed rules (Phase 2)
+    use_dynamic_rules: bool = False
+    rule_cache_timeout: int = 60
+
     # Custom/Dynamic Configs (RATELIMIT_CONFIG_*)
     custom_configs: Dict[str, Any] = field(default_factory=dict)
 
@@ -127,6 +131,12 @@ class RateLimitSettings:
             log_exceptions=getattr(django_settings, "RATELIMIT_LOG_EXCEPTIONS", True),
             collect_metrics=getattr(
                 django_settings, "RATELIMIT_COLLECT_METRICS", False
+            ),
+            use_dynamic_rules=getattr(
+                django_settings, "RATELIMIT_USE_DYNAMIC_RULES", False
+            ),
+            rule_cache_timeout=getattr(
+                django_settings, "RATELIMIT_RULE_CACHE_TIMEOUT", 60
             ),
             exception_handler=getattr(
                 django_settings, "RATELIMIT_EXCEPTION_HANDLER", None
