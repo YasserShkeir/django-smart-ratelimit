@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.5.1] - 2026-06-03
+
+Test/packaging update: officially support the latest Python and Django. No
+runtime code changes.
+
+### Added
+
+- **Python 3.14** support (classifier + CI matrix + tox).
+- **Django 6.0** support (classifier + CI matrix + tox). Django 6.0 requires
+  Python 3.12+.
+- **Django 5.2** is now actually exercised in CI and tox (it was already
+  advertised in the classifiers but never tested).
+
+Verified locally against the latest stack: the full suite (1885 passed, 9
+skipped) passes on Python 3.14 with both Django 6.0 and Django 5.2.
+
+### Changed
+
+- CI pins each matrix cell to the latest patch of its Django minor series
+  (`Django==X.Y.*`) instead of the `.0` release, so Python 3.14 cells resolve
+  Django 5.2.8+ (where 3.14 support landed) and every cell tests current
+  security patches.
+- `psycopg2-binary` is now installed only on the PostgreSQL coverage cell (other
+  cells run on SQLite), avoiding a source build on Pythons without a published
+  wheel.
+
 ## [4.5.0] - 2026-06-03
 
 Roadmap Phase 5.4-5.6: **geographic**, **multi-tenant**, and **GraphQL** rate
