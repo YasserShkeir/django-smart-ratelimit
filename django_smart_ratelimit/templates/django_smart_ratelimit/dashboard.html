@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rate Limit Dashboard</title>
+  <style>
+    body { font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 2rem; color: #1a1a1a; }
+    h1 { font-size: 1.5rem; }
+    h2 { font-size: 1.1rem; margin-top: 2rem; }
+    .cards { display: flex; gap: 1rem; flex-wrap: wrap; }
+    .card { border: 1px solid #ddd; border-radius: 8px; padding: 1rem 1.25rem; min-width: 140px; }
+    .card .n { font-size: 1.8rem; font-weight: 700; }
+    .card .l { color: #666; font-size: 0.85rem; }
+    .blocked .n { color: #b00020; }
+    table { border-collapse: collapse; width: 100%; max-width: 720px; margin-top: 0.5rem; }
+    th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #eee; }
+    th { color: #555; font-size: 0.85rem; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .controls { margin: 1rem 0; }
+    .muted { color: #888; }
+    a.btn { display: inline-block; padding: 0.3rem 0.7rem; border: 1px solid #ccc; border-radius: 6px; text-decoration: none; color: #333; }
+  </style>
+</head>
+<body>
+  <h1>Rate Limit Dashboard</h1>
+
+  <form method="get" class="controls">
+    Window:
+    <select name="days" onchange="this.form.submit()">
+      <option value="1"{% if days == 1 %} selected{% endif %}>1 day</option>
+      <option value="7"{% if days == 7 %} selected{% endif %}>7 days</option>
+      <option value="30"{% if days == 30 %} selected{% endif %}>30 days</option>
+      <option value="90"{% if days == 90 %} selected{% endif %}>90 days</option>
+    </select>
+    <a class="btn" href="{% url 'django_smart_ratelimit:offenders-csv' %}?days={{ days }}">Download offenders CSV</a>
+  </form>
+
+  <h2>Today</h2>
+  <div class="cards">
+    <div class="card"><div class="n">{{ today.total }}</div><div class="l">requests</div></div>
+    <div class="card"><div class="n">{{ today.allowed }}</div><div class="l">allowed</div></div>
+    <div class="card blocked"><div class="n">{{ today.blocked }}</div><div class="l">blocked</div></div>
+    <div class="card"><div class="n">{{ today.block_rate|floatformat:3 }}</div><div class="l">block rate</div></div>
+  </div>
+
+  <h2>Last {{ days }} day(s)</h2>
+  <div class="cards">
+    <div class="card"><div class="n">{{ window.total }}</div><div class="l">requests</div></div>
+    <div class="card blocked"><div class="n">{{ window.blocked }}</div><div class="l">blocked</div></div>
+    <div class="card"><div class="n">{{ window.block_rate|floatformat:3 }}</div><div class="l">block rate</div></div>
+  </div>
+
+  <h2>Top offenders (most blocked)</h2>
+  <table>
+    <thead><tr><th>Key</th><th class="num">Blocked</th></tr></thead>
+    <tbody>
+      {% for row in top_offenders %}
+        <tr><td>{{ row.key }}</td><td class="num">{{ row.blocked_count }}</td></tr>
+      {% empty %}
+        <tr><td class="muted" colspan="2">No blocked requests in this window.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>Rule hits</h2>
+  <table>
+    <thead><tr><th>Rule</th><th class="num">Hits</th><th class="num">Blocked</th></tr></thead>
+    <tbody>
+      {% for row in rule_hits %}
+        <tr><td>{{ row.rule_name }}</td><td class="num">{{ row.hits }}</td><td class="num">{{ row.blocked }}</td></tr>
+      {% empty %}
+        <tr><td class="muted" colspan="3">No rule activity (dynamic rules off or no matches).</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <p class="muted">Data requires <code>RATELIMIT_LOG_EVENTS = True</code>.</p>
+</body>
+</html>

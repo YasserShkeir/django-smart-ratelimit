@@ -156,3 +156,33 @@ class APIKeyAdmin(admin.ModelAdmin):
     search_fields = ["name", "key", "user__username"]
     readonly_fields = ["created_at", "last_used_at"]
     raw_id_fields = ["user"]
+
+
+from .models import RateLimitEvent  # noqa: E402
+
+
+@admin.register(RateLimitEvent)
+class RateLimitEventAdmin(admin.ModelAdmin):
+    """Read-only view of recorded rate-limit events (analytics)."""
+
+    list_display = [
+        "timestamp",
+        "key",
+        "rule_name",
+        "path",
+        "allowed",
+        "count",
+        "limit",
+    ]
+    list_filter = ["allowed", "timestamp", "rule_name"]
+    search_fields = ["key", "path", "ip_address"]
+    readonly_fields = [f.name for f in RateLimitEvent._meta.fields]
+    date_hierarchy = "timestamp"
+
+    def has_add_permission(self, request: Any) -> bool:
+        """Events are recorded by the middleware, never by hand."""
+        return False
+
+    def has_change_permission(self, request: Any, obj: Any = None) -> bool:
+        """Events are immutable."""
+        return False

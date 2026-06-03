@@ -106,6 +106,10 @@ class RateLimitMiddleware:
         # adjusts the resolved rate (and gives the user their own bucket).
         self.use_user_tiers = bool(getattr(settings, "use_user_tiers", False))
 
+        # v4.4: when True, every decision is recorded as a RateLimitEvent for the
+        # analytics dashboard / offender reporting (one DB write per request).
+        self.log_events = bool(getattr(settings, "log_events", False))
+
         # Validate every configured rate at startup (fail fast). Previously a
         # malformed DEFAULT_RATE or RATE_LIMITS entry was only parsed per request,
         # so a typo produced a hard 500 on every matching request in production
@@ -179,6 +183,45 @@ class RateLimitMiddleware:
             key = f"user:{user.pk}:{scope or key}"
         return new_rate, key, block
 
+    def _record_event(
+        self,
+        request: HttpRequest,
+        key: str,
+        allowed: bool,
+        count: int,
+        limit: int,
+    ) -> None:
+        """Record a RateLimitEvent for analytics (best-effort, never raises)."""
+        if not self.log_events:
+            return
+        try:
+            from .models import RateLimitEvent
+
+            # Recover the rule name from a "rule:<name>:..." key, if present.
+            rule_name = ""
+            if key.startswith("rule:"):
+                rule_name = key.split(":", 2)[1]
+
+            user = getattr(request, "user", None)
+            user_id = (
+                user.pk
+                if (user is not None and getattr(user, "is_authenticated", False))
+                else None
+            )
+            RateLimitEvent.objects.create(
+                key=key[:255],
+                rule_name=rule_name[:100],
+                path=(getattr(request, "path", "") or "")[:500],
+                method=(getattr(request, "method", "") or "")[:10],
+                allowed=allowed,
+                count=count,
+                limit=limit,
+                ip_address=request.META.get("REMOTE_ADDR"),
+                user_id=user_id,
+            )
+        except Exception:  # pragma: no cover - analytics must never break a request
+            pass  # nosec B110 - event logging is best-effort
+
     def __call__(self, request: HttpRequest) -> HttpResponse:
         """Process the request and apply rate limiting."""
         if self.async_mode:
@@ -248,6 +291,8 @@ class RateLimitMiddleware:
         setattr(
             request, "_ratelimit_middleware_remaining", max(0, limit - current_count)
         )
+
+        self._record_event(request, key, current_count <= limit, current_count, limit)
 
         if current_count > limit:
             # v3: shadow mode downgrades a real block to a log line.
@@ -367,6 +412,8 @@ class RateLimitMiddleware:
         setattr(
             request, "_ratelimit_middleware_remaining", max(0, limit - current_count)
         )
+
+        self._record_event(request, key, current_count <= limit, current_count, limit)
 
         if current_count > limit:
             decision = handle_shadow_decision(
