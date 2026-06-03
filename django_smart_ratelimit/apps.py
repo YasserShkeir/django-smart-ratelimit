@@ -32,4 +32,4 @@ class DjangoSmartRatelimitConfig(AppConfig):
 
             connect_signals()
         except Exception:  # pragma: no cover - defensive app startup
-            pass
+            pass  # nosec B110 - rule-signal wiring must not block app startup

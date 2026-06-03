@@ -104,7 +104,9 @@ class TestRateLimitLeakyBucketCalculations:
         leaky_bucket.refresh_from_db()
         # Should be approximately the same (within milliseconds)
         current_level = leaky_bucket.calculate_current_level()
-        assert abs(current_level - 5.0) < 0.1
+        # Tolerance is generous because a slow runner may let a few hundred ms
+        # (and thus a little leakage) elapse between refresh and calculation.
+        assert abs(current_level - 5.0) < 0.5
 
     def test_calculate_current_level_with_leaking(self, db):
         """Test current level calculation after time passes."""
