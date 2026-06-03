@@ -99,3 +99,60 @@ class RateLimitCounterAdmin(admin.ModelAdmin):
     def has_change_permission(self, request: Any, obj: Any = None) -> bool:
         """Counters are read-only."""
         return False
+
+
+from .models import (  # noqa: E402
+    APIKey,
+    GroupRateLimit,
+    UserRateLimitOverride,
+    UserTier,
+    UserTierAssignment,
+)
+
+
+@admin.register(UserTier)
+class UserTierAdmin(admin.ModelAdmin):
+    """Manage rate-limit tiers."""
+
+    list_display = ["name", "rate_multiplier", "priority"]
+    list_editable = ["rate_multiplier", "priority"]
+    search_fields = ["name", "description"]
+
+
+@admin.register(UserTierAssignment)
+class UserTierAssignmentAdmin(admin.ModelAdmin):
+    """Assign users to tiers."""
+
+    list_display = ["user", "tier", "expires_at"]
+    list_filter = ["tier"]
+    search_fields = ["user__username"]
+    raw_id_fields = ["user"]
+
+
+@admin.register(GroupRateLimit)
+class GroupRateLimitAdmin(admin.ModelAdmin):
+    """Map Django groups to tiers."""
+
+    list_display = ["group", "tier"]
+    list_filter = ["tier"]
+
+
+@admin.register(UserRateLimitOverride)
+class UserRateLimitOverrideAdmin(admin.ModelAdmin):
+    """Create time-bounded per-user rate overrides."""
+
+    list_display = ["user", "rate", "rule_name", "starts_at", "expires_at"]
+    list_filter = ["expires_at"]
+    search_fields = ["user__username", "rule_name", "reason"]
+    raw_id_fields = ["user", "created_by"]
+
+
+@admin.register(APIKey)
+class APIKeyAdmin(admin.ModelAdmin):
+    """Manage API keys and their tiers."""
+
+    list_display = ["name", "user", "tier", "is_active", "last_used_at"]
+    list_filter = ["is_active", "tier"]
+    search_fields = ["name", "key", "user__username"]
+    readonly_fields = ["created_at", "last_used_at"]
+    raw_id_fields = ["user"]

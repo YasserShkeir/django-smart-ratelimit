@@ -102,6 +102,10 @@ class RateLimitMiddleware:
         # static RATE_LIMITS / DEFAULT_RATE configuration for the request.
         self.use_dynamic_rules = bool(getattr(settings, "use_dynamic_rules", False))
 
+        # v4.3: when True, an authenticated user's per-user override / tier
+        # adjusts the resolved rate (and gives the user their own bucket).
+        self.use_user_tiers = bool(getattr(settings, "use_user_tiers", False))
+
         # Validate every configured rate at startup (fail fast). Previously a
         # malformed DEFAULT_RATE or RATE_LIMITS entry was only parsed per request,
         # so a typo produced a hard 500 on every matching request in production
@@ -143,7 +147,9 @@ class RateLimitMiddleware:
             rule = rule_engine.get_rule_for_request(request)
             if rule is not None:
                 key = f"rule:{rule.name}:{self._resolve_rule_key(rule, request)}"
-                return rule.rate, key, rule.block
+                return self._maybe_apply_tiers(
+                    request, rule.rate, key, rule.block, rule.name
+                )
 
         rate = get_rate_for_path(request.path, self.rate_limits, self.default_rate)
         base_key = self.key_function(request)
@@ -151,7 +157,27 @@ class RateLimitMiddleware:
             key = f"{base_key}:{request.path.strip('/')}"
         else:
             key = base_key
-        return rate, key, self.block
+        return self._maybe_apply_tiers(request, rate, key, self.block, "")
+
+    def _maybe_apply_tiers(
+        self, request: HttpRequest, rate: str, key: str, block: bool, scope: str
+    ) -> Tuple[str, str, bool]:
+        """Apply per-user override/tier to the rate (and bucket per user).
+
+        No-op unless ``RATELIMIT_USE_USER_TIERS`` is on. For an authenticated
+        user, the rate becomes their effective (override/tier) rate and the key
+        becomes per-user so each user is limited independently at their own rate.
+        """
+        if not self.use_user_tiers:
+            return rate, key, block
+
+        from .tiers import resolve_effective_user_rate
+
+        new_rate = resolve_effective_user_rate(request, rate, scope)
+        user = getattr(request, "user", None)
+        if user is not None and getattr(user, "is_authenticated", False):
+            key = f"user:{user.pk}:{scope or key}"
+        return new_rate, key, block
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
         """Process the request and apply rate limiting."""

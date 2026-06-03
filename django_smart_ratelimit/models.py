@@ -618,3 +618,147 @@ class RateLimitRule(models.Model):
         if self.method.strip().upper() == "ALL":
             return ["ALL"]
         return [m.strip().upper() for m in self.method.split(",") if m.strip()]
+
+
+class UserTier(models.Model):
+    """A named rate-limit tier (e.g. free / premium) for users.
+
+    A tier either scales the base rate by ``rate_multiplier`` or overrides it
+    outright per scope via ``explicit_limits`` (which wins when a key is present).
+    """
+
+    name: "models.CharField[str, str]" = models.CharField(max_length=100, unique=True)
+    description: "models.TextField[str, str]" = models.TextField(blank=True)
+    rate_multiplier: "models.FloatField[float, float]" = models.FloatField(
+        default=1.0,
+        help_text="Scale the base limit (1.0 = normal, 2.0 = double).",
+    )
+    explicit_limits: "models.JSONField[dict, dict]" = models.JSONField(
+        default=dict,
+        blank=True,
+        help_text="Per-scope overrides, e.g. {'api': '1000/h', 'upload': '100/d'}.",
+    )
+    priority: "models.IntegerField[int, int]" = models.IntegerField(default=0)
+
+    class Meta:
+        """Higher-priority tiers win when a user resolves to several."""
+
+        ordering = ["-priority"]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class UserTierAssignment(models.Model):
+    """Assigns a user to a :class:`UserTier` (optionally with an expiry)."""
+
+    from django.conf import settings as _dj_settings
+
+    user: Any = models.OneToOneField(
+        _dj_settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="ratelimit_tier",
+    )
+    tier: Any = models.ForeignKey("UserTier", on_delete=models.CASCADE)
+    expires_at: "models.DateTimeField[datetime, datetime]" = models.DateTimeField(
+        null=True, blank=True
+    )
+
+    def __str__(self) -> str:
+        return f"{self.user} -> {self.tier}"
+
+    def is_expired(self) -> bool:
+        """True if the assignment has an expiry in the past."""
+        return self.expires_at is not None and self.expires_at < timezone.now()
+
+
+class GroupRateLimit(models.Model):
+    """Maps a Django ``auth.Group`` to a tier (and/or custom per-scope limits)."""
+
+    group: Any = models.OneToOneField(
+        "auth.Group",
+        on_delete=models.CASCADE,
+        related_name="ratelimit_config",
+    )
+    tier: Any = models.ForeignKey(
+        "UserTier", on_delete=models.SET_NULL, null=True, blank=True
+    )
+    custom_limits: "models.JSONField[dict, dict]" = models.JSONField(
+        default=dict, blank=True
+    )
+
+    def __str__(self) -> str:
+        return f"group:{self.group} -> {self.tier}"
+
+
+class UserRateLimitOverride(models.Model):
+    """A time-bounded per-user rate override (highest precedence)."""
+
+    from django.conf import settings as _dj_settings
+
+    user: Any = models.ForeignKey(
+        _dj_settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="ratelimit_overrides",
+    )
+    rule_name: "models.CharField[str, str]" = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="Scope/rule this override applies to, or blank for all.",
+    )
+    rate: "models.CharField[str, str]" = models.CharField(max_length=50)
+    reason: "models.TextField[str, str]" = models.TextField(blank=True)
+    created_by: Any = models.ForeignKey(
+        _dj_settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    starts_at: "models.DateTimeField[datetime, datetime]" = models.DateTimeField(
+        default=timezone.now
+    )
+    expires_at: "models.DateTimeField[datetime, datetime]" = models.DateTimeField()
+
+    class Meta:
+        """Most recent override first."""
+
+        ordering = ["-starts_at"]
+
+    def __str__(self) -> str:
+        return f"{self.user} {self.rate} (until {self.expires_at:%Y-%m-%d})"
+
+    def is_active(self, when: Any = None) -> bool:
+        """True if ``when`` (default now) is within [starts_at, expires_at)."""
+        when = when or timezone.now()
+        return self.starts_at <= when < self.expires_at
+
+
+class APIKey(models.Model):
+    """An API key, optionally tied to a user and a tier, for keyed limiting."""
+
+    from django.conf import settings as _dj_settings
+
+    key: "models.CharField[str, str]" = models.CharField(
+        max_length=64, unique=True, db_index=True
+    )
+    name: "models.CharField[str, str]" = models.CharField(max_length=100)
+    user: Any = models.ForeignKey(
+        _dj_settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+    )
+    tier: Any = models.ForeignKey(
+        "UserTier", on_delete=models.SET_NULL, null=True, blank=True
+    )
+    is_active: "models.BooleanField[bool, bool]" = models.BooleanField(default=True)
+    created_at: "models.DateTimeField[datetime, datetime]" = models.DateTimeField(
+        auto_now_add=True
+    )
+    last_used_at: "models.DateTimeField[datetime, datetime]" = models.DateTimeField(
+        null=True, blank=True
+    )
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.key[:8]}...)"

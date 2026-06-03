@@ -82,6 +82,9 @@ class RateLimitSettings:
     use_dynamic_rules: bool = False
     rule_cache_timeout: int = 60
 
+    # User tiers / per-user overrides (Phase 3)
+    use_user_tiers: bool = False
+
     # Custom/Dynamic Configs (RATELIMIT_CONFIG_*)
     custom_configs: Dict[str, Any] = field(default_factory=dict)
 
@@ -138,6 +141,7 @@ class RateLimitSettings:
             rule_cache_timeout=getattr(
                 django_settings, "RATELIMIT_RULE_CACHE_TIMEOUT", 60
             ),
+            use_user_tiers=getattr(django_settings, "RATELIMIT_USE_USER_TIERS", False),
             exception_handler=getattr(
                 django_settings, "RATELIMIT_EXCEPTION_HANDLER", None
             ),
