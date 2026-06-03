@@ -13,13 +13,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12"]
-        django-version: ["4.2", "5.0"]
+        # A low / middle / latest spread of Python crossed with the LTS / current
+        # LTS / latest Django, exercised against every backend. The full
+        # python x django breadth lives in ci.yml's "test" job; here the point is
+        # backend coverage, including on the newest Python and Django.
+        python-version: ["3.10", "3.12", "3.14"]
+        django-version: ["4.2", "5.2", "6.0"]
         backend: [memory, redis, redis-async, multi]
         exclude:
-          # Django 5.0 requires Python >= 3.10
-          - python-version: "3.9"
-            django-version: "5.0"
+          # Django 6.0 requires Python >= 3.12
+          - python-version: "3.10"
+            django-version: "6.0"
+          # Django 4.2 does not support Python 3.14
+          - python-version: "3.14"
+            django-version: "4.2"
 
     services:
       redis:
@@ -43,8 +50,11 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          # Install the test project dependencies
-          pip install -r tests/test_project/requirements.txt
+          # Install the test project dependencies. This matrix exercises the
+          # memory/redis/multi backends -- not the SQL database backend -- so
+          # skip the heavy DB drivers (psycopg2-binary, mysqlclient): they lack
+          # wheels on the newest Pythons and need system libraries to build.
+          grep -vE '^(psycopg2-binary|mysqlclient)' tests/test_project/requirements.txt | pip install -r /dev/stdin
           # Force install specific Django version from matrix
           pip install "Django==${{ matrix.django-version }}.*"
           # Install the library in editable mode
