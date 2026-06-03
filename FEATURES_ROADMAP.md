@@ -1,7 +1,7 @@
 # Django Smart Ratelimit - Core Features Roadmap
 
-**Last Updated:** 2026-05-30
-**Current Version:** 3.1.0
+**Last Updated:** 2026-06-03
+**Current Version:** 4.5.0
 
 This document tracks the feature status for Django Smart Ratelimit. The core library works with cache/memory backends out of the box and also ships an optional Django ORM (database) backend for SQL-backed persistence.
 
@@ -29,9 +29,21 @@ This document tracks the feature status for Django Smart Ratelimit. The core lib
 - Prometheus Metrics
 - Structured JSON Logging
 
+**Completed Features** (Advanced, v4.x):
+
+- Dynamic database-backed rules (Django Admin editable, hot-reloaded)
+- User-aware limiting: tiers, Django-group mapping, per-user overrides
+- API-key-aware limiting
+- Analytics: event logging, traffic summaries, offender reporting, CSV export
+- Staff analytics dashboard
+- Geographic (per-country) rate limiting
+- Multi-tenant rate limiting with per-tenant quotas
+- GraphQL rate limiting (Graphene middleware, Strawberry extension)
+
 **Next to Implement:**
 
 1. [Batch Operations](#batch-operations) (Performance)
+2. [Memcached Backend](#backends) (Backend adapter)
 
 ---
 
@@ -78,6 +90,35 @@ This document tracks the feature status for Django Smart Ratelimit. The core lib
 - [x] **Adaptive Adjustment**: Dynamic rate limiting based on system metrics
 - [x] **Custom Indicators**: Support for user-defined load metrics
 
+### Dynamic and User-Aware Limiting
+
+- [x] **Dynamic Rules**: Database-backed `RateLimitRule` model, editable in Django
+      Admin and hot-reloaded via cache invalidation (opt-in,
+      `RATELIMIT_USE_DYNAMIC_RULES`)
+- [x] **User Tiers**: Named tiers with multipliers, Django-group mapping, and
+      per-user overrides (opt-in, `RATELIMIT_USE_USER_TIERS`)
+- [x] **API Keys**: API-key extraction, lookup, and per-key tiers
+
+### Analytics and Reporting
+
+- [x] **Event Logging**: Per-decision `RateLimitEvent` rows (opt-in,
+      `RATELIMIT_LOG_EVENTS`), best-effort so logging never breaks a request
+- [x] **Aggregations**: Traffic summary, top offenders, per-rule hit counts
+- [x] **Dashboard**: Staff-only HTML dashboard plus CSV export view
+- [x] **Retention**: `RateLimitEvent.cleanup_old()` for pruning history
+
+### Multi-Tenant and Geographic
+
+- [x] **Geographic Limiting**: `geo_key` country bucketing, per-country rates with
+      a `"*"` wildcard, and a pluggable `GeoProvider` (MaxMind/GeoIP2 via the
+      optional `geoip2` package, `RATELIMIT_GEOIP_PATH`)
+- [x] **Multi-Tenant Limiting**: Tenant extraction (django-tenants, header, user,
+      or subdomain), `tenant_key`, and per-tenant quotas via the `TenantQuota`
+      model
+- [x] **GraphQL Limiting**: Graphene middleware (top-level operations, optional
+      complexity weighting), a Strawberry extension factory, and a
+      dependency-free query-complexity estimator
+
 ### Configuration and Developer Experience
 
 - [x] **Type-Safe Enums**: Algorithm and RateLimitKey enums
@@ -111,9 +152,22 @@ The core library is feature-complete for production use. All essential rate limi
 | **Adaptive** | Load-based adaptive rate limiting with custom indicators |
 | **Developer Experience** | Type-Safe Enums, Custom Response Handlers, Custom Time Windows |
 
+### Complete (v4.x)
+
+These advanced capabilities are opt-in and self-contained; each is gated behind a
+setting and/or optional extra, so they do not change default behavior or add hard
+dependencies.
+
+| Version | Category | Features |
+| --- | --- | --- |
+| **v4.2.0** | Dynamic config | Database-backed `RateLimitRule` model, Django Admin editing, rule engine with cache invalidation |
+| **v4.3.0** | User integration | User tiers, Django-group mapping, per-user overrides, API-key tiers |
+| **v4.4.0** | Analytics | Event logging, traffic/offender aggregations, staff dashboard, CSV export |
+| **v4.5.0** | Geo / multi-tenant / GraphQL | Per-country limiting, per-tenant quotas, Graphene middleware + Strawberry extension |
+
 ---
 
-## Future Enhancements (v2.x+)
+## Future Enhancements
 
 These features are planned for future releases. They are not blockers for current use.
 
@@ -142,8 +196,16 @@ interface, so you can choose the storage that fits your deployment.
 - **MultiBackend** for failover chaining across the above.
 
 > **Principle**: keep the core lightweight and gate optional integrations
-> (Redis, MongoDB, DRF, Prometheus, OpenTelemetry) behind optional extras, while
-> letting users pick the backend that matches their infrastructure.
+> (Redis, MongoDB, DRF, Prometheus, OpenTelemetry, GeoIP, GraphQL) behind optional
+> extras, while letting users pick the backend that matches their infrastructure.
+
+### Opt-In Advanced Features
+
+The advanced v4.x capabilities (dynamic rules, user tiers, analytics, geographic,
+multi-tenant, and GraphQL limiting) follow the same principle: each is disabled by
+default and activated by an explicit setting and/or an optional dependency extra.
+Installing the base package and upgrading never changes behavior until a feature is
+deliberately turned on.
 
 ---
 
