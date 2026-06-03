@@ -5,7 +5,7 @@ with support for multiple backends, algorithms (including token bucket),
 and comprehensive rate limiting strategies.
 """
 
-__version__ = "4.5.1"
+__version__ = "4.6.0"
 __author__ = "Yasser Shkeir"
 
 # Optional backend imports (may not be available)
@@ -21,6 +21,7 @@ from .adaptive import (
     LoadIndicator,
     LoadMetrics,
     MemoryLoadIndicator,
+    TimeOfDayIndicator,
     create_adaptive_limiter,
     get_adaptive_limiter,
     register_adaptive_limiter,
@@ -236,6 +237,7 @@ __all__ = [
     "LatencyLoadIndicator",
     "ConnectionCountIndicator",
     "CustomLoadIndicator",
+    "TimeOfDayIndicator",
     "create_adaptive_limiter",
     "get_adaptive_limiter",
     "register_adaptive_limiter",

@@ -235,6 +235,48 @@ class CustomLoadIndicator(LoadIndicator):
         return self._name
 
 
+class TimeOfDayIndicator(LoadIndicator):
+    """Load indicator driven by the time of day (roadmap 5.3.1).
+
+    Reports a high synthetic load during configured peak hours and a low load
+    otherwise, so adaptive limits tighten predictably during busy windows
+    regardless of measured system metrics. Combine it with CPU/latency
+    indicators on an :class:`AdaptiveRateLimiter` for a blended signal.
+    """
+
+    def __init__(
+        self,
+        peak_hours: Any,
+        peak_load: float = 1.0,
+        off_peak_load: float = 0.0,
+        use_utc: bool = False,
+    ) -> None:
+        """Configure the peak hours and their load levels.
+
+        Args:
+            peak_hours: Iterable of hours (0-23) considered peak.
+            peak_load: Load reported during peak hours (0.0-1.0).
+            off_peak_load: Load reported otherwise (0.0-1.0).
+            use_utc: Use UTC hours instead of the project's local time.
+        """
+        self._peak_hours = {int(h) for h in peak_hours}
+        self._peak_load = max(0.0, min(1.0, float(peak_load)))
+        self._off_peak_load = max(0.0, min(1.0, float(off_peak_load)))
+        self._use_utc = use_utc
+
+    def get_load(self) -> float:
+        """Return the peak load during peak hours, else the off-peak load."""
+        from django.utils import timezone
+
+        now = timezone.now()
+        if not self._use_utc:
+            try:
+                now = timezone.localtime(now)
+            except Exception:  # nosec B110 # pragma: no cover - USE_TZ=False
+                pass
+        return self._peak_load if now.hour in self._peak_hours else self._off_peak_load
+
+
 class AdaptiveRateLimiter:
     """
     Adaptive rate limiter that adjusts limits based on system load.

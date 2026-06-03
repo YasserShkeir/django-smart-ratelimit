@@ -396,6 +396,38 @@ def _apply_adaptive_limit(
         return base_limit
 
 
+def _apply_user_tiers(
+    request: Any,
+    base_rate: str,
+    limit_key: str,
+    settings_obj: Any,
+    scope: str = "",
+) -> Optional[Tuple[int, int, str]]:
+    """Resolve a request's per-user effective rate and bucket (roadmap 3.3.2).
+
+    No-op unless ``RATELIMIT_USE_USER_TIERS`` is enabled, mirroring the
+    middleware: an authenticated user is limited at their effective rate
+    (override -> tier -> base) in their own per-user bucket so users at
+    different tiers sharing a key (e.g. an IP) do not interfere. Returns
+    ``(limit, period, key)`` when applied, else ``None``.
+    """
+    if not getattr(settings_obj, "use_user_tiers", False):
+        return None
+
+    from .tiers import resolve_effective_user_rate
+
+    new_rate = resolve_effective_user_rate(request, base_rate, scope)
+    user = getattr(request, "user", None)
+    key = limit_key
+    if user is not None and getattr(user, "is_authenticated", False):
+        key = f"user:{user.pk}:{scope or limit_key}"
+    try:
+        limit, period = parse_rate(new_rate)
+    except Exception:  # pragma: no cover - defensive; parse_rate already validated
+        return None
+    return limit, period, key
+
+
 def rate_limit(
     key: Union[str, Callable],
     rate: Optional[str] = None,
@@ -603,6 +635,13 @@ def rate_limit(
                 limit = resolved.limit
                 period = resolved.period
                 request_cost = resolved.cost
+
+                # Per-user tiers/overrides (no-op unless RATELIMIT_USE_USER_TIERS).
+                # Skipped when adaptive is active, which owns the limit instead.
+                if adaptive is None:
+                    _tiered = _apply_user_tiers(_request, _rate, limit_key, _settings)
+                    if _tiered is not None:
+                        limit, period, limit_key = _tiered
 
                 # Decide the allow/deny. token_bucket (and leaky_bucket on
                 # backends with native support) run their sync algorithm check
@@ -819,6 +858,13 @@ def rate_limit(
                 limit = resolved.limit
                 period = resolved.period
                 request_cost = resolved.cost
+
+                # Per-user tiers/overrides (no-op unless RATELIMIT_USE_USER_TIERS).
+                # Skipped when adaptive is active, which owns the limit instead.
+                if adaptive is None:
+                    _tiered = _apply_user_tiers(_request, _rate, limit_key, _settings)
+                    if _tiered is not None:
+                        limit, period, limit_key = _tiered
 
                 # Handle middleware vs decorator scenarios
                 if middleware_processed:
