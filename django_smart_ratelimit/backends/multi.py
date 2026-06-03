@@ -109,6 +109,21 @@ class MultiBackend(BaseBackend):
 
     This backend allows using multiple backends with automatic fallback
     when the primary backend fails.
+
+    Counter-accuracy caveat (important for rate limiting):
+        Each configured backend keeps its OWN independent counter -- they are not
+        synchronized. As a result, accuracy is only approximate across a failover:
+
+        * Failing over to a healthy secondary gives the client that secondary's
+          (typically fresh) counter, so a limit can be briefly under-counted
+          (more traffic allowed) right after a primary outage.
+        * A primary whose write lands and *then* raises will be retried on the
+          secondary, counting that one request twice (a possible false 429).
+
+        For strict accuracy under failover, point all entries at backends that
+        share storage (e.g. the same Redis/replica set), or use a single backend.
+        A future release may add increment replication / a shared distributed
+        counter; until then this approximation is by design, not a bug.
     """
 
     def __init__(

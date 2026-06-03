@@ -6,7 +6,7 @@ or specific patterns based on configuration.
 """
 
 import time
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from asgiref.sync import iscoroutinefunction
 
@@ -27,6 +27,22 @@ from .utils import (
     should_skip_path,
     should_skip_static_media,
 )
+
+
+def _safe_header_int(headers: Any, name: str, default: int) -> int:
+    """Parse an integer rate-limit header, tolerating a missing/non-int value.
+
+    Guards the header-merge logic: ``int(headers.get(name, float("inf")))`` raised
+    ``OverflowError`` when ``X-RateLimit-Limit`` was present but
+    ``X-RateLimit-Remaining`` was not (``int(inf)``).
+    """
+    raw = headers.get(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return default
 
 
 @sync_and_async_middleware
@@ -216,16 +232,16 @@ class RateLimitMiddleware:
             )
         else:
             # Headers already exist (likely from decorator), check if middleware
-            # is more restrictive
-            existing_limit = int(
-                response.headers.get("X-RateLimit-Limit", float("inf"))
+            # is more restrictive.
+            middleware_remaining = max(0, limit - current_count)
+            existing_limit = _safe_header_int(
+                response.headers, "X-RateLimit-Limit", limit
             )
-            existing_remaining = int(
-                response.headers.get("X-RateLimit-Remaining", float("inf"))
+            existing_remaining = _safe_header_int(
+                response.headers, "X-RateLimit-Remaining", middleware_remaining
             )
 
             # If middleware is more restrictive, update headers
-            middleware_remaining = max(0, limit - current_count)
             if limit < existing_limit or middleware_remaining < existing_remaining:
                 add_rate_limit_headers(
                     response, limit, middleware_remaining, int(time.time() + period)
@@ -348,6 +364,21 @@ class RateLimitMiddleware:
                 max(0, limit - current_count),
                 int(time.time() + period),
             )
+        else:
+            # Headers already exist (likely from a decorator); apply the same
+            # "more restrictive wins" merge the sync path does (previously the
+            # async path skipped this, leaving too-generous headers).
+            middleware_remaining = max(0, limit - current_count)
+            existing_limit = _safe_header_int(
+                response.headers, "X-RateLimit-Limit", limit
+            )
+            existing_remaining = _safe_header_int(
+                response.headers, "X-RateLimit-Remaining", middleware_remaining
+            )
+            if limit < existing_limit or middleware_remaining < existing_remaining:
+                add_rate_limit_headers(
+                    response, limit, middleware_remaining, int(time.time() + period)
+                )
 
         return response
 

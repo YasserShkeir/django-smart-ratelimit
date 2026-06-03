@@ -627,17 +627,24 @@ class PrometheusMetricsMiddleware:
 
         duration = time.monotonic() - start_time
 
-        # Check if rate limiting was applied (set by decorator/middleware)
+        # Check if rate limiting was applied (the decorator attaches its
+        # RateLimitContext as request.ratelimit). Read the ACTUAL context fields:
+        # ``allowed`` (NOT a non-existent ``limited`` -- the old code's default
+        # made every request, including denials, record as allowed),
+        # ``backend_name`` (NOT ``backend``), and the rate-limit ``check_duration``
+        # in preference to the whole-request time so the duration metric measures
+        # the check, not total request latency.
         ratelimit_info = getattr(request, "ratelimit", None)
-        if ratelimit_info:
-            key = getattr(ratelimit_info, "key", "unknown")
-            backend = getattr(ratelimit_info, "backend", "unknown")
-            allowed = not getattr(ratelimit_info, "limited", False)
+        if ratelimit_info is not None:
+            key = getattr(ratelimit_info, "key", "unknown") or "unknown"
+            backend = getattr(ratelimit_info, "backend_name", "") or "unknown"
+            allowed = bool(getattr(ratelimit_info, "allowed", True))
+            check_duration = getattr(ratelimit_info, "check_duration", None)
             self.metrics.record_request(
                 key=key,
                 backend=backend,
                 allowed=allowed,
-                duration_seconds=duration,
+                duration_seconds=check_duration if check_duration else duration,
             )
 
         # Track 429 responses as denied even without ratelimit info

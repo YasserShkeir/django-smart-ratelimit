@@ -370,6 +370,24 @@ def validate_rate_config(
             ):
                 raise ImproperlyConfigured("refill_rate must be a non-negative number")
 
+    # Validate leaky bucket configuration. A negative leak_rate silently turns
+    # the limiter into a fill-over-time limiter that denies legitimate traffic,
+    # so reject it the same way token_bucket rejects a negative refill_rate.
+    if algorithm == "leaky_bucket" and algorithm_config:
+        if "leak_rate" in algorithm_config:
+            if (
+                not isinstance(algorithm_config["leak_rate"], (int, float))
+                or algorithm_config["leak_rate"] < 0
+            ):
+                raise ImproperlyConfigured("leak_rate must be a non-negative number")
+
+        if "bucket_capacity" in algorithm_config:
+            if (
+                not isinstance(algorithm_config["bucket_capacity"], (int, float))
+                or algorithm_config["bucket_capacity"] <= 0
+            ):
+                raise ImproperlyConfigured("bucket_capacity must be a positive number")
+
 
 def get_current_timestamp() -> float:
     """Get current Unix timestamp with consistent precision."""

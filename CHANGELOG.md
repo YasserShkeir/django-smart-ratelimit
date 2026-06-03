@@ -5,6 +5,68 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.1.0] - 2026-06-03
+
+Closes the design-level backlog carried since v4.0.2: correct Prometheus
+auto-instrumentation, atomic database rate limiting under concurrency, and a
+batch of correctness hardening. No breaking API changes; new regression tests in
+`tests/e2e/test_v4_1_0_regressions_e2e.py`.
+
+### Fixed
+
+- **Prometheus auto-instrumentation now records denials.** `PrometheusMetricsMiddleware`
+  read a non-existent `request.ratelimit.limited` / `backend`, so every request —
+  including 429s — was recorded as `result="allowed", backend="unknown"`. It now
+  reads the context's `allowed` / `backend_name`, and uses the rate-limit
+  `check_duration` for the duration metric instead of the whole-request time. The
+  decorator also attaches `request.ratelimit` on the token-bucket, leaky-bucket and
+  async paths (previously only the sync window path), so auto-instrumentation works
+  uniformly. (Removes the strict `xfail` shipped in v4.0.2.)
+- **Database `sliding_window` is now atomic under concurrency.** The
+  create-then-count increment took no per-key lock, so under READ COMMITTED
+  (PostgreSQL / MySQL default) simultaneous requests each missed the other's
+  uncommitted insert and all admitted — letting the limit be exceeded by the number
+  of in-flight requests (an exploitable bypass for e.g. login throttling). It now
+  takes a per-key advisory lock (`pg_advisory_xact_lock` on PostgreSQL, `GET_LOCK`
+  on MySQL); SQLite serializes writers already. Verified against real PostgreSQL
+  (30 concurrent @ limit 10: was 30 admitted, now exactly 10). CI now runs the suite
+  against a PostgreSQL service so this is exercised continuously.
+- **Token/leaky bucket no longer mis-limit on a wall-clock step backward.** Elapsed
+  time is clamped at zero, so an NTP correction (etc.) can no longer drain a token
+  bucket or fill a leaky bucket and spuriously reject traffic.
+- **Async middleware header merge.** `RateLimitMiddleware.__acall__` now applies the
+  same "more restrictive wins" header merge as the sync path, and both tolerate a
+  response that sets `X-RateLimit-Limit` without `-Remaining` (was
+  `int(float("inf"))` → `OverflowError`).
+- **`AdaptiveRateLimiter.add_indicator` / `remove_indicator`** now mutate the
+  indicator list under the same lock the load calculation iterates under (was a
+  "list changed size during iteration" risk on the request path).
+
+### Changed
+
+- **Leaky-bucket config is validated.** A negative `leak_rate` (or non-positive
+  `bucket_capacity`) now raises `ImproperlyConfigured`, matching token-bucket
+  validation.
+- **Counter/bucket integer fields widened to `BigInteger`** (`count`, `bucket_size`,
+  `bucket_capacity`) so a very large limit no longer overflows on PostgreSQL/MySQL.
+  Includes migration `0003`.
+
+### Added
+
+- New end-to-end coverage: exact-admission concurrency on PostgreSQL, unicode /
+  very-long key values, MultiBackend `round_robin` distribution, and failover to a
+  second LIVE store (Redis-primary → MongoDB-fallback).
+
+### Notes
+
+- **MultiBackend failover accuracy** is now documented rather than code-changed:
+  with independent backends, counters are not synchronized, so a failover may
+  briefly over- or under-count. The clean fix (shared/replicated state) is a larger
+  redesign; until then, use backends that share storage for strict accuracy.
+- A few low-impact items remain intentionally deferred (the unused `timed`
+  performance decorator, an opt-in `PerformanceMonitor` lock, a dead async
+  event-loop guard, and the `_aincr_with_cost` capability probe).
+
 ## [4.0.4] - 2026-06-02
 
 A third review pass focused on the paths the first two didn't deeply cover (async,

@@ -684,6 +684,16 @@ def rate_limit(
                     cost=request_cost,
                 )
 
+                _attach_request_context(
+                    _request,
+                    key=limit_key,
+                    allowed=decision.allow,
+                    backend_instance=backend_instance,
+                    limit=limit,
+                    remaining=remaining,
+                    algorithm=algorithm or "sliding_window",
+                )
+
                 if not decision.allow:
                     if block:
                         response = _create_rate_limit_response(
@@ -1039,6 +1049,41 @@ async def _aincr_with_cost(
         return count
 
 
+def _attach_request_context(
+    request: Any,
+    *,
+    key: str,
+    allowed: bool,
+    backend_instance: Any,
+    limit: int = 0,
+    remaining: int = 0,
+    algorithm: str = "sliding_window",
+) -> None:
+    """Attach a RateLimitContext to ``request.ratelimit``.
+
+    The standard sync path builds a full context, but the token/leaky-bucket and
+    async paths historically did not, so ``PrometheusMetricsMiddleware`` (and any
+    user middleware that reads ``request.ratelimit``) saw nothing for them. This
+    attaches a lightweight context so auto-instrumentation works uniformly across
+    algorithms and the sync/async paths.
+    """
+    if request is None:
+        return
+    try:
+        request.ratelimit = RateLimitContext(
+            request=request,
+            key=key,
+            limit=limit,
+            remaining=remaining,
+            algorithm=algorithm,
+            allowed=allowed,
+            backend_name=getattr(backend_instance, "name", None)
+            or type(backend_instance).__name__,
+        )
+    except Exception:  # pragma: no cover - must never break rate limiting
+        pass  # nosec B110 - attaching observability context must never raise
+
+
 def _handle_token_bucket_algorithm(
     func: Callable,
     _request: Any,
@@ -1082,6 +1127,15 @@ def _handle_token_bucket_algorithm(
             cost=cost,
         )
         is_allowed = decision.allow
+        _attach_request_context(
+            _request,
+            key=limit_key,
+            allowed=is_allowed,
+            backend_instance=backend_instance,
+            limit=limit,
+            remaining=int(metadata.get("tokens_remaining", 0)) if metadata else 0,
+            algorithm="token_bucket",
+        )
 
         if not is_allowed:
             if block:
@@ -1177,6 +1231,15 @@ def _handle_leaky_bucket_algorithm(
             cost=cost,
         )
         is_allowed = decision.allow
+        _attach_request_context(
+            _request,
+            key=limit_key,
+            allowed=is_allowed,
+            backend_instance=backend_instance,
+            limit=limit,
+            remaining=remaining,
+            algorithm="leaky_bucket",
+        )
 
         reset_time = _get_reset_time(backend_instance, limit_key, period)
 
@@ -1320,7 +1383,8 @@ def _handle_standard_rate_limiting(
         key=limit_key,
         limit=limit,
         period=period,
-        backend_name=getattr(backend_instance, "name", str(type(backend_instance))),
+        backend_name=getattr(backend_instance, "name", None)
+        or type(backend_instance).__name__,
     )
 
     try:

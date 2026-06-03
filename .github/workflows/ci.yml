@@ -133,6 +133,20 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ratelimit_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - uses: actions/checkout@v6
 
@@ -148,7 +162,7 @@ jobs:
         # >=4.2) cannot silently upgrade Django away from the matrix version.
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[all,dev]" "Django==${{ matrix.django-version }}"
+          pip install -e ".[all,dev]" "Django==${{ matrix.django-version }}" psycopg2-binary
 
       - name: Run tests
         if: ${{ !matrix.coverage }}
@@ -158,11 +172,15 @@ jobs:
           MONGODB_URL: mongodb://localhost:27017/test
 
       - name: Run tests with coverage
+        # The coverage cell runs the suite against PostgreSQL (via DATABASE_URL)
+        # so the DB concurrency/atomicity tests -- which SQLite cannot reproduce
+        # -- actually execute. Other cells run on SQLite.
         if: ${{ matrix.coverage }}
         run: pytest -m "not benchmark" --cov=django_smart_ratelimit --cov-report=xml --cov-report=term-missing --cov-fail-under=65
         env:
           REDIS_URL: redis://localhost:6379/0
           MONGODB_URL: mongodb://localhost:27017/test
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ratelimit_test
 
       - name: Upload coverage to Codecov
         if: ${{ matrix.coverage }}

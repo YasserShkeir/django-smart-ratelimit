@@ -317,8 +317,12 @@ class AdaptiveRateLimiter:
         Returns:
             Self for chaining.
         """
-        self._indicators.append(indicator)
-        self._weights[indicator.name] = weight
+        # Mutate under the same lock that _calculate_combined_load iterates the
+        # list under, otherwise a concurrent add/remove during a load calculation
+        # can raise "list changed size during iteration" on the request path.
+        with self._lock:
+            self._indicators.append(indicator)
+            self._weights[indicator.name] = weight
         return self
 
     def remove_indicator(self, name: str) -> bool:
@@ -331,11 +335,12 @@ class AdaptiveRateLimiter:
         Returns:
             True if found and removed, False otherwise.
         """
-        for i, indicator in enumerate(self._indicators):
-            if indicator.name == name:
-                self._indicators.pop(i)
-                self._weights.pop(name, None)
-                return True
+        with self._lock:
+            for i, indicator in enumerate(self._indicators):
+                if indicator.name == name:
+                    self._indicators.pop(i)
+                    self._weights.pop(name, None)
+                    return True
         return False
 
     def _calculate_combined_load(self) -> float:
