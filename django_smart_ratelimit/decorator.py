@@ -1081,7 +1081,7 @@ def _attach_request_context(
             or type(backend_instance).__name__,
         )
     except Exception:  # pragma: no cover - must never break rate limiting
-        pass
+        pass  # nosec B110 - attaching observability context must never raise
 
 
 def _handle_token_bucket_algorithm(
