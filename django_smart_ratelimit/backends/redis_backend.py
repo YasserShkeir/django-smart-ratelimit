@@ -183,6 +183,78 @@ class RedisBackend(BaseBackend):
         return {current_tokens, bucket_size, refill_rate, time_to_refill, last_refill}
     """  # nosec B105
 
+    # Lua script for an atomic leaky bucket check (roadmap 5.2.3). The bucket
+    # leaks at ``leak_rate`` units/second; a request of ``cost`` is admitted when
+    # it fits under ``capacity``. Fractional values are returned scaled by 1000
+    # (Redis truncates Lua numbers to integers on return); ``-1`` for the time
+    # field is a sentinel meaning "never" (leak_rate <= 0).
+    LEAKY_BUCKET_SCRIPT = """
+        local key = KEYS[1]
+        local capacity = tonumber(ARGV[1])
+        local leak_rate = tonumber(ARGV[2])
+        local cost = tonumber(ARGV[3])
+        local now = tonumber(ARGV[4])
+
+        local data = redis.call('HMGET', key, 'level', 'last_leak')
+        local level = tonumber(data[1]) or 0
+        local last_leak = tonumber(data[2]) or now
+
+        local elapsed = now - last_leak
+        if elapsed < 0 then elapsed = 0 end
+        level = level - (elapsed * leak_rate)
+        if level < 0 then level = 0 end
+
+        local expiration
+        if leak_rate > 0 then
+            expiration = math.ceil(capacity / leak_rate) + 60
+        else
+            expiration = 3600
+        end
+
+        local new_level = level + cost
+        local allowed
+        local stored
+        if new_level <= capacity then
+            allowed = 1
+            stored = new_level
+        else
+            allowed = 0
+            stored = level
+        end
+        redis.call('HMSET', key, 'level', stored, 'last_leak', now)
+        redis.call('EXPIRE', key, expiration)
+
+        local tus
+        if allowed == 1 then
+            tus = 0
+        elseif leak_rate > 0 then
+            tus = (new_level - capacity) / leak_rate
+        else
+            tus = -1
+        end
+        local tus_out
+        if tus < 0 then tus_out = -1 else tus_out = math.floor(tus * 1000) end
+        return {allowed, math.floor(stored * 1000), tus_out}
+    """  # nosec B105
+
+    # Read-only leaky bucket inspection (no mutation); returns the leaked-down
+    # level scaled by 1000.
+    LEAKY_BUCKET_INFO_SCRIPT = """
+        local key = KEYS[1]
+        local leak_rate = tonumber(ARGV[1])
+        local now = tonumber(ARGV[2])
+
+        local data = redis.call('HMGET', key, 'level', 'last_leak')
+        local level = tonumber(data[1]) or 0
+        local last_leak = tonumber(data[2]) or now
+
+        local elapsed = now - last_leak
+        if elapsed < 0 then elapsed = 0 end
+        level = level - (elapsed * leak_rate)
+        if level < 0 then level = 0 end
+        return {math.floor(level * 1000), math.floor(last_leak * 1000)}
+    """  # nosec B105
+
     def __init__(
         self,
         enable_circuit_breaker: bool = True,
@@ -260,11 +332,19 @@ class RedisBackend(BaseBackend):
             self.token_bucket_info_sha = self._load_script(
                 self.TOKEN_BUCKET_INFO_SCRIPT
             )
+            self.leaky_bucket_sha = self._load_script(self.LEAKY_BUCKET_SCRIPT)
+            self.leaky_bucket_info_sha = self._load_script(
+                self.LEAKY_BUCKET_INFO_SCRIPT
+            )
         else:
             self.sliding_window_sha = ""
             self.fixed_window_sha = ""
             self.token_bucket_sha = ""  # nosec B105 - not a password, SHA cache init
             self.token_bucket_info_sha = (
+                ""  # nosec B105 - not a password, SHA cache init
+            )
+            self.leaky_bucket_sha = ""  # nosec B105 - not a password, SHA cache init
+            self.leaky_bucket_info_sha = (
                 ""  # nosec B105 - not a password, SHA cache init
             )
 
@@ -714,6 +794,118 @@ class RedisBackend(BaseBackend):
                 time_to_refill=0.0,
                 last_refill=current_time,
             )
+
+    def leaky_bucket_check(
+        self,
+        key: str,
+        bucket_capacity: int,
+        leak_rate: float,
+        request_cost: int,
+    ) -> Tuple[bool, Dict[str, Any]]:
+        """Atomic leaky bucket check using a Redis Lua script (roadmap 5.2.3).
+
+        Args:
+            key: Rate limit key.
+            bucket_capacity: Maximum bucket level before overflow.
+            leak_rate: Units drained per second.
+            request_cost: Units this request adds to the bucket.
+
+        Returns:
+            ``(is_allowed, metadata)`` with the same metadata keys as the
+            generic leaky-bucket implementation.
+        """
+        normalized_key = normalize_key(f"{key}:leaky_bucket", self.key_prefix)
+        current_time = get_current_timestamp()
+        start_time = current_time
+        try:
+            result = self._eval_lua(
+                "leaky_bucket_sha",
+                self.LEAKY_BUCKET_SCRIPT,
+                1,
+                normalized_key,
+                bucket_capacity,
+                leak_rate,
+                request_cost,
+                current_time,
+            )
+            is_allowed = bool(result[0])
+            bucket_level = float(result[1]) / 1000.0
+            tus_raw = float(result[2])
+            time_until_space = float("inf") if tus_raw < 0 else tus_raw / 1000.0
+            space_remaining = max(0.0, bucket_capacity - bucket_level)
+
+            log_backend_operation(
+                "redis_leaky_bucket_check",
+                f"Leaky bucket check for key {key}: allowed={is_allowed}",
+                duration=get_current_timestamp() - start_time,
+            )
+            return is_allowed, {
+                "bucket_level": bucket_level,
+                "bucket_capacity": bucket_capacity,
+                "leak_rate": leak_rate,
+                "request_cost": request_cost,
+                "space_remaining": space_remaining,
+                "time_until_space": time_until_space,
+            }
+        except Exception as e:
+            log_backend_operation(
+                "redis_leaky_bucket_check_error",
+                f"Leaky bucket Lua script failed for key {key}: {e}",
+                duration=get_current_timestamp() - start_time,
+                level="error",
+            )
+            if self.fail_open:
+                return True, {
+                    "bucket_level": 0.0,
+                    "bucket_capacity": bucket_capacity,
+                    "leak_rate": leak_rate,
+                    "request_cost": request_cost,
+                    "space_remaining": float(bucket_capacity),
+                    "time_until_space": 0.0,
+                }
+            raise BackendError(ERROR_BACKEND_UNAVAILABLE) from e
+
+    def leaky_bucket_info(
+        self, key: str, bucket_capacity: int, leak_rate: float
+    ) -> Dict[str, Any]:
+        """Inspect leaky bucket state without adding to it (roadmap 5.2.3)."""
+        normalized_key = normalize_key(f"{key}:leaky_bucket", self.key_prefix)
+        current_time = get_current_timestamp()
+        try:
+            result = self._eval_lua(
+                "leaky_bucket_info_sha",
+                self.LEAKY_BUCKET_INFO_SCRIPT,
+                1,
+                normalized_key,
+                leak_rate,
+                current_time,
+            )
+            bucket_level = float(result[0]) / 1000.0
+            last_leak = float(result[1]) / 1000.0
+            space_remaining = max(0.0, bucket_capacity - bucket_level)
+            time_to_empty = bucket_level / leak_rate if leak_rate > 0 else float("inf")
+            return {
+                "bucket_level": bucket_level,
+                "bucket_capacity": bucket_capacity,
+                "leak_rate": leak_rate,
+                "space_remaining": space_remaining,
+                "time_to_empty": time_to_empty,
+                "last_leak": last_leak,
+            }
+        except Exception as e:
+            log_backend_operation(
+                "redis_leaky_bucket_info_error",
+                f"Leaky bucket info failed for key {key}: {e}",
+                level="error",
+            )
+            return {
+                "bucket_level": 0.0,
+                "bucket_capacity": bucket_capacity,
+                "leak_rate": leak_rate,
+                "space_remaining": float(bucket_capacity),
+                "time_to_empty": 0.0,
+                "last_leak": current_time,
+            }
 
     def check_batch(
         self,

@@ -9,6 +9,7 @@ Resolves the effective rate limit for a request by precedence:
 3. otherwise the base rate, unchanged.
 """
 
+from datetime import timedelta
 from typing import Any, Optional
 
 from django.utils import timezone
@@ -109,3 +110,63 @@ def resolve_effective_user_rate(request: Any, base_rate: str, scope: str = "") -
 
     tier = get_user_tier(user)
     return apply_tier_to_rate(base_rate, tier, scope)
+
+
+def tier_key(request: Any, *args: Any, **kwargs: Any) -> str:
+    """Key function: bucket a request by the user's tier (``tier:<name>``).
+
+    Returns ``tier:anonymous`` for unauthenticated requests and ``tier:default``
+    for authenticated users without a resolved tier. Use as ``key=tier_key`` to
+    give every user in the same tier a shared budget.
+    """
+    user = getattr(request, "user", None)
+    if user is None or not getattr(user, "is_authenticated", False):
+        return "tier:anonymous"
+    tier = get_user_tier(user)
+    if tier is None:
+        return "tier:default"
+    return f"tier:{getattr(tier, 'name', 'default')}"
+
+
+def create_user_override(
+    user: Any,
+    rate: str,
+    *,
+    scope: str = "",
+    duration_seconds: Optional[int] = None,
+    expires_at: Optional[Any] = None,
+    reason: str = "",
+    created_by: Any = None,
+) -> Any:
+    """Create and return a per-user :class:`UserRateLimitOverride` (roadmap 3.3.4).
+
+    A programmatic alternative to the Django admin for granting a temporary
+    custom rate. ``scope`` maps to the override's ``rule_name`` (blank applies to
+    all). Provide exactly one of ``duration_seconds`` (relative to now) or
+    ``expires_at`` (absolute); ``duration_seconds`` defaults to one hour if
+    neither is given. ``rate`` is validated before the row is written.
+    """
+    from django.core.exceptions import ValidationError
+
+    from .backends.utils import parse_rate
+
+    try:
+        parse_rate(rate)
+    except Exception as exc:
+        raise ValidationError(f"Invalid rate: {rate!r}") from exc
+
+    from .models import UserRateLimitOverride
+
+    now = timezone.now()
+    if expires_at is None:
+        expires_at = now + timedelta(seconds=duration_seconds or 3600)
+
+    return UserRateLimitOverride.objects.create(
+        user=user,
+        rule_name=scope,
+        rate=rate,
+        reason=reason,
+        created_by=created_by,
+        starts_at=now,
+        expires_at=expires_at,
+    )

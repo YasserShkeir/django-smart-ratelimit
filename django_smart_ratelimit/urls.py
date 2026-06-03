@@ -7,11 +7,16 @@ Include in your project's urls.py::
 
 from django.urls import path
 
-from .views import RateLimitDashboardView, offenders_csv_view
+from .views import (
+    RateLimitDashboardView,
+    offender_detail_view,
+    offenders_csv_view,
+)
 
 app_name = "django_smart_ratelimit"
 
 urlpatterns = [
     path("dashboard/", RateLimitDashboardView.as_view(), name="dashboard"),
     path("dashboard/offenders.csv", offenders_csv_view, name="offenders-csv"),
+    path("dashboard/offender/", offender_detail_view, name="offender-detail"),
 ]

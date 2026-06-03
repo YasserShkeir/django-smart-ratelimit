@@ -101,3 +101,22 @@ def offenders_csv_view(request: HttpRequest) -> HttpResponse:
     response = HttpResponse(payload, content_type="text/csv")
     response["Content-Disposition"] = 'attachment; filename="ratelimit_offenders.csv"'
     return response
+
+
+def offender_detail_view(request: HttpRequest) -> HttpResponse:
+    """Staff-only JSON drill-down for one offender ``?key=`` (roadmap 4.3.2).
+
+    Returns totals, first/last seen, the per-path blocked breakdown, and recent
+    events for the key over the requested ``?days=`` window.
+    """
+    if not _staff_required(request):
+        return HttpResponse("Forbidden", status=403)
+
+    key = request.GET.get("key", "")
+    if not key:
+        return JsonResponse({"error": "missing ?key= parameter"}, status=400)
+
+    from .analytics import get_offender_detail
+
+    days = _days_param(request)
+    return JsonResponse(get_offender_detail(key, days=days))

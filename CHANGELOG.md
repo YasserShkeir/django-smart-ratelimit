@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.6.0] - 2026-06-04
+
+Completes the original v2.0 feature roadmap: the handful of items that were
+planned but never built. Everything here is additive and opt-in; no existing
+behavior changes.
+
+### Added
+
+- **Decorator honors user tiers/overrides** (roadmap 3.3.2) — with
+  `RATELIMIT_USE_USER_TIERS = True`, `@rate_limit` now resolves an authenticated
+  request to its effective rate (override -> tier -> base) and limits it in a
+  per-user bucket, matching the middleware. No-op when the setting is off or the
+  decorator uses `adaptive=`.
+- **`tiers.tier_key`** (roadmap 3.1.4) — a key function bucketing requests by the
+  user's tier (`tier:<name>` / `tier:anonymous` / `tier:default`).
+- **`tiers.create_user_override`** (roadmap 3.3.4) — a programmatic helper to
+  grant a temporary per-user rate override (validates the rate, defaults to a
+  one-hour window).
+- **Offender detail + alerting** (roadmap 4.3.2 / 4.3.4) —
+  `analytics.get_offender_detail()` (per-key totals, per-path breakdown, recent
+  events), a staff-only JSON `offender-detail` view (`dashboard/offender/?key=`),
+  `analytics.find_alertable_offenders()` / `send_offender_alerts()` (email +
+  webhook, opt-in), and a `ratelimit_alerts` management command for cron.
+- **StatsD exporter** (roadmap 5.1.3) — `statsd.StatsDClient` (dependency-free
+  UDP) and `statsd.StatsDMetrics` mirroring the Prometheus exporter API,
+  configured via `RATELIMIT_STATSD`.
+- **Native atomic Redis leaky bucket** (roadmap 5.2.3) — `RedisBackend` now
+  implements `leaky_bucket_check` / `leaky_bucket_info` via Lua, so the
+  `leaky_bucket` algorithm is atomic on Redis (previously a non-atomic fallback).
+- **`adaptive.TimeOfDayIndicator`** (roadmap 5.3.1) — a load indicator that
+  reports high load during configured peak hours so adaptive limits tighten on a
+  schedule.
+
+### Settings
+
+- `RATELIMIT_STATSD` (StatsD host/port/prefix/enabled).
+- `RATELIMIT_ALERT_THRESHOLD`, `RATELIMIT_ALERT_EMAILS`, `RATELIMIT_ALERT_WEBHOOK`
+  (offender alerting; alerting is disabled until a threshold is set).
+
 ## [4.5.1] - 2026-06-03
 
 Test/packaging update: officially support the latest Python and Django. No
