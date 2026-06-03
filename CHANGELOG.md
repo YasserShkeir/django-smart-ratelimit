@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.5.0] - 2026-06-03
+
+Roadmap Phase 5.4-5.6: **geographic**, **multi-tenant**, and **GraphQL** rate
+limiting. All three are opt-in and self-contained; external providers
+(`geoip2`, `graphene`/`strawberry-graphql`) are optional and imported lazily, so
+nothing here changes existing behavior or adds a hard dependency.
+
+### Added
+
+- **Geographic limiting** (`django_smart_ratelimit.geo`) — `geo_key(request)`
+  buckets by country (`geo:<CC>` / `geo:unknown`); `get_rate_for_country()`
+  resolves a per-country rate from a `{ "CN": "10/h", "*": "50/h" }` mapping
+  (with a `"*"` wildcard and a default fallback). Pluggable `GeoProvider`
+  interface with a `MaxMindProvider` (GeoLite2/GeoIP2 `.mmdb` via the optional
+  `geoip2` package), a `NullGeoProvider`, and `set_geo_provider()` for tests.
+- **Multi-tenant limiting** (`django_smart_ratelimit.tenants`) —
+  `extract_tenant(request)` resolves a tenant from `request.tenant`
+  (django-tenants), an `X-Tenant-ID` header, the authenticated user's
+  `tenant_id`, or the Host subdomain; `tenant_key()` buckets by it; the new
+  `TenantQuota` model (migration `0007`) supplies a per-tenant rate that
+  `resolve_tenant_rate()` applies over the default.
+- **GraphQL limiting** (`django_smart_ratelimit.graphql`) — a
+  `GrapheneRateLimitMiddleware` that limits only top-level operations (nested
+  resolvers are never double-counted) with optional complexity weighting, a
+  `make_strawberry_extension()` factory (lazy Strawberry import), and a
+  dependency-free `estimate_query_complexity()` heuristic for cost-weighted
+  limits.
+- Django admin for `TenantQuota`.
+
+### Settings
+
+- `RATELIMIT_GEOIP_PATH` — path to a GeoLite2/GeoIP2 `.mmdb` database (enables
+  the MaxMind geo provider; default `None`).
+
+### Packaging
+
+- New optional extras: `geoip` (`geoip2`) and `graphql` (`graphene`).
+
 ## [4.4.0] - 2026-06-03
 
 Roadmap Phase 4: **analytics & monitoring** — event logging, aggregations, an

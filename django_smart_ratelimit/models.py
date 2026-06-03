@@ -827,3 +827,45 @@ class RateLimitEvent(models.Model):
             if deleted < batch_size:
                 break
         return total
+
+
+class TenantQuota(models.Model):
+    """Per-tenant rate quota for multi-tenant (SaaS) rate limiting (Phase 5.5)."""
+
+    tenant_id: "models.CharField[str, str]" = models.CharField(
+        max_length=100, unique=True, db_index=True
+    )
+    rate: "models.CharField[str, str]" = models.CharField(
+        max_length=50, help_text="Rate string, e.g. '1000/h'."
+    )
+    is_active: "models.BooleanField[bool, bool]" = models.BooleanField(default=True)
+    created_at: "models.DateTimeField[datetime, datetime]" = models.DateTimeField(
+        auto_now_add=True
+    )
+    updated_at: "models.DateTimeField[datetime, datetime]" = models.DateTimeField(
+        auto_now=True
+    )
+
+    class Meta:
+        """Quotas ordered by tenant for stable admin listing."""
+
+        ordering = ["tenant_id"]
+
+    def __str__(self) -> str:
+        return f"{self.tenant_id}: {self.rate}"
+
+    def clean(self) -> None:
+        """Validate the rate string."""
+        from django.core.exceptions import ImproperlyConfigured, ValidationError
+
+        from .backends.utils import parse_rate
+
+        try:
+            parse_rate(self.rate)
+        except ImproperlyConfigured as exc:
+            raise ValidationError({"rate": str(exc)})
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        """Validate before saving."""
+        self.full_clean()
+        super().save(*args, **kwargs)

@@ -186,3 +186,16 @@ class RateLimitEventAdmin(admin.ModelAdmin):
     def has_change_permission(self, request: Any, obj: Any = None) -> bool:
         """Events are immutable."""
         return False
+
+
+from .models import TenantQuota  # noqa: E402
+
+
+@admin.register(TenantQuota)
+class TenantQuotaAdmin(admin.ModelAdmin):
+    """Manage per-tenant rate quotas (multi-tenant)."""
+
+    list_display = ["tenant_id", "rate", "is_active", "updated_at"]
+    list_filter = ["is_active"]
+    list_editable = ["rate", "is_active"]
+    search_fields = ["tenant_id"]
