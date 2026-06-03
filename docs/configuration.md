@@ -253,6 +253,41 @@ RATELIMIT_ENABLE = True
 > The middleware reads `SKIP_PATHS` (not `excluded_paths`) and the top-level
 > `RATELIMIT_ENABLE` setting (not a `'enabled'` key inside `RATELIMIT_MIDDLEWARE`).
 
+## Advanced feature settings (v4.x)
+
+These are all opt-in and default to off. Each links to a dedicated guide.
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `RATELIMIT_USE_DYNAMIC_RULES` | `False` | Enable database-backed [dynamic rules](dynamic_rules.md). |
+| `RATELIMIT_RULE_CACHE_TIMEOUT` | `60` | Seconds to cache dynamic rules before reloading. |
+| `RATELIMIT_USE_USER_TIERS` | `False` | Enable [user tiers / overrides](user_tiers.md) in the middleware and decorator. |
+| `RATELIMIT_LOG_EVENTS` | `False` | Record a `RateLimitEvent` per decision for [analytics](analytics.md). |
+| `RATELIMIT_GEOIP_PATH` | `None` | Path to a GeoLite2/GeoIP2 `.mmdb` for [geographic limiting](geographic.md). |
+| `RATELIMIT_ALERT_THRESHOLD` | unset | Min blocked requests before an [offender alert](analytics.md) fires. |
+| `RATELIMIT_ALERT_EMAILS` | unset | Recipient list for offender email alerts. |
+| `RATELIMIT_ALERT_WEBHOOK` | unset | Webhook URL for offender alerts (POSTed JSON). |
+| `RATELIMIT_STATSD` | `{}` | StatsD exporter config (`ENABLED`/`HOST`/`PORT`/`PREFIX`); see [Observability](observability.md). |
+
+```python
+# settings.py — example: dynamic rules + user tiers + event logging
+RATELIMIT_USE_DYNAMIC_RULES = True
+RATELIMIT_RULE_CACHE_TIMEOUT = 60
+RATELIMIT_USE_USER_TIERS = True
+RATELIMIT_LOG_EVENTS = True
+
+# Geographic limiting
+RATELIMIT_GEOIP_PATH = "/var/lib/GeoIP/GeoLite2-City.mmdb"
+
+# Offender alerting (run `manage.py ratelimit_alerts` from cron)
+RATELIMIT_ALERT_THRESHOLD = 500
+RATELIMIT_ALERT_EMAILS = ["secops@example.com"]
+RATELIMIT_ALERT_WEBHOOK = "https://hooks.example.com/ratelimit"
+
+# StatsD / DogStatsD metrics
+RATELIMIT_STATSD = {"ENABLED": True, "HOST": "127.0.0.1", "PORT": 8125}
+```
+
 ## Custom Configuration
 
 You can add custom configuration values using the `RATELIMIT_CONFIG_` prefix:

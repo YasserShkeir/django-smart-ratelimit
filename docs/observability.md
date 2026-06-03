@@ -195,6 +195,50 @@ metrics.set_backend_health("redis", healthy=True)
 metrics.set_active_keys("redis", count=1_234)
 ```
 
+## StatsD
+
+For push-based monitoring (StatsD / DogStatsD / Datadog agent), a dependency-free
+UDP exporter mirrors the Prometheus API. It is fire-and-forget: network failures
+are swallowed and never affect request handling.
+
+### Configuration: RATELIMIT_STATSD
+
+```python
+# settings.py
+RATELIMIT_STATSD = {
+    "ENABLED": True,
+    "HOST": "127.0.0.1",
+    "PORT": 8125,
+    "PREFIX": "django_ratelimit",  # metric name prefix
+}
+```
+
+With `ENABLED` off (the default), the exporter is a no-op.
+
+### Emitted metrics
+
+`record_request()` emits a `requests` counter (tagged `backend` and
+`result=allowed|denied`), a `requests_denied` counter on denials, and a
+`request_duration` timer (milliseconds). Gauges are available for backend
+health, circuit-breaker state, and active key counts. DogStatsD-style
+`|#tag:value` tags are included.
+
+### Programmatic access
+
+```python
+from django_smart_ratelimit.statsd import get_statsd_metrics
+
+metrics = get_statsd_metrics()
+metrics.record_request("ip:1.2.3.4", backend="redis", allowed=False,
+                       duration_seconds=0.004)
+metrics.set_backend_health("redis", healthy=True)
+```
+
+> **Grafana:** scrape the Prometheus `/metrics` endpoint with a Prometheus data
+> source, or send StatsD metrics to a Datadog/Graphite source. The metric names
+> above (`*_requests`, `*_requests_denied`, `*_request_duration`) are what you
+> graph.
+
 ## See Also
 
 - [Decorator](decorator.md) — `shadow=True` for safe rollouts.
