@@ -88,6 +88,9 @@ class RateLimitSettings:
     # Analytics event logging (Phase 4)
     log_events: bool = False
 
+    # Geographic rate limiting (Phase 5.4): path to a GeoLite2/GeoIP2 .mmdb
+    geoip_path: Optional[str] = None
+
     # Custom/Dynamic Configs (RATELIMIT_CONFIG_*)
     custom_configs: Dict[str, Any] = field(default_factory=dict)
 
@@ -146,6 +149,7 @@ class RateLimitSettings:
             ),
             use_user_tiers=getattr(django_settings, "RATELIMIT_USE_USER_TIERS", False),
             log_events=getattr(django_settings, "RATELIMIT_LOG_EVENTS", False),
+            geoip_path=getattr(django_settings, "RATELIMIT_GEOIP_PATH", None),
             exception_handler=getattr(
                 django_settings, "RATELIMIT_EXCEPTION_HANDLER", None
             ),
