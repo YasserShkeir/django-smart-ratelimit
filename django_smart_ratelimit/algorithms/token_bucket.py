@@ -230,8 +230,10 @@ class TokenBucketAlgorithm(RateLimitAlgorithm):
 
             # Calculate tokens to add based on time elapsed
             # Formula: elapsed_time * refill_rate
-            # This implements the "leaky bucket" refill pattern where tokens drip in
-            time_elapsed = current_time - bucket_data["last_refill"]
+            # This implements the "leaky bucket" refill pattern where tokens drip in.
+            # Clamp at 0 so a wall-clock step backward (NTP correction, etc.) never
+            # *removes* tokens and spuriously rate-limits a client.
+            time_elapsed = max(0.0, current_time - bucket_data["last_refill"])
             tokens_to_add = time_elapsed * refill_rate
 
             # Update token count (cannot exceed bucket size)

@@ -191,8 +191,10 @@ class LeakyBucketAlgorithm(RateLimitAlgorithm):
         except (json.JSONDecodeError, AttributeError):
             bucket_data = {"level": self.initial_level, "last_leak": current_time}
 
-        # Calculate how much has leaked since last update
-        time_elapsed = current_time - bucket_data["last_leak"]
+        # Calculate how much has leaked since last update. Clamp at 0 so a
+        # wall-clock step backward never *adds* to the level (which would
+        # spuriously reject traffic).
+        time_elapsed = max(0.0, current_time - bucket_data["last_leak"])
         leaked_amount = time_elapsed * leak_rate
 
         # Update bucket level (cannot go below 0)

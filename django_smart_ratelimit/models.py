@@ -44,7 +44,7 @@ class RateLimitCounter(models.Model):
         db_index=True,
         help_text="Rate limit key (e.g., 'ip:192.168.1.1', 'user:42')",
     )
-    count: "models.PositiveIntegerField[int, int]" = models.PositiveIntegerField(
+    count: "models.PositiveBigIntegerField[int, int]" = models.PositiveBigIntegerField(
         default=0,
         help_text="Number of requests in this window",
     )
@@ -243,8 +243,10 @@ class RateLimitTokenBucket(models.Model):
     last_update: "models.DateTimeField[datetime, datetime]" = models.DateTimeField(
         help_text="When the bucket was last updated",
     )
-    bucket_size: "models.PositiveIntegerField[int, int]" = models.PositiveIntegerField(
-        help_text="Maximum capacity of the bucket",
+    bucket_size: "models.PositiveBigIntegerField[int, int]" = (
+        models.PositiveBigIntegerField(
+            help_text="Maximum capacity of the bucket",
+        )
     )
     refill_rate: "models.FloatField[float, float]" = models.FloatField(
         help_text="Tokens added per second",
@@ -386,8 +388,8 @@ class RateLimitLeakyBucket(models.Model):
     last_leak: "models.DateTimeField[datetime, datetime]" = models.DateTimeField(
         help_text="When the bucket was last updated",
     )
-    bucket_capacity: "models.PositiveIntegerField[int, int]" = (
-        models.PositiveIntegerField(
+    bucket_capacity: "models.PositiveBigIntegerField[int, int]" = (
+        models.PositiveBigIntegerField(
             help_text="Maximum capacity of the bucket",
         )
     )

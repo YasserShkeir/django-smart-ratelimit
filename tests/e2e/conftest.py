@@ -100,6 +100,25 @@ skip_without_redis = pytest.mark.skipif(not REDIS_UP, reason="live Redis unavail
 skip_without_mongo = pytest.mark.skipif(not MONGO_UP, reason="live MongoDB unavailable")
 
 
+def _db_is_postgres():
+    try:
+        from django.db import connection
+
+        return connection.vendor == "postgresql"
+    except Exception:
+        return False
+
+
+# Database concurrency / atomicity behavior only reproduces on a backend that
+# allows concurrent writers (PostgreSQL / MySQL). The default test DB is SQLite
+# (:memory:), which serializes writers, so those tests are skipped unless the
+# suite is pointed at PostgreSQL via DATABASE_URL.
+skip_unless_postgres = pytest.mark.skipif(
+    not _db_is_postgres(),
+    reason="requires PostgreSQL (set DATABASE_URL); SQLite serializes writers",
+)
+
+
 @pytest.fixture(autouse=True)
 def _clear_backend_cache_between_tests():
     """Safety net: drop any cached backend after every e2e test.

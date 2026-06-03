@@ -13,6 +13,7 @@ Features:
 - Integration with Django's database connection pooling
 """
 
+import hashlib
 import logging
 import threading
 from datetime import timedelta
@@ -218,28 +219,64 @@ class DatabaseBackend(BaseBackend):
             return counter.count
 
     def _incr_sliding_window(self, key: str, period: int) -> int:
-        """Increment counter using sliding window algorithm."""
+        """Increment counter using sliding window algorithm.
+
+        Serializes concurrent increments for the SAME key so the create-then-count
+        sequence is atomic. Without a lock, under READ COMMITTED (the PostgreSQL
+        and MySQL/InnoDB default) two simultaneous transactions each miss the
+        other's not-yet-committed INSERT when they ``count()``, so both can see a
+        count <= limit and both be admitted -- letting the limit be exceeded by
+        the number of concurrent in-flight requests (an exploitable bypass for a
+        security limit like login throttling). A per-key advisory lock
+        (PostgreSQL ``pg_advisory_xact_lock`` / MySQL ``GET_LOCK``) makes it
+        atomic. SQLite serializes writers already, so it needs no extra lock.
+        """
         from ..models import RateLimitEntry
 
         now = timezone.now()
         window_start = now - timedelta(seconds=period)
         expires_at = now + timedelta(seconds=period)
 
-        with transaction.atomic():
-            # Add new entry
+        def _create_and_count() -> int:
             RateLimitEntry.objects.create(
                 key=key,
                 timestamp=now,
                 expires_at=expires_at,
             )
-
-            # Count entries in window
-            count = RateLimitEntry.objects.filter(
+            return RateLimitEntry.objects.filter(
                 key=key,
                 timestamp__gte=window_start,
             ).count()
 
-            return count
+        vendor = connection.vendor
+
+        if vendor == "mysql":
+            # GET_LOCK is session-scoped (not released at transaction end), so
+            # acquire it around the transaction and release it explicitly.
+            lock_name = self._key_lock_name(key)
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT GET_LOCK(%s, 10)", [lock_name])
+            try:
+                with transaction.atomic():
+                    return _create_and_count()
+            finally:
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT RELEASE_LOCK(%s)", [lock_name])
+
+        with transaction.atomic():
+            if vendor == "postgresql":
+                # Transaction-scoped advisory lock: auto-released on commit/abort.
+                with connection.cursor() as cursor:
+                    cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [key])
+            return _create_and_count()
+
+    @staticmethod
+    def _key_lock_name(key: str) -> str:
+        """A stable, <=64-char advisory-lock name for a rate-limit key (MySQL)."""
+        digest = hashlib.sha1(  # nosec B324 - lock-name hash, not security
+            key.encode("utf-8"), usedforsecurity=False
+        ).hexdigest()
+        return f"dsr:{digest[:48]}"
 
     def reset(self, key: str) -> None:
         """

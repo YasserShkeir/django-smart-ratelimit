@@ -1,7 +1,5 @@
 """Tests for Prometheus metrics integration."""
 
-from unittest.mock import MagicMock
-
 import pytest
 
 from django.http import HttpResponse
@@ -261,10 +259,11 @@ class TestPrometheusMetricsMiddleware(TestCase):
 
     @override_settings(RATELIMIT_PROMETHEUS={"ENABLED": True, "PREFIX": "test_mw"})
     def test_middleware_records_ratelimit_info(self):
-        ratelimit_info = MagicMock()
-        ratelimit_info.key = "user:1"
-        ratelimit_info.backend = "memory"
-        ratelimit_info.limited = False
+        from types import SimpleNamespace
+
+        ratelimit_info = SimpleNamespace(
+            key="user:1", backend_name="memory", allowed=True, check_duration=0.001
+        )
 
         def get_response(request):
             request.ratelimit = ratelimit_info
@@ -304,10 +303,14 @@ class TestPrometheusMetricsMiddleware(TestCase):
 
     @override_settings(RATELIMIT_PROMETHEUS={"ENABLED": True, "PREFIX": "test_mw"})
     def test_middleware_records_denied(self):
-        ratelimit_info = MagicMock()
-        ratelimit_info.key = "ip:192.168.1.1"
-        ratelimit_info.backend = "redis"
-        ratelimit_info.limited = True
+        from types import SimpleNamespace
+
+        ratelimit_info = SimpleNamespace(
+            key="ip:192.168.1.1",
+            backend_name="redis",
+            allowed=False,
+            check_duration=0.001,
+        )
 
         def get_response(request):
             request.ratelimit = ratelimit_info

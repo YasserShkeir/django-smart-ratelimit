@@ -148,24 +148,16 @@ class TestPrometheusRealTraffic:
     ``test_prometheus_middleware_auto_emits_denials`` below.
     """
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "BUG: PrometheusMetricsMiddleware reads request.ratelimit.limited, but "
-            "the decorator attaches a RateLimitContext that exposes .allowed (and "
-            "leaves .backend unset). So every request -- including denials -- is "
-            'recorded as result="allowed", backend="unknown", and auto-'
-            "instrumentation cannot distinguish allowed from denied. Remove this "
-            "xfail when the middleware is fixed to read .allowed / a real backend."
-        ),
-    )
     def test_prometheus_middleware_auto_emits_denials(self, real_backend):
         """TRUE auto-emit: traffic through the shipped middleware, no manual call.
 
         Installs ``PrometheusMetricsMiddleware`` around a real 2/min ``@rate_limit``
         view, drives 5 real requests (2 allowed, 3 denied on the live store), and
-        scrapes the singleton WITHOUT any ``record_request`` call. Correct behavior
-        is 2 allowed + 3 denied; this currently xfails (see reason).
+        scrapes the singleton WITHOUT any ``record_request`` call. The middleware
+        now reads the context's ``allowed`` / ``backend_name`` (it used to read a
+        non-existent ``limited`` / ``backend`` and record every request as
+        allowed/unknown), so denials are recorded as denied with a real backend
+        label. (Fixed in v4.1.0; previously a strict xfail.)
         """
         PrometheusMetrics.reset()
         view = _build_view("2/m")
@@ -184,6 +176,16 @@ class TestPrometheusRealTraffic:
         )
         assert allowed == 2.0
         assert denied == 3.0
+        # The backend label is the real backend class, not "unknown".
+        assert (
+            _counter_value(
+                text,
+                "django_ratelimit_requests_total",
+                result="denied",
+                backend="unknown",
+            )
+            is None
+        )
 
     def test_request_and_denied_counters_increase_on_real_backend(self, real_backend):
         """Public API endpoint: 3/min per IP.

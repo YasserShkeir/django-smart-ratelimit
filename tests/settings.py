@@ -8,12 +8,31 @@ import os
 
 DEBUG = True
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": ":memory:",
+# Default to in-memory SQLite, but honor a DATABASE_URL (postgres://...) so CI
+# can run the suite against a real PostgreSQL service -- needed to exercise the
+# concurrency/atomicity behavior that SQLite (which serializes writers) cannot.
+_DATABASE_URL = os.environ.get("DATABASE_URL", "")
+if _DATABASE_URL.startswith(("postgres://", "postgresql://")):
+    from urllib.parse import urlparse as _urlparse
+
+    _parsed = _urlparse(_DATABASE_URL)
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": _parsed.path.lstrip("/") or "test",
+            "USER": _parsed.username or "",
+            "PASSWORD": _parsed.password or "",
+            "HOST": _parsed.hostname or "localhost",
+            "PORT": str(_parsed.port or 5432),
+        }
     }
-}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": ":memory:",
+        }
+    }
 
 INSTALLED_APPS = [
     "django.contrib.auth",
