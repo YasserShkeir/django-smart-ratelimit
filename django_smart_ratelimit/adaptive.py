@@ -272,7 +272,7 @@ class TimeOfDayIndicator(LoadIndicator):
         if not self._use_utc:
             try:
                 now = timezone.localtime(now)
-            except Exception:  # pragma: no cover - USE_TZ=False / naive datetime
+            except Exception:  # nosec B110 # pragma: no cover - USE_TZ=False
                 pass
         return self._peak_load if now.hour in self._peak_hours else self._off_peak_load
 

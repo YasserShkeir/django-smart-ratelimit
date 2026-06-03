@@ -224,7 +224,7 @@ class RedisBackendTestMixin:
         """Assert that Redis ping was called."""
         self.mock_redis_client.ping.assert_called()
 
-    def assert_redis_script_load_called(self, expected_count: int = 4):
+    def assert_redis_script_load_called(self, expected_count: int = 6):
         """Assert that Redis script_load was called expected number of times."""
         self.assertEqual(self.mock_redis_client.script_load.call_count, expected_count)
 

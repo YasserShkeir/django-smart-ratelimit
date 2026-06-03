@@ -128,40 +128,40 @@ class StatsDMetrics:
         deliberately not used as a tag (per-key tags cause unbounded
         cardinality).
         """
-        if not self.enabled:
+        client = self._client
+        if not self._enabled or client is None:
             return
-        assert self._client is not None
         result = "allowed" if allowed else "denied"
-        self._client.incr("requests", tags={"backend": backend, "result": result})
+        client.incr("requests", tags={"backend": backend, "result": result})
         if not allowed:
-            self._client.incr("requests_denied", tags={"backend": backend})
-        self._client.timing(
+            client.incr("requests_denied", tags={"backend": backend})
+        client.timing(
             "request_duration", duration_seconds * 1000.0, tags={"backend": backend}
         )
 
     def set_backend_health(self, backend: str, healthy: bool) -> None:
         """Record backend health as a 0/1 gauge."""
-        if not self.enabled:
+        client = self._client
+        if not self._enabled or client is None:
             return
-        assert self._client is not None
-        self._client.gauge("backend_healthy", 1 if healthy else 0, {"backend": backend})
+        client.gauge("backend_healthy", 1 if healthy else 0, {"backend": backend})
 
     def set_circuit_breaker_state(self, backend: str, state: str) -> None:
         """Record circuit-breaker state (closed=0, half-open=1, open=2)."""
-        if not self.enabled:
+        client = self._client
+        if not self._enabled or client is None:
             return
-        assert self._client is not None
         state_map = {"closed": 0, "half-open": 1, "open": 2}
-        self._client.gauge(
+        client.gauge(
             "circuit_breaker_state", state_map.get(state, 0), {"backend": backend}
         )
 
     def set_active_keys(self, backend: str, count: int) -> None:
         """Record the number of active rate-limit keys."""
-        if not self.enabled:
+        client = self._client
+        if not self._enabled or client is None:
             return
-        assert self._client is not None
-        self._client.gauge("active_keys", float(count), {"backend": backend})
+        client.gauge("active_keys", float(count), {"backend": backend})
 
     @classmethod
     def reset(cls) -> None:

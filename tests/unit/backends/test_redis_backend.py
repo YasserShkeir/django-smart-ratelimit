@@ -53,7 +53,7 @@ class RedisBackendTests(TestCase):
         self.assertIsInstance(backend, self.RedisBackend)
         self.mock_redis_module.Redis.assert_called_once()
         self.mock_redis_client.ping.assert_called_once()
-        self.assertEqual(self.mock_redis_client.script_load.call_count, 4)
+        self.assertEqual(self.mock_redis_client.script_load.call_count, 6)
 
     def test_redis_backend_initialization_no_redis_module(self):
         """Test Redis backend initialization when redis module is not available."""
@@ -378,9 +378,9 @@ class RedisBackendScriptTests(TestCase):
         """Test that sliding window script is loaded correctly."""
         self.RedisBackend()  # Just test script loading
 
-        # Verify script_load was called 4 times
-        # (sliding + fixed window + token bucket + token bucket info)
-        self.assertEqual(self.mock_redis_client.script_load.call_count, 4)
+        # Verify script_load was called 6 times
+        # (sliding + fixed + token + token info + leaky + leaky info)
+        self.assertEqual(self.mock_redis_client.script_load.call_count, 6)
 
         # Verify sliding window script is not empty
         calls = self.mock_redis_client.script_load.call_args_list
@@ -393,9 +393,9 @@ class RedisBackendScriptTests(TestCase):
         """Test that fixed window script is loaded correctly."""
         self.RedisBackend()  # Just test script loading
 
-        # Verify script_load was called 4 times
-        # (sliding + fixed window + token bucket + token bucket info)
-        self.assertEqual(self.mock_redis_client.script_load.call_count, 4)
+        # Verify script_load was called 6 times
+        # (sliding + fixed + token + token info + leaky + leaky info)
+        self.assertEqual(self.mock_redis_client.script_load.call_count, 6)
 
         # Verify fixed window script is not empty
         calls = self.mock_redis_client.script_load.call_args_list

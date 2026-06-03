@@ -198,7 +198,7 @@ def send_offender_alerts(
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
-            urllib.request.urlopen(req, timeout=5)  # nosec B310 - operator-set URL
+            urllib.request.urlopen(req, timeout=5)  # nosec B310
             result["channels"]["webhook"] = {"sent": True, "url": webhook_url}
         except Exception as exc:  # pragma: no cover - network dependent
             logger.warning("offender webhook alert failed: %s", exc)
