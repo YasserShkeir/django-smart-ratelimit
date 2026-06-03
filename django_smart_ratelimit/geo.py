@@ -97,7 +97,7 @@ def get_geo_provider() -> GeoProvider:
         try:
             _provider = MaxMindProvider(db_path)
             return _provider
-        except Exception:  # pragma: no cover - bad path / missing dep
+        except Exception:  # nosec B110 # pragma: no cover - bad path / missing dep
             pass
     _provider = NullGeoProvider()
     return _provider
