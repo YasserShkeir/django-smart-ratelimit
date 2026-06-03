@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.3.0] - 2026-06-03
+
+Roadmap Phase 3: **user-aware rate limiting** — tiers, Django-group mapping,
+per-user overrides, and API keys. Opt-in via `RATELIMIT_USE_USER_TIERS`; fully
+backward compatible.
+
+### Added
+
+- **Tiers** — `UserTier` (a `rate_multiplier` and/or per-scope `explicit_limits`)
+  and `UserTierAssignment` (assign a user to a tier, with an optional expiry).
+  `django_smart_ratelimit.tiers.get_user_tier()` / `apply_tier_to_rate()` /
+  `resolve_effective_user_rate()`.
+- **Django groups** — `GroupRateLimit` maps an `auth.Group` to a tier;
+  `groups.get_tier_from_groups()` resolves a user's tier from their groups (used
+  as the fallback when there's no explicit assignment) and `groups.group_key()` is
+  a group-based key function.
+- **Per-user overrides** — `UserRateLimitOverride`, a time-bounded
+  (`starts_at`/`expires_at`) per-user rate that takes precedence over tiers; a
+  scope-specific (`rule_name`) override beats a blanket one.
+- **API keys** — an optional `APIKey` model (key → user/tier), plus
+  `api_keys.extract_api_key()` (header / query / Bearer), `get_api_key_record()`
+  (with `last_used_at` touch), `api_key_key()` key function, and
+  `get_api_key_tier()`.
+- **Middleware integration** — with `RATELIMIT_USE_USER_TIERS = True`, an
+  authenticated request is resolved at its effective rate (override → tier → base)
+  **and limited in its own per-user bucket**, so users at different tiers sharing
+  an IP don't interfere. Anonymous requests are unaffected.
+- Django admin for all five models. Migration `0005`.
+
+### Settings
+
+- `RATELIMIT_USE_USER_TIERS` (default `False`).
+
 ## [4.2.0] - 2026-06-03
 
 Roadmap Phase 2: **dynamic, database-backed rate-limit rules** — define and change
