@@ -11,7 +11,7 @@ Supported databases:
 """
 
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from django.db import models
@@ -762,3 +762,68 @@ class APIKey(models.Model):
 
     def __str__(self) -> str:
         return f"{self.name} ({self.key[:8]}...)"
+
+
+class RateLimitEvent(models.Model):
+    """A recorded rate-limit decision, for historical reporting and analytics.
+
+    Recorded by the middleware when ``RATELIMIT_LOG_EVENTS`` is enabled. One row
+    per request is written, so enable it deliberately and prune old rows (the
+    ``ratelimit_cleanup`` command and TTL-style age cutoff handle this).
+    """
+
+    timestamp: "models.DateTimeField[datetime, datetime]" = models.DateTimeField(
+        auto_now_add=True, db_index=True
+    )
+    key: "models.CharField[str, str]" = models.CharField(max_length=255, db_index=True)
+    rule_name: "models.CharField[str, str]" = models.CharField(
+        max_length=100, blank=True
+    )
+    path: "models.CharField[str, str]" = models.CharField(max_length=500)
+    method: "models.CharField[str, str]" = models.CharField(max_length=10)
+
+    # Outcome
+    allowed: "models.BooleanField[bool, bool]" = models.BooleanField()
+    count: "models.PositiveBigIntegerField[int, int]" = models.PositiveBigIntegerField()
+    limit: "models.PositiveBigIntegerField[int, int]" = models.PositiveBigIntegerField()
+
+    # Optional context
+    ip_address: Any = models.GenericIPAddressField(null=True, blank=True)
+    user_id: "models.PositiveBigIntegerField[int, int]" = (
+        models.PositiveBigIntegerField(null=True, blank=True)
+    )
+
+    class Meta:
+        """Index for time-range, per-key, and allowed/blocked reporting."""
+
+        ordering = ["-timestamp"]
+        indexes = [
+            models.Index(fields=["timestamp"], name="ratelimit_event_ts"),
+            models.Index(fields=["key", "timestamp"], name="ratelimit_event_key_ts"),
+            models.Index(
+                fields=["allowed", "timestamp"], name="ratelimit_event_allowed_ts"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        verb = "allowed" if self.allowed else "blocked"
+        return f"{self.key} {verb} @ {self.timestamp:%Y-%m-%d %H:%M}"
+
+    @classmethod
+    def cleanup_old(cls, older_than_days: int = 30, batch_size: int = 1000) -> int:
+        """Delete events older than ``older_than_days``; return the count."""
+        cutoff = timezone.now() - timedelta(days=older_than_days)
+        total = 0
+        while True:
+            ids = list(
+                cls.objects.filter(timestamp__lt=cutoff).values_list("id", flat=True)[
+                    :batch_size
+                ]
+            )
+            if not ids:
+                break
+            deleted, _ = cls.objects.filter(id__in=ids).delete()
+            total += deleted
+            if deleted < batch_size:
+                break
+        return total

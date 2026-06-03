@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.4.0] - 2026-06-03
+
+Roadmap Phase 4: **analytics & monitoring** — event logging, aggregations, an
+offender report, and a staff dashboard. Opt-in via `RATELIMIT_LOG_EVENTS`; fully
+backward compatible.
+
+### Added
+
+- **`RateLimitEvent` model** (migration `0006`) — one row per middleware decision
+  (timestamp, key, rule_name, path, method, allowed, count, limit, ip, user_id),
+  indexed for time-range / per-key / allowed-vs-blocked reporting. Recorded only
+  when `RATELIMIT_LOG_EVENTS = True` (best-effort; logging never breaks a request).
+  `RateLimitEvent.cleanup_old(older_than_days=...)` prunes history.
+- **Aggregations** (`django_smart_ratelimit.analytics`): `get_traffic_summary()`
+  (total / allowed / blocked / block-rate), `get_top_offenders()` (most-blocked
+  keys), `get_rule_hit_counts()` (per-rule hits + blocks), and `offenders_csv()`.
+- **Dashboard** — a staff-only `RateLimitDashboardView` (dependency-free HTML
+  template, date-range filter) and a CSV export view, wired via
+  `path("ratelimit/", include("django_smart_ratelimit.urls"))`.
+- Read-only Django admin for `RateLimitEvent`.
+
+### Settings
+
+- `RATELIMIT_LOG_EVENTS` (default `False`).
+
 ## [4.3.0] - 2026-06-03
 
 Roadmap Phase 3: **user-aware rate limiting** — tiers, Django-group mapping,

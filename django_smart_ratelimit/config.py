@@ -85,6 +85,9 @@ class RateLimitSettings:
     # User tiers / per-user overrides (Phase 3)
     use_user_tiers: bool = False
 
+    # Analytics event logging (Phase 4)
+    log_events: bool = False
+
     # Custom/Dynamic Configs (RATELIMIT_CONFIG_*)
     custom_configs: Dict[str, Any] = field(default_factory=dict)
 
@@ -142,6 +145,7 @@ class RateLimitSettings:
                 django_settings, "RATELIMIT_RULE_CACHE_TIMEOUT", 60
             ),
             use_user_tiers=getattr(django_settings, "RATELIMIT_USE_USER_TIERS", False),
+            log_events=getattr(django_settings, "RATELIMIT_LOG_EVENTS", False),
             exception_handler=getattr(
                 django_settings, "RATELIMIT_EXCEPTION_HANDLER", None
             ),
