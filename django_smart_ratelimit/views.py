@@ -2,7 +2,11 @@
 Views for Django Smart Ratelimit.
 """
 
-from django.http import HttpRequest, HttpResponseBase, JsonResponse
+from django.http import HttpRequest, JsonResponse
+
+# HttpResponseBase lives in django.http.response in all supported versions;
+# django.http only re-exports it on newer Django (not 3.2).
+from django.http.response import HttpResponseBase
 
 from .config import get_settings
 from .performance import get_metrics
