@@ -18,6 +18,7 @@ nav:
       - Configuration: configuration.md
       - Migration: migration.md
       - Backends: backends.md
+      - Database Backend: database_backend.md
       - Algorithms: algorithms.md
       - Decorator: decorator.md
       - DRF: drf.md
@@ -25,6 +26,13 @@ nav:
       - Error Handling: error_handling.md
       - Observability: observability.md
       - Deployment: deployment.md
+  - Features:
+      - Dynamic Rules: dynamic_rules.md
+      - User Tiers: user_tiers.md
+      - Analytics: analytics.md
+      - Geographic: geographic.md
+      - Multi-Tenant: multi_tenant.md
+      - GraphQL: graphql.md
   - Design: design.md
 
 markdown_extensions:

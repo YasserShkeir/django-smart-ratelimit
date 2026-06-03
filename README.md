@@ -23,7 +23,12 @@ A high-performance rate limiting library for Django. Protects your APIs from abu
 - **Observability** -- Prometheus `/metrics`, OpenTelemetry spans and metrics, and structured JSON logging ([docs](https://django-smart-ratelimit.readthedocs.io/en/latest/installation/))
 - **Type-Safe Enums** -- Optional `Algorithm` and `RateLimitKey` enums for autocomplete and typo-proof config
 - **Configurable Proxy Trust** -- `RATELIMIT_TRUSTED_PROXIES` for spoof-resistant client IP extraction behind load balancers (new in v3.1)
-- **Adaptive Rate Limiting** -- Dynamic limits based on CPU, memory, latency, and custom load indicators
+- **Adaptive Rate Limiting** -- Dynamic limits based on CPU, memory, latency, time-of-day, and custom load indicators
+- **Dynamic Rules** -- Define and change limits at runtime from the Django admin, no redeploy ([docs](https://django-smart-ratelimit.readthedocs.io/en/latest/dynamic_rules/))
+- **User-Aware Limiting** -- Per-user tiers, Django-group mapping, temporary overrides, and API-key tiers ([docs](https://django-smart-ratelimit.readthedocs.io/en/latest/user_tiers/))
+- **Analytics & Alerting** -- Event logging, a staff dashboard, offender reports, and email/webhook alerts ([docs](https://django-smart-ratelimit.readthedocs.io/en/latest/analytics/))
+- **Geographic & Multi-Tenant** -- Per-country rates and per-tenant quotas ([geo](https://django-smart-ratelimit.readthedocs.io/en/latest/geographic/), [tenants](https://django-smart-ratelimit.readthedocs.io/en/latest/multi_tenant/))
+- **GraphQL** -- Graphene middleware and a Strawberry extension with query-complexity weighting ([docs](https://django-smart-ratelimit.readthedocs.io/en/latest/graphql/))
 
 ## Quick Start
 
@@ -120,6 +125,10 @@ Full documentation is hosted on Read the Docs:
 | [Algorithms](https://django-smart-ratelimit.readthedocs.io/en/latest/algorithms/) | Deep dive into token bucket, sliding window, and more |
 | [Backends](https://django-smart-ratelimit.readthedocs.io/en/latest/backends/) | Redis, async Redis, memory, MongoDB, and the Django ORM database backend |
 | [Configuration](https://django-smart-ratelimit.readthedocs.io/en/latest/configuration/) | Advanced settings, CIDR lists, proxy trust, and circuit breakers |
+| [Dynamic Rules](https://django-smart-ratelimit.readthedocs.io/en/latest/dynamic_rules/) | Runtime, admin-editable rate-limit rules |
+| [User Tiers](https://django-smart-ratelimit.readthedocs.io/en/latest/user_tiers/) | Tiers, groups, per-user overrides, and API-key tiers |
+| [Analytics](https://django-smart-ratelimit.readthedocs.io/en/latest/analytics/) | Event logging, dashboard, offender reports, and alerting |
+| [Geographic](https://django-smart-ratelimit.readthedocs.io/en/latest/geographic/) / [Multi-Tenant](https://django-smart-ratelimit.readthedocs.io/en/latest/multi_tenant/) / [GraphQL](https://django-smart-ratelimit.readthedocs.io/en/latest/graphql/) | Per-country, per-tenant, and GraphQL limiting |
 | [Deployment](https://django-smart-ratelimit.readthedocs.io/en/latest/deployment/) | Running in production behind proxies and load balancers |
 | [Design Philosophy](https://django-smart-ratelimit.readthedocs.io/en/latest/design/) | Architecture decisions and comparison with alternatives |
 
@@ -127,8 +136,8 @@ Full documentation is hosted on Read the Docs:
 
 | | Supported Versions |
 | :--- | :--- |
-| Python | 3.9, 3.10, 3.11, 3.12, 3.13 |
-| Django | 3.2, 4.0, 4.1, 4.2, 5.0, 5.1 |
+| Python | 3.9, 3.10, 3.11, 3.12, 3.13, 3.14 |
+| Django | 3.2, 4.2, 5.0, 5.1, 5.2, 6.0 |
 
 ## Contributing
 
