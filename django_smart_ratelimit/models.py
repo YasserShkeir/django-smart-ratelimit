@@ -869,3 +869,48 @@ class TenantQuota(models.Model):
         """Validate before saving."""
         self.full_clean()
         super().save(*args, **kwargs)
+
+
+class Quota(models.Model):
+    """Cumulative long-horizon usage quota (roadmap #76).
+
+    Tracks total usage per key over a calendar period (day/week/month/year, or a
+    number of days), resetting at the period boundary. Powers the ``@quota``
+    decorator and the usage-introspection API.
+    """
+
+    key: "models.CharField[str, str]" = models.CharField(max_length=255, db_index=True)
+    scope: "models.CharField[str, str]" = models.CharField(
+        max_length=100, blank=True, default="", help_text="Namespaces quotas."
+    )
+    used: "models.PositiveBigIntegerField[int, int]" = models.PositiveBigIntegerField(
+        default=0
+    )
+    limit: "models.PositiveBigIntegerField[int, int]" = models.PositiveBigIntegerField()
+    period: "models.CharField[str, str]" = models.CharField(
+        max_length=20, help_text="day | week | month | year | <N>d"
+    )
+    period_start: "models.DateTimeField[datetime, datetime]" = models.DateTimeField()
+    reset_at: "models.DateTimeField[datetime, datetime]" = models.DateTimeField(
+        db_index=True
+    )
+    updated_at: "models.DateTimeField[datetime, datetime]" = models.DateTimeField(
+        auto_now=True
+    )
+
+    class Meta:
+        """One row per (key, scope); indexed for lookup and reset sweeps."""
+
+        unique_together = [["key", "scope"]]
+        indexes = [
+            models.Index(fields=["key", "scope"]),
+            models.Index(fields=["reset_at"]),
+        ]
+        ordering = ["key"]
+
+    def __str__(self) -> str:
+        return f"{self.key}: {self.used}/{self.limit} per {self.period}"
+
+    def remaining(self) -> int:
+        """Units left before the quota is exhausted."""
+        return max(0, self.limit - self.used)

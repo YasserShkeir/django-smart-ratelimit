@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.11.0] - 2026-06-05
+
+Second of the high-leverage additive features from the post-4.x roadmap (#76):
+**quota management**. Additive and opt-in.
+
+### Added
+
+- **`@quota(key=..., limit=10000, period="month")`** — enforce cumulative usage
+  over a long, calendar-aligned period (vs requests per short window), e.g.
+  "10,000 requests/month per API key". Usage is tracked in the new `Quota` model
+  (so it survives restarts and is editable in the admin). Periods: `day`, `week`
+  (Monday-aligned), `month`, `year` (calendar-aligned), or `"<N>d"` / an int for
+  a rolling N-day window. Supports `scope` (independent quotas per key), `cost`
+  (int or callable), `block=False`, sync and async views, and the same `key`
+  forms as `@rate_limit`.
+- **Introspection / programmatic API**: `consume_quota()`, `get_quota_usage()`
+  (returns `used` / `limit` / `remaining` / `reset_at` / `period`), and
+  `reset_quota()`. All exported from the package top level.
+- **`Quota` model** (migration `0008`) with a Django admin (adjustable `limit`,
+  read-only usage).
+- Docs: a Quota Management guide.
+
 ## [4.10.0] - 2026-06-05
 
 First of the high-leverage additive features from the post-4.x roadmap (#76):
