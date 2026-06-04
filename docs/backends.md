@@ -25,6 +25,7 @@ The recognized short aliases (from `backends/factory.py`, `BUILTIN_BACKENDS`) ar
 | `mongodb`     | `django_smart_ratelimit.backends.mongodb.MongoDBBackend`         |
 | `multi`       | `django_smart_ratelimit.backends.multi.MultiBackend`             |
 | `database`    | `django_smart_ratelimit.backends.database.DatabaseBackend`       |
+| `memcached`   | `django_smart_ratelimit.backends.memcached.MemcachedBackend`     |
 
 You can register your own backend under a custom alias with
 `django_smart_ratelimit.backends.factory.register_backend(name, backend_class)`.
@@ -98,6 +99,35 @@ backend with native leaky-bucket support.
 
 - Pros: no extra infrastructure, works with your existing database.
 - Cons: higher per-request overhead than Redis.
+
+### Memcached Backend
+
+**Alias**: `memcached` &nbsp; **Class**: `django_smart_ratelimit.backends.memcached.MemcachedBackend`
+
+Uses Memcached's atomic `add`/`incr` for **clock-aligned fixed-window** counting.
+A good fit if you already run Memcached and want distributed limiting without
+adding Redis. Requires the optional `pymemcache` dependency
+(`pip install django-smart-ratelimit[memcached]`).
+
+```python
+# settings.py
+RATELIMIT_BACKEND = "memcached"
+RATELIMIT_MEMCACHED = {
+    "HOST": "127.0.0.1",
+    "PORT": 11211,
+    # ...or several nodes (consistent-hashed via pymemcache.HashClient):
+    # "SERVERS": ["10.0.0.1:11211", "10.0.0.2:11211"],
+    "CONNECT_TIMEOUT": 1,
+    "TIMEOUT": 1,
+}
+```
+
+- Pros: simple, fast, distributed; reuses an existing Memcached.
+- Cons: **fixed-window only** — Memcached has no server-side scripting, so
+  `sliding_window`, `token_bucket`, and `leaky_bucket` degrade to fixed-window
+  counting. Memcached can also evict keys under memory pressure (a limit may
+  reset early). Use Redis or the database backend if you need sliding windows or
+  bucket algorithms.
 
 ### Memory Backend
 

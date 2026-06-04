@@ -152,6 +152,11 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+      memcached:
+        image: memcached:alpine
+        ports:
+          - 11211:11211
+
       postgres:
         image: postgres:16-alpine
         env:

@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.8.0] - 2026-06-04
+
+Adds a **Memcached backend** — the last open item on the backends roadmap and a
+direct answer to a user request. Additive and opt-in.
+
+### Added
+
+- **`MemcachedBackend`** (`RATELIMIT_BACKEND = "memcached"`) — clock-aligned
+  fixed-window rate limiting on Memcached's atomic `add`/`incr`, for deployments
+  that already run Memcached and want distributed limiting without Redis.
+  Supports a single server or several nodes (consistent-hashed via
+  `pymemcache.HashClient`), honors `fail_open` and the circuit breaker, and
+  sanitizes oversized/whitespace keys. Requires the optional `pymemcache`
+  dependency (`pip install django-smart-ratelimit[memcached]`); registered as the
+  `memcached` alias.
+- New optional extra `memcached` (`pymemcache`).
+- Docs: a Memcached backend section (`docs/backends.md`) and installation extra.
+
+### Notes
+
+- Memcached has no server-side scripting, so `sliding_window`, `token_bucket`,
+  and `leaky_bucket` degrade to fixed-window counting on this backend; use Redis
+  or the database backend when you need sliding windows or bucket algorithms.
+
+### Testing
+
+- Unit tests (`tests/unit/backends/test_memcached_backend.py`), real-backend e2e
+  + real-life scenario tests (`tests/e2e/test_memcached_e2e.py`: login throttle,
+  per-API-key quota, burst, window rollover, fail-open), and a manual
+  verification script (`tests/test_project/scripts/verify_memcached.py`). CI
+  gains a `memcached` service so the live tests run.
+
 ## [4.7.0] - 2026-06-04
 
 Polish release: discoverability and async parity. Additive; no breaking changes.

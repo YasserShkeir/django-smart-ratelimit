@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "django-smart-ratelimit"
-version = "4.7.0"
+version = "4.8.0"
 dynamic = []
 description = "A flexible and efficient rate limiting library for Django applications"
 readme = "README.md"
@@ -52,6 +52,9 @@ redis = [
 mongodb = [
     "pymongo>=4.0",
 ]
+memcached = [
+    "pymemcache>=4.0",
+]
 jwt = [
     "PyJWT>=2.0",
 ]
@@ -75,6 +78,7 @@ all = [
     "redis>=4.0",
     "hiredis>=2.0",
     "pymongo>=4.0",
+    "pymemcache>=4.0",
     "PyJWT>=2.0",
     "djangorestframework>=3.12",
     "prometheus-client>=0.14.0",
@@ -104,6 +108,7 @@ dev = [
     "redis>=4.0",
     "hiredis>=2.0",
     "pymongo>=4.0",
+    "pymemcache>=4.0",
     "prometheus-client>=0.14.0",
     "opentelemetry-api>=1.20.0",
     "opentelemetry-sdk>=1.20.0",
