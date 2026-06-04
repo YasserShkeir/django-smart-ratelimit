@@ -77,6 +77,10 @@ def test_window_rolls_over_and_allows_again():
             return HttpResponse("ok")
 
         ip = "203.0.113.77"
+        # Align to just after a 1s clock boundary so the burst lands entirely in
+        # one window (clock-aligned fixed windows otherwise let a burst straddle
+        # a boundary and admit more than the limit -- a timing flake on CI).
+        time.sleep(1.0 - (time.time() % 1.0) + 0.05)
         first = exhaust(view, 3, ip=ip)
         assert first == [200, 200, 429]
         time.sleep(1.2)  # next clock-aligned 1s window
