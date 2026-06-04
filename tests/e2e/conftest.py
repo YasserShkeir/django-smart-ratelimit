@@ -34,6 +34,7 @@ REDIS = "django_smart_ratelimit.backends.redis_backend.RedisBackend"
 ASYNC_REDIS = "django_smart_ratelimit.backends.redis_backend.AsyncRedisBackend"
 MONGODB = "django_smart_ratelimit.backends.mongodb.MongoDBBackend"
 DATABASE = "django_smart_ratelimit.backends.database.DatabaseBackend"
+MEMCACHED = "django_smart_ratelimit.backends.memcached.MemcachedBackend"
 
 
 def _host_port(env_var, default_host, default_port):
@@ -55,6 +56,19 @@ def _host_port(env_var, default_host, default_port):
 
 REDIS_HOST, REDIS_PORT = _host_port("REDIS_URL", "localhost", 6379)
 MONGO_HOST, MONGO_PORT = _host_port("MONGODB_URL", "localhost", 27017)
+MEMCACHED_HOST = os.environ.get("MEMCACHED_HOST", "localhost")
+MEMCACHED_PORT = int(os.environ.get("MEMCACHED_PORT", "11211"))
+
+
+def memcached_available():
+    try:
+        from pymemcache.client.base import Client
+
+        c = Client((MEMCACHED_HOST, MEMCACHED_PORT), connect_timeout=1, timeout=1)
+        c.set(b"__e2e_probe__", b"1", expire=2)
+        return c.get(b"__e2e_probe__") == b"1"
+    except Exception:
+        return False
 
 
 def redis_available():
@@ -81,13 +95,22 @@ def mongo_available():
 
 REDIS_UP = redis_available()
 MONGO_UP = mongo_available()
+MEMCACHED_UP = memcached_available()
 
 # CI safety valve: a green run that silently skipped every Redis/Mongo scenario
 # looks identical to a run that exercised them. Set RATELIMIT_E2E_REQUIRE_SERVICES=1
 # (in CI, where the service containers must be present) to turn those skips into a
 # hard collection error instead. Default unset -> skip gracefully, as before.
 if os.environ.get("RATELIMIT_E2E_REQUIRE_SERVICES", "").lower() in ("1", "true", "yes"):
-    _missing = [n for n, up in (("Redis", REDIS_UP), ("MongoDB", MONGO_UP)) if not up]
+    _missing = [
+        n
+        for n, up in (
+            ("Redis", REDIS_UP),
+            ("MongoDB", MONGO_UP),
+            ("Memcached", MEMCACHED_UP),
+        )
+        if not up
+    ]
     if _missing:
         raise RuntimeError(
             "RATELIMIT_E2E_REQUIRE_SERVICES is set but these services are "
@@ -98,6 +121,9 @@ if os.environ.get("RATELIMIT_E2E_REQUIRE_SERVICES", "").lower() in ("1", "true",
 # Mark factories so tests/files can build their own parametrizations.
 skip_without_redis = pytest.mark.skipif(not REDIS_UP, reason="live Redis unavailable")
 skip_without_mongo = pytest.mark.skipif(not MONGO_UP, reason="live MongoDB unavailable")
+skip_without_memcached = pytest.mark.skipif(
+    not MEMCACHED_UP, reason="live Memcached unavailable"
+)
 
 
 def _db_is_postgres():
@@ -143,6 +169,12 @@ def flush_store(name):
             from pymongo import MongoClient
 
             MongoClient(host=MONGO_HOST, port=MONGO_PORT).drop_database("ratelimit")
+        elif name == "memcached":
+            from pymemcache.client.base import Client
+
+            Client(
+                (MEMCACHED_HOST, MEMCACHED_PORT), connect_timeout=1, timeout=1
+            ).flush_all()
         elif name == "memory":
             backend = get_backend()
             if hasattr(backend, "clear_all"):
@@ -212,6 +244,15 @@ def use_backend(name):
             },
         ),
         "database": (DATABASE, {}),
+        "memcached": (
+            MEMCACHED,
+            {
+                "RATELIMIT_MEMCACHED": {
+                    "HOST": MEMCACHED_HOST,
+                    "PORT": MEMCACHED_PORT,
+                }
+            },
+        ),
     }
     path, extra = paths[name]
     ov = override_settings(RATELIMIT_BACKEND=path, **extra)

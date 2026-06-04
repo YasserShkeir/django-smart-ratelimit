@@ -16,6 +16,7 @@ BUILTIN_BACKENDS: Dict[str, str] = {
     "mongodb": "django_smart_ratelimit.backends.mongodb.MongoDBBackend",
     "multi": "django_smart_ratelimit.backends.multi.MultiBackend",
     "database": "django_smart_ratelimit.backends.database.DatabaseBackend",
+    "memcached": "django_smart_ratelimit.backends.memcached.MemcachedBackend",
 }
 
 # Custom backend registry

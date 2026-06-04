@@ -82,6 +82,13 @@ RATELIMIT_REDIS = {
     "db": int(os.environ.get("REDIS_DB", "0")),
 }
 
+# Memcached connection for the memcached backend tests (defaults to localhost;
+# CI sets MEMCACHED_HOST/PORT when a service container is available).
+RATELIMIT_MEMCACHED = {
+    "HOST": os.environ.get("MEMCACHED_HOST", "localhost"),
+    "PORT": int(os.environ.get("MEMCACHED_PORT", "11211")),
+}
+
 RATELIMIT_ALGORITHM = "sliding_window"
 RATELIMIT_KEY_PREFIX = "test:ratelimit:"
 

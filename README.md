@@ -14,7 +14,7 @@ A high-performance rate limiting library for Django. Protects your APIs from abu
 - **Sync and Async** -- Dual-mode support with native `@ratelimit` and `@aratelimit` decorators
 - **Enterprise Reliability** -- Built-in circuit breaker, automatic failover, and fail-open strategies
 - **Multiple Algorithms** -- Token bucket, sliding window, fixed window, and leaky bucket
-- **Flexible Backends** -- Redis (recommended), async Redis, in-memory, MongoDB, Django ORM (database), or custom backends
+- **Flexible Backends** -- Redis (recommended), async Redis, in-memory, MongoDB, Memcached, Django ORM (database), or custom backends
 - **Precise Control** -- Rate limit by IP, user, header, or any custom callable
 - **Shadow Mode** -- Evaluate and log decisions without enforcing them for safe, zero-risk rollouts ([docs](https://django-smart-ratelimit.readthedocs.io/en/latest/decorator/))
 - **Cost-Based (Weighted) Limiting** -- Charge expensive requests more of the budget via a per-request `cost` ([docs](https://django-smart-ratelimit.readthedocs.io/en/latest/decorator/))

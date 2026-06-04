@@ -32,6 +32,7 @@ Install only the backends and integrations you need:
 | --- | --- | --- |
 | `redis` | `redis`, `hiredis` | Redis backend (recommended for production) |
 | `mongodb` | `pymongo` | MongoDB backend |
+| `memcached` | `pymemcache` | Memcached backend (fixed-window) |
 | `jwt` | `PyJWT` | JWT-based rate limit keys |
 | `drf` | `djangorestframework` | DRF throttle adapter (new in v3.0.0) |
 | `prometheus` | `prometheus-client` | Prometheus metrics |
