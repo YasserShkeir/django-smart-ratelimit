@@ -1216,6 +1216,7 @@ class AsyncRedisBackend(BaseBackend):
     def init_client(self) -> None:
         """Initialize Redis client."""
         from redis import asyncio
+
         self.client = asyncio.Redis(**self._clean_config)
 
     async def _load_script(self, client, script_content: str) -> str:
