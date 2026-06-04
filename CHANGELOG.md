@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.10.0] - 2026-06-05
+
+First of the high-leverage additive features from the post-4.x roadmap (#76):
+**concurrency limiting**. Additive and opt-in.
+
+### Added
+
+- **`@concurrency_limit(key=..., max_concurrent=N)`** — cap the number of
+  requests in flight *at the same time* for a key (e.g. "5 simultaneous exports
+  per user"), as opposed to requests per time window. Backed by an atomic
+  semaphore: a Redis sorted set (`concurrency_acquire`/`concurrency_release` via
+  Lua) or the in-memory backend. A slot whose request crashed before releasing is
+  reclaimed after `ttl` seconds, so the limiter self-heals. Supports sync and
+  async views, the same `key` forms as `@rate_limit`, and `block=False` for
+  observe-only mode. Exported as `concurrency_limit`.
+- Backend semaphore primitives `concurrency_acquire` / `concurrency_release` on
+  the Redis and memory backends (the Redis script is lazy-loaded, leaving the
+  init-time `script_load` count unchanged).
+- Docs: a Concurrency Limiting guide.
+
+### Notes
+
+- Requires the Redis or memory backend; other backends raise
+  `ImproperlyConfigured` when a concurrency-limited view is called. Use Redis for
+  any multi-process / multi-host deployment (the memory semaphore is per-process).
+
 ## [4.9.0] - 2026-06-05
 
 Adds **Redis Cluster** support (issue #68), built on a contributor refactor that

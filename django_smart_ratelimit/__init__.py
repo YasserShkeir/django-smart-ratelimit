@@ -5,7 +5,7 @@ with support for multiple backends, algorithms (including token bucket),
 and comprehensive rate limiting strategies.
 """
 
-__version__ = "4.9.0"
+__version__ = "4.10.0"
 __author__ = "Yasser Shkeir"
 
 # Optional backend imports (may not be available)
@@ -61,10 +61,11 @@ from .circuit_breaker import (
     circuit_breaker_registry,
 )
 
+# Core functionality
+from .concurrency import concurrency_limit
+
 # Configuration
 from .configuration import RateLimitConfigManager
-
-# Core functionality
 from .decorator import aratelimit, rate_limit
 
 # Enums for type-safe configuration
@@ -267,6 +268,7 @@ __all__ = [
     "rate_limit",
     "ratelimit",  # Alias for rate_limit
     "aratelimit",  # Async decorator
+    "concurrency_limit",
     "RateLimitMiddleware",
     # Logging
     "RATELIMIT_LOG_FORMAT",

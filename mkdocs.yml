@@ -27,6 +27,7 @@ nav:
       - Observability: observability.md
       - Deployment: deployment.md
   - Features:
+      - Concurrency Limiting: concurrency.md
       - Dynamic Rules: dynamic_rules.md
       - User Tiers: user_tiers.md
       - Analytics: analytics.md
