@@ -5,7 +5,7 @@ with support for multiple backends, algorithms (including token bucket),
 and comprehensive rate limiting strategies.
 """
 
-__version__ = "4.6.0"
+__version__ = "4.7.0"
 __author__ = "Yasser Shkeir"
 
 # Optional backend imports (may not be available)
@@ -110,6 +110,27 @@ def ratelimit(
     )
 
 
+# Advanced feature modules (roadmap Phase 2-5). These are safe to import at
+# package load (they import Django models lazily, inside functions), so they can
+# be re-exported here for discoverability/autocomplete. The Django *model*
+# classes are NOT re-exported — import those from django_smart_ratelimit.models
+# (importing them here would touch the app registry before it is ready).
+from .analytics import (
+    find_alertable_offenders,
+    get_offender_detail,
+    get_rule_hit_counts,
+    get_top_offenders,
+    get_traffic_summary,
+    offenders_csv,
+    send_offender_alerts,
+)
+from .api_keys import (
+    api_key_key,
+    extract_api_key,
+    get_api_key_record,
+    get_api_key_tier,
+)
+
 # Exceptions
 from .exceptions import (
     BackendConnectionError,
@@ -122,6 +143,24 @@ from .exceptions import (
     RateLimitExceeded,
     RateLimitException,
 )
+from .geo import (
+    GeoLocation,
+    GeoProvider,
+    MaxMindProvider,
+    NullGeoProvider,
+    geo_key,
+    get_country,
+    get_geo_provider,
+    get_rate_for_country,
+    set_geo_provider,
+)
+from .graphql import (
+    GrapheneRateLimitMiddleware,
+    GraphQLRateLimitExceeded,
+    estimate_query_complexity,
+    make_strawberry_extension,
+)
+from .groups import get_tier_from_groups, group_key
 
 # Common key functions
 from .key_functions import api_key_aware_key, composite_key, geographic_key
@@ -145,6 +184,22 @@ from .pipeline import (
     apply_policy_lists,
     handle_shadow_decision,
     resolve_effective_rate,
+)
+from .rules import RuleEngine, get_rule_engine, rule_engine
+from .statsd import StatsDClient, StatsDMetrics, get_statsd_metrics
+from .tenants import (
+    extract_tenant,
+    get_tenant_quota,
+    resolve_tenant_rate,
+    tenant_key,
+)
+from .tiers import (
+    apply_tier_to_rate,
+    create_user_override,
+    get_user_override,
+    get_user_tier,
+    resolve_effective_user_rate,
+    tier_key,
 )
 
 # Utilities
@@ -317,4 +372,53 @@ __all__ = [
     "is_staff_user",
     "is_superuser",
     "should_bypass_rate_limit",
+    # Dynamic rules (Phase 2)
+    "RuleEngine",
+    "rule_engine",
+    "get_rule_engine",
+    # User tiers / groups / overrides / API keys (Phase 3)
+    "get_user_tier",
+    "apply_tier_to_rate",
+    "get_user_override",
+    "resolve_effective_user_rate",
+    "tier_key",
+    "create_user_override",
+    "get_tier_from_groups",
+    "group_key",
+    "extract_api_key",
+    "get_api_key_record",
+    "api_key_key",
+    "get_api_key_tier",
+    # Analytics (Phase 4)
+    "get_traffic_summary",
+    "get_top_offenders",
+    "get_rule_hit_counts",
+    "offenders_csv",
+    "get_offender_detail",
+    "find_alertable_offenders",
+    "send_offender_alerts",
+    # Geographic (Phase 5.4)
+    "geo_key",
+    "get_country",
+    "get_rate_for_country",
+    "GeoProvider",
+    "MaxMindProvider",
+    "NullGeoProvider",
+    "GeoLocation",
+    "get_geo_provider",
+    "set_geo_provider",
+    # Multi-tenant (Phase 5.5)
+    "extract_tenant",
+    "tenant_key",
+    "get_tenant_quota",
+    "resolve_tenant_rate",
+    # GraphQL (Phase 5.6)
+    "GrapheneRateLimitMiddleware",
+    "make_strawberry_extension",
+    "estimate_query_complexity",
+    "GraphQLRateLimitExceeded",
+    # StatsD exporter (Phase 5.1)
+    "StatsDClient",
+    "StatsDMetrics",
+    "get_statsd_metrics",
 ]
