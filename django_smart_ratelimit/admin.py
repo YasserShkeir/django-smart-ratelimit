@@ -199,3 +199,17 @@ class TenantQuotaAdmin(admin.ModelAdmin):
     list_filter = ["is_active"]
     list_editable = ["rate", "is_active"]
     search_fields = ["tenant_id"]
+
+
+from .models import Quota  # noqa: E402
+
+
+@admin.register(Quota)
+class QuotaAdmin(admin.ModelAdmin):
+    """Inspect and adjust cumulative usage quotas (roadmap #76)."""
+
+    list_display = ["key", "scope", "used", "limit", "period", "reset_at"]
+    list_filter = ["period", "scope"]
+    list_editable = ["limit"]
+    search_fields = ["key", "scope"]
+    readonly_fields = ["used", "period_start", "reset_at", "updated_at"]

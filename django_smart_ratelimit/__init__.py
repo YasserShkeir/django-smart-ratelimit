@@ -5,7 +5,7 @@ with support for multiple backends, algorithms (including token bucket),
 and comprehensive rate limiting strategies.
 """
 
-__version__ = "4.10.0"
+__version__ = "4.11.0"
 __author__ = "Yasser Shkeir"
 
 # Optional backend imports (may not be available)
@@ -186,6 +186,7 @@ from .pipeline import (
     handle_shadow_decision,
     resolve_effective_rate,
 )
+from .quota import consume_quota, get_quota_usage, quota, reset_quota
 from .rules import RuleEngine, get_rule_engine, rule_engine
 from .statsd import StatsDClient, StatsDMetrics, get_statsd_metrics
 from .tenants import (
@@ -269,6 +270,10 @@ __all__ = [
     "ratelimit",  # Alias for rate_limit
     "aratelimit",  # Async decorator
     "concurrency_limit",
+    "quota",
+    "consume_quota",
+    "get_quota_usage",
+    "reset_quota",
     "RateLimitMiddleware",
     # Logging
     "RATELIMIT_LOG_FORMAT",
