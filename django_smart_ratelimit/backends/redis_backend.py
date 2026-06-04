@@ -1135,6 +1135,8 @@ class AsyncRedisBackend(BaseBackend):
         # Scripts
         self.sliding_window_sha = ""
         self.fixed_window_sha = ""
+        self.leaky_bucket_sha = ""  # nosec B105 - SHA cache init, lazily loaded
+        self.leaky_bucket_info_sha = ""  # nosec B105 - SHA cache init
 
     @property
     def client(self):
@@ -1281,6 +1283,82 @@ class AsyncRedisBackend(BaseBackend):
             if self.fail_open:
                 return 0  # Allow
             return 999999  # Block
+
+    async def aleaky_bucket_check(
+        self,
+        key: str,
+        bucket_capacity: int,
+        leak_rate: float,
+        request_cost: int,
+    ) -> Tuple[bool, Dict[str, Any]]:
+        """Async-native atomic leaky bucket check (mirrors the sync backend).
+
+        Uses the same Lua script as :class:`RedisBackend`, evaluated on the async
+        client, so the dedicated async backend has true atomic leaky-bucket
+        semantics instead of a non-atomic fallback. Returns
+        ``(is_allowed, metadata)``.
+        """
+        client = await self._get_client()
+        normalized_key = normalize_key(f"{key}:leaky_bucket", self.key_prefix)
+        now = get_current_timestamp()
+        args = (normalized_key, bucket_capacity, leak_rate, request_cost, now)
+
+        sha = self.leaky_bucket_sha or await self._load_script(
+            client, RedisBackend.LEAKY_BUCKET_SCRIPT
+        )
+        self.leaky_bucket_sha = sha
+        try:
+            res = await client.evalsha(sha, 1, *args)
+        except redis.exceptions.NoScriptError:
+            sha = await self._load_script(client, RedisBackend.LEAKY_BUCKET_SCRIPT)
+            self.leaky_bucket_sha = sha
+            res = await client.evalsha(sha, 1, *args)
+
+        is_allowed = bool(res[0])
+        bucket_level = float(res[1]) / 1000.0
+        tus_raw = float(res[2])
+        time_until_space = float("inf") if tus_raw < 0 else tus_raw / 1000.0
+        return is_allowed, {
+            "bucket_level": bucket_level,
+            "bucket_capacity": bucket_capacity,
+            "leak_rate": leak_rate,
+            "request_cost": request_cost,
+            "space_remaining": max(0.0, bucket_capacity - bucket_level),
+            "time_until_space": time_until_space,
+        }
+
+    async def aleaky_bucket_info(
+        self, key: str, bucket_capacity: int, leak_rate: float
+    ) -> Dict[str, Any]:
+        """Inspect async leaky bucket state without adding to it."""
+        client = await self._get_client()
+        normalized_key = normalize_key(f"{key}:leaky_bucket", self.key_prefix)
+        now = get_current_timestamp()
+        args = (normalized_key, leak_rate, now)
+
+        sha = self.leaky_bucket_info_sha or await self._load_script(
+            client, RedisBackend.LEAKY_BUCKET_INFO_SCRIPT
+        )
+        self.leaky_bucket_info_sha = sha
+        try:
+            res = await client.evalsha(sha, 1, *args)
+        except redis.exceptions.NoScriptError:
+            sha = await self._load_script(client, RedisBackend.LEAKY_BUCKET_INFO_SCRIPT)
+            self.leaky_bucket_info_sha = sha
+            res = await client.evalsha(sha, 1, *args)
+
+        bucket_level = float(res[0]) / 1000.0
+        last_leak = float(res[1]) / 1000.0
+        return {
+            "bucket_level": bucket_level,
+            "bucket_capacity": bucket_capacity,
+            "leak_rate": leak_rate,
+            "space_remaining": max(0.0, bucket_capacity - bucket_level),
+            "time_to_empty": (
+                bucket_level / leak_rate if leak_rate > 0 else float("inf")
+            ),
+            "last_leak": last_leak,
+        }
 
     # Implement abstract methods
     def incr(self, key: str, period: int) -> int:

@@ -5,7 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [4.6.0] - 2026-06-04
+## [4.7.0] - 2026-06-04
+
+Polish release: discoverability and async parity. Additive; no breaking changes.
+
+### Added
+
+- **Top-level re-exports for the v4.x feature APIs.** The dynamic-rules, user-tier,
+  group, API-key, analytics, geographic, multi-tenant, GraphQL, and StatsD helpers
+  are now importable directly from `django_smart_ratelimit` (and listed in
+  `__all__`) for autocomplete, e.g. `from django_smart_ratelimit import geo_key,
+  tier_key, get_traffic_summary`. The submodule imports
+  (`from django_smart_ratelimit import geo`) still work. Django **model** classes
+  remain importable from `django_smart_ratelimit.models` (re-exporting them at the
+  top level would touch the app registry too early).
+- **Async-native Redis leaky bucket.** `AsyncRedisBackend` gains
+  `aleaky_bucket_check` / `aleaky_bucket_info` (same atomic Lua as the sync
+  backend), so the dedicated async backend has true atomic leaky-bucket semantics.
+
+### Changed
+
+- Raised the CI coverage floor (`--cov-fail-under`) from 65% to 68%, reflecting
+  the measured coverage.
 
 Completes the original v2.0 feature roadmap: the handful of items that were
 planned but never built. Everything here is additive and opt-in; no existing
