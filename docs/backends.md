@@ -22,6 +22,7 @@ The recognized short aliases (from `backends/factory.py`, `BUILTIN_BACKENDS`) ar
 | `memory`      | `django_smart_ratelimit.backends.memory.MemoryBackend`           |
 | `redis`       | `django_smart_ratelimit.backends.redis_backend.RedisBackend`     |
 | `async_redis` | `django_smart_ratelimit.backends.redis_backend.AsyncRedisBackend`|
+| `redis_cluster` | `django_smart_ratelimit.backends.redis_backend.RedisClusterBackend` |
 | `mongodb`     | `django_smart_ratelimit.backends.mongodb.MongoDBBackend`         |
 | `multi`       | `django_smart_ratelimit.backends.multi.MultiBackend`             |
 | `database`    | `django_smart_ratelimit.backends.database.DatabaseBackend`       |
@@ -67,6 +68,36 @@ When `RATELIMIT_BACKEND = "redis"`, async views automatically use `AsyncRedisBac
 
 - Requirements: `redis-py` >= 4.2.0.
 - Pros: non-blocking IO, high performance for async apps.
+
+### Redis Cluster Backend
+
+**Alias**: `redis_cluster` &nbsp; **Class**: `django_smart_ratelimit.backends.redis_backend.RedisClusterBackend`
+
+Targets a [Redis Cluster](https://redis.io/docs/management/scaling/). The
+rate-limiting Lua scripts are each single-key, so every operation hashes to one
+slot and runs correctly on a cluster — only the client construction differs.
+Configure it with a seed node, a list of `startup_nodes`, or a URL:
+
+```python
+# settings.py
+RATELIMIT_BACKEND = "redis_cluster"
+RATELIMIT_REDIS = {
+    "startup_nodes": [
+        {"host": "10.0.0.1", "port": 7000},
+        {"host": "10.0.0.2", "port": 7000},
+    ],
+    # ...or a single seed node the cluster is discovered from:
+    # "host": "10.0.0.1", "port": 7000,
+    # ...or a URL:
+    # "url": "redis://10.0.0.1:7000/0",
+}
+```
+
+- Requirements: `redis-py` >= 4.1 (bundles `redis.cluster.RedisCluster`).
+- Pros: horizontal scale and high availability across many nodes.
+- Note: cluster mode has no logical databases, so a `db` in `RATELIMIT_REDIS` is
+  ignored. Custom clients can be supplied by subclassing and overriding
+  `init_client()`.
 
 ### MongoDB Backend
 

@@ -5,7 +5,7 @@ with support for multiple backends, algorithms (including token bucket),
 and comprehensive rate limiting strategies.
 """
 
-__version__ = "4.8.0"
+__version__ = "4.9.0"
 __author__ = "Yasser Shkeir"
 
 # Optional backend imports (may not be available)
@@ -234,10 +234,11 @@ else:
     MongoDBBackendType = None
 
 RedisBackend: Optional[type] = None
+RedisClusterBackend: Optional[type] = None
 MongoDBBackend: Optional[type] = None
 
 try:
-    from .backends.redis_backend import RedisBackend
+    from .backends.redis_backend import RedisBackend, RedisClusterBackend
 except ImportError:
     pass
 
@@ -309,6 +310,7 @@ __all__ = [
     "MemoryBackend",
     "MultiBackend",
     "RedisBackend",
+    "RedisClusterBackend",
     "MongoDBBackend",
     # Circuit Breaker
     "CircuitBreakerConfig",

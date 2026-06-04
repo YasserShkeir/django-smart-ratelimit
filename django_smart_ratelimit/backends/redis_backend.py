@@ -1154,8 +1154,6 @@ class AsyncRedisBackend(BaseBackend):
         """Get or create async redis client."""
         import asyncio
 
-        from redis import asyncio as aioredis
-
         # Check if client needs to be reset due to closed event loop
         if self.client:
             try:
@@ -1193,11 +1191,10 @@ class AsyncRedisBackend(BaseBackend):
                 if k not in ["algorithm", "key_prefix"]
             }
 
-            if self.url:
-                self.client = aioredis.from_url(self.url, **clean_config)
-            else:
-                self._clean_config = clean_config
-                self.init_client()
+            # Route BOTH the url and host/port paths through init_client so a
+            # subclass (e.g. an async cluster client) can override one method.
+            self._clean_config = clean_config
+            self.init_client()
 
             # Load scripts
             try:
@@ -1214,10 +1211,13 @@ class AsyncRedisBackend(BaseBackend):
         return self.client
 
     def init_client(self) -> None:
-        """Initialize Redis client."""
+        """Initialize the async Redis client (url or host/port)."""
         from redis import asyncio
 
-        self.client = asyncio.Redis(**self._clean_config)
+        if self.url:
+            self.client = asyncio.from_url(self.url, **self._clean_config)
+        else:
+            self.client = asyncio.Redis(**self._clean_config)
 
     async def _load_script(self, client, script_content: str) -> str:
         """Load Lua script into Redis."""
@@ -1388,3 +1388,72 @@ class AsyncRedisBackend(BaseBackend):
 
     def get_reset_time(self, key: str) -> Optional[int]:
         raise NotImplementedError("Use aget_reset_time for AsyncRedisBackend")
+
+
+class RedisClusterBackend(RedisBackend):
+    """Redis backend for a Redis Cluster (roadmap / issue #68).
+
+    Builds on the :meth:`RedisBackend.init_client` seam: the rate-limiting Lua
+    scripts are each single-key, so they hash to one slot and run correctly on a
+    cluster -- only the client construction differs. Configure it via
+    ``RATELIMIT_REDIS`` with either a seed ``host``/``port``, a list of
+    ``startup_nodes``, or a ``url``::
+
+        RATELIMIT_BACKEND = "redis_cluster"
+        RATELIMIT_REDIS = {
+            "startup_nodes": [
+                {"host": "10.0.0.1", "port": 7000},
+                {"host": "10.0.0.2", "port": 7000},
+            ],
+            # ...or a single seed node the cluster is discovered from:
+            # "host": "10.0.0.1", "port": 7000,
+            # ...or a URL:
+            # "url": "redis://10.0.0.1:7000/0",
+        }
+
+    Requires ``redis>=4.1`` (which bundles ``redis.cluster.RedisCluster``).
+    """
+
+    name = "redis_cluster"
+
+    @classmethod
+    def _get_or_create_pool(cls, *args: Any, **kwargs: Any) -> Any:
+        """No shared pool: a Redis Cluster client owns a pool per node.
+
+        Accepts (and ignores) any args so a ``url`` present in both the
+        positional slot and ``RATELIMIT_REDIS`` does not collide.
+        """
+        return None
+
+    @staticmethod
+    def _to_cluster_node(node: Any) -> Any:
+        """Coerce a ``{'host','port'}`` dict or ``'host:port'`` string to a node."""
+        from redis.cluster import ClusterNode
+
+        if isinstance(node, dict):
+            return ClusterNode(node["host"], int(node.get("port", 6379)))
+        if isinstance(node, str) and ":" in node:
+            host, port = node.rsplit(":", 1)
+            return ClusterNode(host, int(port))
+        return node
+
+    def init_client(self) -> None:
+        """Build a ``RedisCluster`` client from ``RATELIMIT_REDIS``."""
+        from redis.cluster import RedisCluster
+
+        cfg = dict(self.config)
+        # Cluster mode has no logical DBs and manages its own pools.
+        cfg.pop("db", None)
+        cfg.pop("connection_pool", None)
+        url = cfg.pop("url", None)
+        startup_nodes = cfg.pop("startup_nodes", None) or cfg.pop("nodes", None)
+        host = cfg.pop("host", "127.0.0.1")
+        port = int(cfg.pop("port", 6379))
+
+        if url:
+            self.redis = RedisCluster.from_url(url, **cfg)
+        elif startup_nodes:
+            nodes = [self._to_cluster_node(n) for n in startup_nodes]
+            self.redis = RedisCluster(startup_nodes=nodes, **cfg)
+        else:
+            self.redis = RedisCluster(host=host, port=port, **cfg)

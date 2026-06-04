@@ -13,6 +13,7 @@ BUILTIN_BACKENDS: Dict[str, str] = {
     "memory": "django_smart_ratelimit.backends.memory.MemoryBackend",
     "redis": "django_smart_ratelimit.backends.redis_backend.RedisBackend",
     "async_redis": "django_smart_ratelimit.backends.redis_backend.AsyncRedisBackend",
+    "redis_cluster": "django_smart_ratelimit.backends.redis_backend.RedisClusterBackend",
     "mongodb": "django_smart_ratelimit.backends.mongodb.MongoDBBackend",
     "multi": "django_smart_ratelimit.backends.multi.MultiBackend",
     "database": "django_smart_ratelimit.backends.database.DatabaseBackend",
