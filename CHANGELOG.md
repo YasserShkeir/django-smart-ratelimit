@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.9.0] - 2026-06-05
+
+Adds **Redis Cluster** support (issue #68), built on a contributor refactor that
+makes the Redis client construction overridable.
+
+### Added
+
+- **`RedisClusterBackend`** (`RATELIMIT_BACKEND = "redis_cluster"`) — rate
+  limiting against a Redis Cluster. The Lua scripts are each single-key, so they
+  hash to one slot and run correctly on a cluster; only the client construction
+  differs. Configure via `RATELIMIT_REDIS` with a seed `host`/`port`, a list of
+  `startup_nodes`, or a `url`. Verified against a real 6-node cluster (sliding
+  window, fixed window, token bucket, decorator enforcement). Registered as the
+  `redis_cluster` alias and exported as `RedisClusterBackend`.
+- **`init_client()` seam** on `RedisBackend` and `AsyncRedisBackend` — client
+  creation is now an overridable method, so a custom/cluster client only needs to
+  override `init_client()` instead of `__init__`/`_reconnect`/`_get_client`.
+  Thanks to @zbohm (CZ-NIC) for this refactor (#92). The async `init_client()`
+  now covers both the URL and host/port paths.
+
+### Testing
+
+- Unit tests (mocked `RedisCluster`, run everywhere) plus integration tests
+  against a real cluster (skipped when none is reachable) in
+  `tests/integration/test_redis_cluster.py`, and a manual
+  `tests/test_project/scripts/verify_redis_cluster.py`.
+
 ## [4.8.0] - 2026-06-04
 
 Adds a **Memcached backend** — the last open item on the backends roadmap and a
