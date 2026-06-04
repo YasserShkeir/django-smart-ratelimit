@@ -255,6 +255,29 @@ class RedisBackend(BaseBackend):
         return {math.floor(level * 1000), math.floor(last_leak * 1000)}
     """  # nosec B105
 
+    # Atomic concurrency (in-flight) semaphore. Each in-flight request is a ZSET
+    # member scored by its acquire time; holders older than the ttl are assumed
+    # leaked (crashed before release) and reclaimed. Returns 1 if the slot was
+    # acquired, else 0. Loaded lazily on first use so it does not change the
+    # init-time script_load count.
+    CONCURRENCY_ACQUIRE_SCRIPT = """
+        local key = KEYS[1]
+        local max_concurrent = tonumber(ARGV[1])
+        local now = tonumber(ARGV[2])
+        local ttl = tonumber(ARGV[3])
+        local member = ARGV[4]
+
+        redis.call('ZREMRANGEBYSCORE', key, 0, now - ttl)
+        local count = redis.call('ZCARD', key)
+        if count < max_concurrent then
+            redis.call('ZADD', key, now, member)
+            redis.call('EXPIRE', key, ttl + 1)
+            return 1
+        else
+            return 0
+        end
+    """  # nosec B105
+
     def __init__(
         self,
         enable_circuit_breaker: bool = True,
@@ -336,6 +359,8 @@ class RedisBackend(BaseBackend):
             self.leaky_bucket_info_sha = self._load_script(
                 self.LEAKY_BUCKET_INFO_SCRIPT
             )
+            # Lazily loaded on first use (keeps the init script_load count stable).
+            self.concurrency_acquire_sha = ""  # nosec B105 - SHA cache init
         else:
             self.sliding_window_sha = ""
             self.fixed_window_sha = ""
@@ -347,6 +372,7 @@ class RedisBackend(BaseBackend):
             self.leaky_bucket_info_sha = (
                 ""  # nosec B105 - not a password, SHA cache init
             )
+            self.concurrency_acquire_sha = ""  # nosec B105 - SHA cache init
 
         # Configuration
         self.algorithm = settings.default_algorithm
@@ -910,6 +936,56 @@ class RedisBackend(BaseBackend):
                 "time_to_empty": 0.0,
                 "last_leak": current_time,
             }
+
+    def concurrency_acquire(
+        self, key: str, max_concurrent: int, ttl: int, member: str
+    ) -> bool:
+        """Atomically try to take one of ``max_concurrent`` in-flight slots.
+
+        Args:
+            key: Concurrency key (e.g. ``user:42``).
+            max_concurrent: Maximum simultaneous holders.
+            ttl: Seconds after which a holder is assumed leaked and reclaimed.
+            member: Unique id for this holder (released with the same id).
+
+        Returns:
+            ``True`` if a slot was acquired, ``False`` if at capacity.
+        """
+        normalized_key = normalize_key(f"{key}:concurrency", self.key_prefix)
+        now = get_current_timestamp()
+        try:
+            result = self._eval_lua(
+                "concurrency_acquire_sha",
+                self.CONCURRENCY_ACQUIRE_SCRIPT,
+                1,
+                normalized_key,
+                max_concurrent,
+                now,
+                ttl,
+                member,
+            )
+            return bool(result)
+        except Exception as e:
+            log_backend_operation(
+                "redis_concurrency_acquire_error",
+                f"Concurrency acquire failed for key {key}: {e}",
+                level="error",
+            )
+            if self.fail_open:
+                return True
+            raise BackendError(ERROR_BACKEND_UNAVAILABLE) from e
+
+    def concurrency_release(self, key: str, member: str) -> None:
+        """Release a previously acquired concurrency slot (best-effort)."""
+        normalized_key = normalize_key(f"{key}:concurrency", self.key_prefix)
+        try:
+            self.redis.zrem(normalized_key, member)
+        except Exception as e:  # pragma: no cover - a missed release is reclaimed
+            log_backend_operation(
+                "redis_concurrency_release_error",
+                f"Concurrency release failed for key {key}: {e}",
+                level="warning",
+            )
 
     def check_batch(
         self,

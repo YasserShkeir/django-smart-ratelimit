@@ -138,6 +138,9 @@ class MemoryBackend(BaseBackend):
         # Generic storage for algorithm implementations
         self._storage: Dict[str, Any] = {}
 
+        # Concurrency (in-flight) semaphores: {key: {member: acquire_ts}}
+        self._concurrency: Dict[str, Dict[str, float]] = {}
+
         # Lock for thread safety
         self._lock = threading.RLock()
 
@@ -446,6 +449,33 @@ class MemoryBackend(BaseBackend):
                 return int(oldest_ts + period)
 
             return int(expiry_time)
+
+    # Concurrency (in-flight) Semaphore
+
+    def concurrency_acquire(
+        self, key: str, max_concurrent: int, ttl: int, member: str
+    ) -> bool:
+        """Take one of ``max_concurrent`` in-flight slots; reclaim leaked ones."""
+        now = get_current_timestamp()
+        with self._lock:
+            holders = self._concurrency.setdefault(key, {})
+            # Drop holders older than ttl (a request that crashed before release).
+            stale = [m for m, ts in holders.items() if ts <= now - ttl]
+            for m in stale:
+                holders.pop(m, None)
+            if len(holders) < max_concurrent:
+                holders[member] = now
+                return True
+            return False
+
+    def concurrency_release(self, key: str, member: str) -> None:
+        """Release a previously acquired concurrency slot (best-effort)."""
+        with self._lock:
+            holders = self._concurrency.get(key)
+            if holders is not None:
+                holders.pop(member, None)
+                if not holders:
+                    self._concurrency.pop(key, None)
 
     # Token Bucket Algorithm Implementation
 
