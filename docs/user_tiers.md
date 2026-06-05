@@ -36,6 +36,40 @@ All five models (`UserTier`, `UserTierAssignment`, `GroupRateLimit`,
 `UserRateLimitOverride`, `APIKey`) are registered in the Django admin, so most
 day-to-day management can happen there.
 
+## Inline tier-based rates with `tiered()` (no models)
+
+If you don't need database-managed tiers, `tiered()` is a lightweight,
+model-free alternative (roadmap #76): pick the **rate** directly from an
+attribute of the request, and pass it as the decorator's `rate`. The
+`@rate_limit` `rate` argument accepts a callable `(request) -> "N/period"`.
+
+```python
+from django_smart_ratelimit import rate_limit, tiered
+
+@rate_limit(
+    key="user",
+    rate=tiered(
+        {"free": "100/h", "pro": "10000/h", "*": "100/h"},
+        by="user.plan",          # a dotted attribute path, or a callable
+    ),
+)
+def api_view(request):
+    ...
+```
+
+- `rates` — a `{tier: rate_string}` mapping; a `"*"` entry is the wildcard for
+  any unlisted tier.
+- `by` — how to read the tier: a dotted attribute path (`"user.plan"`,
+  `"user.profile.tier"`) resolved on the request, or a callable
+  `(request) -> tier`.
+- `default` — the rate when the tier is missing/unlisted and there is no `"*"`.
+  Provide `default` or a `"*"` entry, or `tiered()` raises for an unknown tier.
+
+This needs no settings, models, or migrations — it's resolved per request from
+whatever attribute already carries the plan. Use the model-driven tiers below
+when you want admin-managed tiers, group mapping, overrides, or per-user
+bucketing.
+
 ## Precedence
 
 For an authenticated request, the effective rate is resolved in this order

@@ -5,7 +5,7 @@ with support for multiple backends, algorithms (including token bucket),
 and comprehensive rate limiting strategies.
 """
 
-__version__ = "4.11.0"
+__version__ = "4.12.0"
 __author__ = "Yasser Shkeir"
 
 # Optional backend imports (may not be available)
@@ -74,7 +74,7 @@ from .enums import Algorithm, RateLimitKey
 
 def ratelimit(
     key: Union[str, Callable],
-    rate: Optional[str] = None,
+    rate: Optional[Union[str, Callable[..., str]]] = None,
     block: bool = True,
     backend: Optional[str] = None,
     skip_if: Optional[Callable] = None,
@@ -202,6 +202,7 @@ from .tiers import (
     get_user_tier,
     resolve_effective_user_rate,
     tier_key,
+    tiered,
 )
 
 # Utilities
@@ -391,6 +392,7 @@ __all__ = [
     "get_user_override",
     "resolve_effective_user_rate",
     "tier_key",
+    "tiered",
     "create_user_override",
     "get_tier_from_groups",
     "group_key",

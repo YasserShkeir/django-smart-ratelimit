@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.12.0] - 2026-06-05
+
+Third and final high-leverage feature from the post-4.x roadmap (#76):
+**tier-based rates**. Additive and opt-in. Completes the top-three set
+(concurrency limiting, quota management, tier-based rates).
+
+### Added
+
+- **`tiered()`** — pick the rate by plan/tier inline, with no models:
+  `@rate_limit(rate=tiered({"free": "100/h", "pro": "10000/h"}, by="user.plan",
+  default="100/h"))`. `by` is a dotted attribute path or a callable; a `"*"`
+  entry is the wildcard. A lightweight alternative to `RATELIMIT_USE_USER_TIERS`
+  when you just need a rate that varies by an attribute already on the request.
+- **`@rate_limit` (and `ratelimit`) now accept a callable `rate`** — a
+  `(request) -> "N/period"` resolved per request. String rates behave exactly as
+  before (validated up front); a callable rate is resolved on each call. Powers
+  `tiered()` and any custom per-request rate logic.
+
+### Docs
+
+- A "tier-based rates with `tiered()`" section in the User Tiers guide.
+
 ## [4.11.0] - 2026-06-05
 
 Second of the high-leverage additive features from the post-4.x roadmap (#76):

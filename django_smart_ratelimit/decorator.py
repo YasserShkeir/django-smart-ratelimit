@@ -430,7 +430,7 @@ def _apply_user_tiers(
 
 def rate_limit(
     key: Union[str, Callable],
-    rate: Optional[str] = None,
+    rate: Optional[Union[str, Callable[..., str]]] = None,
     block: bool = True,
     backend: Optional[str] = None,
     skip_if: Optional[Callable] = None,
@@ -538,8 +538,13 @@ def rate_limit(
         if _rate is None:
             _rate = _settings.default_limit
 
+        # ``rate`` may be a callable ``(request) -> "N/period"`` (e.g. tiered())
+        # resolved per request; a string is validated up front as before.
+
         # Validate configuration early
-        if algorithm is not None or algorithm_config is not None:
+        if not callable(_rate) and (
+            algorithm is not None or algorithm_config is not None
+        ):
             validate_rate_config(_rate, algorithm, algorithm_config)
 
         # Parse CIDR allow/deny lists ONCE at decoration time instead of on
@@ -617,10 +622,11 @@ def rate_limit(
                     backend_instance.config["algorithm"] = algorithm
 
                 # Resolve key + rate + cost + adaptive in one place (v3 pipeline)
+                _eff_rate = _rate(_request) if callable(_rate) else _rate
                 try:
                     resolved = resolve_effective_rate(
                         key=key,
-                        rate=_rate,
+                        rate=_eff_rate,
                         request=_request,
                         args=args,
                         kwargs=kwargs,
@@ -639,7 +645,9 @@ def rate_limit(
                 # Per-user tiers/overrides (no-op unless RATELIMIT_USE_USER_TIERS).
                 # Skipped when adaptive is active, which owns the limit instead.
                 if adaptive is None:
-                    _tiered = _apply_user_tiers(_request, _rate, limit_key, _settings)
+                    _tiered = _apply_user_tiers(
+                        _request, _eff_rate, limit_key, _settings
+                    )
                     if _tiered is not None:
                         limit, period, limit_key = _tiered
 
@@ -841,10 +849,11 @@ def rate_limit(
                     backend_instance.config["algorithm"] = algorithm
 
                 # Resolve key, rate, cost, adaptive via the v3 pipeline.
+                _eff_rate = _rate(_request) if callable(_rate) else _rate
                 try:
                     resolved = resolve_effective_rate(
                         key=key,
-                        rate=_rate,
+                        rate=_eff_rate,
                         request=_request,
                         args=args,
                         kwargs=kwargs,
@@ -862,7 +871,9 @@ def rate_limit(
                 # Per-user tiers/overrides (no-op unless RATELIMIT_USE_USER_TIERS).
                 # Skipped when adaptive is active, which owns the limit instead.
                 if adaptive is None:
-                    _tiered = _apply_user_tiers(_request, _rate, limit_key, _settings)
+                    _tiered = _apply_user_tiers(
+                        _request, _eff_rate, limit_key, _settings
+                    )
                     if _tiered is not None:
                         limit, period, limit_key = _tiered
 
