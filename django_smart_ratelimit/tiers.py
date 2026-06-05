@@ -10,7 +10,7 @@ Resolves the effective rate limit for a request by precedence:
 """
 
 from datetime import timedelta
-from typing import Any, Optional
+from typing import Any, Callable, Dict, Optional, Union
 
 from django.utils import timezone
 
@@ -170,3 +170,57 @@ def create_user_override(
         starts_at=now,
         expires_at=expires_at,
     )
+
+
+def tiered(
+    rates: Dict[Any, str],
+    by: Union[str, Callable[[Any], Any]],
+    default: Optional[str] = None,
+) -> Callable[..., str]:
+    """Build a per-request ``rate`` that varies by plan/tier (roadmap #76).
+
+    A lightweight, model-free alternative to ``RATELIMIT_USE_USER_TIERS``: pick
+    the rate string by an attribute of the request. Pass the result as
+    ``@rate_limit(rate=tiered(...))``::
+
+        @rate_limit(key="user", rate=tiered(
+            {"free": "100/h", "pro": "10000/h"}, by="user.plan", default="100/h"))
+        def api(request): ...
+
+    Args:
+        rates: Mapping of tier value -> rate string. A ``"*"`` entry is the
+            wildcard for any unlisted tier.
+        by: How to read the tier from the request -- a callable ``(request) ->
+            tier`` or a dotted attribute path (e.g. ``"user.plan"``).
+        default: Rate used when the tier is missing/unlisted and no ``"*"`` entry
+            exists. Provide this or a ``"*"`` entry.
+
+    Returns:
+        A callable ``(request, ...) -> rate_string`` for ``@rate_limit``.
+    """
+
+    def _resolve_tier(request: Any) -> Any:
+        if callable(by):
+            return by(request)
+        obj: Any = request
+        for part in by.split("."):
+            obj = getattr(obj, part, None)
+            if obj is None:
+                return None
+        return obj
+
+    def _rate_for(request: Any, *args: Any, **kwargs: Any) -> str:
+        tier = _resolve_tier(request)
+        if tier is not None and tier in rates:
+            return rates[tier]
+        if "*" in rates:
+            return rates["*"]
+        if default is not None:
+            return default
+        from django.core.exceptions import ImproperlyConfigured
+
+        raise ImproperlyConfigured(
+            f"tiered(): no rate for tier {tier!r} and no '*'/default provided."
+        )
+
+    return _rate_for
