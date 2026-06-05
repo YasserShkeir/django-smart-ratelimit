@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.12.1] - 2026-06-05
+
+### Fixed
+
+- **Redis backend crashed when configured with a `url`.** A `url` key in
+  `RATELIMIT_REDIS` was passed to `_get_or_create_pool()` both positionally and
+  as a keyword, raising `ImproperlyConfigured: ... got multiple values for
+  argument 'url'`. The config copy now drops `url` before the call. Thanks to
+  @zbohm (CZ-NIC) (#97). Added a regression test.
+
 ## [4.12.0] - 2026-06-05
 
 Third and final high-leverage feature from the post-4.x roadmap (#76):

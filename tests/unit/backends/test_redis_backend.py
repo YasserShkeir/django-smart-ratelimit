@@ -55,6 +55,25 @@ class RedisBackendTests(TestCase):
         self.mock_redis_client.ping.assert_called_once()
         self.assertEqual(self.mock_redis_client.script_load.call_count, 6)
 
+    def test_url_in_redis_config_does_not_collide(self):
+        """A ``url`` key in RATELIMIT_REDIS must not crash init (PR #97 regression).
+
+        Previously ``_get_or_create_pool(url, **self.config)`` passed ``url`` both
+        positionally and (via the config dict) as a keyword, raising
+        "got multiple values for argument 'url'".
+        """
+        from django.test import override_settings
+
+        from django_smart_ratelimit.config import reset_settings
+
+        with override_settings(RATELIMIT_REDIS={"url": "redis://localhost:6379/0"}):
+            reset_settings()
+            try:
+                backend = self.RedisBackend()
+                self.assertIsNotNone(backend.redis)
+            finally:
+                reset_settings()
+
     def test_redis_backend_initialization_no_redis_module(self):
         """Test Redis backend initialization when redis module is not available."""
         with patch("django_smart_ratelimit.backends.redis_backend.redis", None):
