@@ -330,7 +330,9 @@ class RedisBackend(BaseBackend):
 
         try:
             # Get or create connection pool
-            self._pool = self._get_or_create_pool(url, **self.config)
+            config = self.config.copy()
+            config.pop("url", None)
+            self._pool = self._get_or_create_pool(url, **config)
             self.init_client()
 
             # Initial verification
