@@ -8,6 +8,7 @@ Note: This module is now a facade that imports from specialized modules.
 """
 
 import logging
+import math
 import re
 import time
 from typing import Any, Callable, Dict, Optional, Union
@@ -183,39 +184,44 @@ def add_token_bucket_headers(
     if not hasattr(response, "headers"):
         return
 
+    current_time = time.time()
+
+    # Extract useful metadata and type them cleanly
+    tokens_remaining = int(metadata.get("tokens_remaining", 0))
+    bucket_size = int(metadata.get("bucket_size", limit))
+    refill_rate = float(metadata.get("refill_rate", 0.0))
+
+    # Retrieve time_to_refill and manage edge cases
+    time_to_refill = metadata.get("time_to_refill")
+    if (
+        time_to_refill is None
+        or time_to_refill == float("inf")
+        or math.isnan(time_to_refill)
+    ):
+        time_to_refill = float(period)
+
     # Standard headers
     response.headers["X-RateLimit-Limit"] = str(limit)
-    tokens_remaining = int(metadata.get("tokens_remaining", 0))
     response.headers["X-RateLimit-Remaining"] = str(tokens_remaining)
 
-    # Calculate reset time for token bucket using a stable approach
-    # For token buckets, we provide a predictable reset time by using fixed time periods
-    current_time = time.time()
-    tokens_remaining = int(metadata.get("tokens_remaining", 0))
-    bucket_size = metadata.get("bucket_size", limit)
-
-    # Use period-based buckets for consistency, regardless of current token state
-    # This provides users with predictable reset times
-    bucket_start = int(current_time // period) * period
-    reset_time = int(bucket_start + period)
-
-    # If very close to current time, advance to next period
-    if reset_time - current_time < 5:
-        reset_time += period
+    # Calculate reset time for token bucket using data returned by the backend
+    # If request is allowed, time_to_refill is the time before the bucket is full again
+    # If request is not allowed, time_to_refill is the time before the number
+    # of requested tokens is available
+    reset_time = int(current_time + time_to_refill)
     response.headers["X-RateLimit-Reset"] = str(reset_time)
 
-    # Add Retry-After header only for 429 responses when no tokens remaining
-    if tokens_remaining <= 0 and getattr(response, "status_code", 200) == 429:
-        retry_after = max(0, reset_time - int(time.time()))
+    # Add Retry-After header only for 429 responses
+    if getattr(response, "status_code", 200) == 429:
+        # We round the value to the upper second
+        retry_after = max(1, int(math.ceil(time_to_refill)))
         response.headers["Retry-After"] = str(retry_after)
 
     # Token bucket specific headers
-    bucket_size = metadata.get("bucket_size", limit)
     response.headers["X-RateLimit-Bucket-Size"] = str(bucket_size)
     response.headers["X-RateLimit-Bucket-Remaining"] = str(tokens_remaining)
 
     # Optional: Add refill rate information
-    refill_rate = metadata.get("refill_rate", 0)
     if refill_rate > 0:
         response.headers["X-RateLimit-Refill-Rate"] = f"{refill_rate:.2f}"
 

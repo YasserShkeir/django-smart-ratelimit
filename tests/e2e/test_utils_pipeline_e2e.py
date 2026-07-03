@@ -456,7 +456,7 @@ def test_add_rate_limit_headers_sets_standard_and_retry_after():
 
 def test_add_token_bucket_headers_emits_bucket_fields():
     """``add_token_bucket_headers`` writes the bucket-specific headers and a
-    stable, period-aligned reset time.
+    dynamically computed token-refill reset time.
     """
     resp = HttpResponse("ok")
     metadata = {
