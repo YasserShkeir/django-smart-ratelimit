@@ -36,6 +36,7 @@ nav:
       - Multi-Tenant: multi_tenant.md
       - GraphQL: graphql.md
   - Design: design.md
+  - Support: support.md
 
 markdown_extensions:
   - admonition

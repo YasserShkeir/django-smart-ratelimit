@@ -125,6 +125,7 @@ Repository = "https://github.com/YasserShkeir/django-smart-ratelimit"
 Issues = "https://github.com/YasserShkeir/django-smart-ratelimit/issues"
 Discussions = "https://github.com/YasserShkeir/django-smart-ratelimit/discussions"
 Changelog = "https://github.com/YasserShkeir/django-smart-ratelimit/blob/main/CHANGELOG.md"
+Funding = "https://www.yasser-shkeir.com/donate"
 
 [project.entry-points."pytest11"]
 django_smart_ratelimit = "django_smart_ratelimit.testing"
