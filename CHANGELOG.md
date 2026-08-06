@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Token bucket `Retry-After` advertised the wrong wait.** It was derived from
+  the period grid, so a genuine 6 second refill wait was reported as anywhere
+  between 5 and 120 seconds depending on where the wall clock happened to sit.
+  It now tracks the bucket's real refill time (`tokens_needed / refill_rate`,
+  rounded up). Thanks to @sronveaux (#104).
+- **Token bucket `Retry-After` was missing on the multi-token-cost path.** The
+  header was gated on `tokens_remaining <= 0`, so a request that cost more
+  tokens than were left (3 in the bucket, request costs 5) was rejected with no
+  back-off guidance at all. It is now emitted on every rejection. Thanks to
+  @sronveaux (#104).
+- **Token bucket headers raised on `bucket_size=None`.** `dict.get` returns a
+  present `None` rather than the default, so the value reached `int()` and
+  raised `TypeError`. On sync views that re-ran the view body a second time via
+  the decorator's fallback path; on async views it surfaced a `TypeError` to the
+  caller after the view had already run. All optional metadata is now coerced
+  defensively, and a malformed field degrades only itself instead of dropping
+  every token-bucket header.
+- **Fractional `bucket_size` was truncated.** A `bucket_size` of `10.5` (which
+  `format_token_bucket_metadata` types as `Optional[float]`, and which the Redis
+  fail-open path really passes) was advertised as `10`.
+- **`refill_rate=0` produced a nonsensical `Retry-After: 1`.** A bucket that
+  never refills has no refill wait; producers spell that either `inf` or `0`,
+  and both now fall back to the rate's period.
+
+### Unchanged (deliberately)
+
+- **`X-RateLimit-Reset` stays period-aligned.** It remains anchored to the
+  clock-aligned period grid and stable across successive requests, as issue #14
+  requires. `Retry-After` — not `X-RateLimit-Reset` — is the header that tracks
+  the bucket's refill state.
+
 ## [4.12.1] - 2026-06-05
 
 ### Fixed

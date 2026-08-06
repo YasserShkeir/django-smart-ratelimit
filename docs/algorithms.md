@@ -64,6 +64,19 @@ def api_with_bursts(request):
 - Batch file processing
 - API retry mechanisms
 
+### Token Bucket Response Headers
+
+Token-bucket responses carry two time-valued headers that answer different
+questions — don't use one where you mean the other:
+
+| Header | Meaning |
+| --- | --- |
+| `X-RateLimit-Reset` | The next **period boundary**, on the clock-aligned grid. Stable across successive requests, so clients and caches see the same value throughout a period. |
+| `Retry-After` | On a `429`, the **actual seconds to wait** before the rejected request would be served — `tokens_needed / refill_rate`, rounded up. Sent whenever the request is rejected, including when the bucket still holds tokens but fewer than the request costs. |
+
+If the bucket never refills (`refill_rate=0`), there is no meaningful refill
+wait, so `Retry-After` falls back to the rate's period.
+
 ## Sliding Window Algorithm
 
 The sliding window algorithm provides smooth, consistent rate limiting:

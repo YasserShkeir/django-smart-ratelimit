@@ -456,7 +456,7 @@ def test_add_rate_limit_headers_sets_standard_and_retry_after():
 
 def test_add_token_bucket_headers_emits_bucket_fields():
     """``add_token_bucket_headers`` writes the bucket-specific headers and a
-    dynamically computed token-refill reset time.
+    stable, period-aligned reset time.
     """
     resp = HttpResponse("ok")
     metadata = {
@@ -470,21 +470,30 @@ def test_add_token_bucket_headers_emits_bucket_fields():
     assert resp.headers["X-RateLimit-Bucket-Size"] == "20"
     assert resp.headers["X-RateLimit-Bucket-Remaining"] == "6"
     assert resp.headers["X-RateLimit-Refill-Rate"] == "2.00"
-    # Reset time is a positive integer string.
-    assert int(resp.headers["X-RateLimit-Reset"]) > 0
+    # Reset time sits on the 60s period grid (issue #14), not on now + refill.
+    assert int(resp.headers["X-RateLimit-Reset"]) % 60 == 0
 
 
 def test_add_token_bucket_headers_retry_after_when_empty():
-    """A 429 token-bucket response with no tokens left also gets Retry-After."""
+    """A 429 token-bucket response with no tokens left also gets Retry-After.
+
+    The bucket refills at 1 token/s and the request needs 1 token, so the
+    advertised wait is exactly 1 second -- not the 60 second period.
+    """
     resp = HttpResponse("blocked", status=429)
     add_token_bucket_headers(
         resp,
-        {"tokens_remaining": 0, "bucket_size": 5, "refill_rate": 1.0},
+        {
+            "tokens_remaining": 0,
+            "bucket_size": 5,
+            "refill_rate": 1.0,
+            "time_to_refill": 1.0,
+        },
         limit=5,
         period=60,
     )
     assert resp.headers["X-RateLimit-Bucket-Remaining"] == "0"
-    assert int(resp.headers["Retry-After"]) >= 0
+    assert resp.headers["Retry-After"] == "1"
 
 
 def test_debug_ratelimit_status_reads_real_backend(real_backend):

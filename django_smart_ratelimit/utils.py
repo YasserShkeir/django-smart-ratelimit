@@ -169,11 +169,64 @@ def add_rate_limit_headers(
                 response.headers["Retry-After"] = str(period)
 
 
+def _coerce_finite_float(value: Any, default: float) -> float:
+    """
+    Best-effort conversion of backend metadata to a finite float.
+
+    Backends are free to omit any optional metadata field, to report it as
+    ``None``, or (for the "never refills" case) as ``inf``. ``dict.get`` only
+    applies its default when the key is *absent*, so a key present with a
+    ``None`` value would otherwise reach ``int()``/``float()`` and raise. This
+    helper never raises: anything that is not a finite number becomes
+    ``default``.
+
+    Args:
+        value: Raw metadata value.
+        default: Value to use when ``value`` is missing or unusable.
+
+    Returns:
+        A finite float.
+    """
+    if value is None or isinstance(value, bool):
+        return default
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return default
+    if math.isnan(result) or math.isinf(result):
+        return default
+    return result
+
+
+def _format_header_number(value: float) -> str:
+    """
+    Render a numeric header value without truncating a fractional part.
+
+    ``10.5`` must stay ``"10.5"`` (``format_token_bucket_metadata`` types
+    ``bucket_size`` as ``Optional[float]`` and the Redis fail-open path really
+    does pass a float), while a whole number stays ``"10"`` rather than
+    becoming ``"10.0"``.
+
+    Args:
+        value: Numeric header value.
+
+    Returns:
+        String representation for the header.
+    """
+    number = float(value)
+    return str(int(number)) if number.is_integer() else str(number)
+
+
 def add_token_bucket_headers(
     response: HttpResponse, metadata: Dict[str, Any], limit: int, period: int
 ) -> None:
     """
     Add token bucket specific headers to HTTP response.
+
+    ``X-RateLimit-Reset`` is period-aligned and therefore stable across
+    successive requests (issue #14); ``Retry-After`` tracks the bucket's real
+    refill wait so a caller told to wait actually waits the right amount of
+    time.
 
     Args:
         response: HTTP response object
@@ -186,39 +239,58 @@ def add_token_bucket_headers(
 
     current_time = time.time()
 
-    # Extract useful metadata and type them cleanly
-    tokens_remaining = int(metadata.get("tokens_remaining", 0))
-    bucket_size = int(metadata.get("bucket_size", limit))
-    refill_rate = float(metadata.get("refill_rate", 0.0))
+    # Every value below is coerced defensively. A single malformed optional
+    # field must degrade only itself -- it must never raise (the sync decorator
+    # would then re-run the view body through its fallback path, and the async
+    # decorator would surface a TypeError to the caller) and it must never cost
+    # us the headers we *can* compute.
+    period_seconds = _coerce_finite_float(period, 0.0)
+    if period_seconds < 0:
+        period_seconds = 0.0
 
-    # Retrieve time_to_refill and manage edge cases
-    time_to_refill = metadata.get("time_to_refill")
-    if (
-        time_to_refill is None
-        or time_to_refill == float("inf")
-        or math.isnan(time_to_refill)
-    ):
-        time_to_refill = float(period)
+    tokens_remaining = int(_coerce_finite_float(metadata.get("tokens_remaining"), 0.0))
+    bucket_size = _coerce_finite_float(
+        metadata.get("bucket_size"), _coerce_finite_float(limit, 0.0)
+    )
+    refill_rate = _coerce_finite_float(metadata.get("refill_rate"), 0.0)
 
     # Standard headers
     response.headers["X-RateLimit-Limit"] = str(limit)
     response.headers["X-RateLimit-Remaining"] = str(tokens_remaining)
 
-    # Calculate reset time for token bucket using data returned by the backend
-    # If request is allowed, time_to_refill is the time before the bucket is full again
-    # If request is not allowed, time_to_refill is the time before the number
-    # of requested tokens is available
-    reset_time = int(current_time + time_to_refill)
-    response.headers["X-RateLimit-Reset"] = str(reset_time)
+    # X-RateLimit-Reset stays anchored to the fixed period grid rather than to
+    # the bucket's refill state. Clients need a reset time that does not move
+    # on every request (issue #14), so it is deliberately *not* derived from
+    # time_to_refill.
+    if period_seconds > 0:
+        bucket_start = int(current_time // period_seconds) * period_seconds
+        reset_time = bucket_start + period_seconds
+        # If very close to current time, advance to next period.
+        if reset_time - current_time < 5:
+            reset_time += period_seconds
+    else:
+        reset_time = current_time
+    response.headers["X-RateLimit-Reset"] = str(int(reset_time))
 
-    # Add Retry-After header only for 429 responses
+    # Retry-After answers a different question than X-RateLimit-Reset: "how
+    # long until this request would be served?". For a token bucket that is
+    # the backend-computed refill wait, and it applies to every rejection --
+    # including the multi-token-cost case where tokens remain (3 left) but not
+    # enough for the request (costs 5).
     if getattr(response, "status_code", 200) == 429:
-        # We round the value to the upper second
-        retry_after = max(1, int(math.ceil(time_to_refill)))
-        response.headers["Retry-After"] = str(retry_after)
+        # A refill_rate of 0 means the bucket never refills. Producers spell
+        # that either `inf` (backends/utils) or `0` (algorithms/token_bucket,
+        # redis lua), and neither is a usable wait -- fall back to `period` on
+        # both rather than emitting a nonsensical `Retry-After: 1`.
+        fallback = period_seconds if period_seconds > 0 else 1.0
+        time_to_refill = _coerce_finite_float(metadata.get("time_to_refill"), fallback)
+        if time_to_refill <= 0:
+            time_to_refill = fallback
+        # Round up: waiting a fraction of a second short would just 429 again.
+        response.headers["Retry-After"] = str(max(1, int(math.ceil(time_to_refill))))
 
     # Token bucket specific headers
-    response.headers["X-RateLimit-Bucket-Size"] = str(bucket_size)
+    response.headers["X-RateLimit-Bucket-Size"] = _format_header_number(bucket_size)
     response.headers["X-RateLimit-Bucket-Remaining"] = str(tokens_remaining)
 
     # Optional: Add refill rate information
