@@ -87,7 +87,15 @@ all = [
 ]
 dev = [
     "pytest>=7.0",
-    "pytest-django>=4.5",
+    # <4.13 is a hard upper bound, not caution: pytest-django 4.13.0 accesses
+    # PytestDjangoTestCase._pre_setup_ran_eagerly (fixtures.py:292), which is
+    # absent on Django <= 5.1, so every DB-backed test errors with
+    # "AttributeError: type object 'PytestDjangoTestCase' has no attribute
+    # '_pre_setup_ran_eagerly'". This project still supports Django 3.2-5.1
+    # (see the Framework :: Django classifiers above), so it cannot take 4.13
+    # until those are dropped. Verified: Django 5.1 + pytest-django 4.13.0 =>
+    # 34 errors; the same tree with 4.12.0 => 34 passed.
+    "pytest-django>=4.5,<4.13",
     "pytest-asyncio>=0.21",
     "pytest-cov>=4.0",
     "pytest-xdist>=3.0",
