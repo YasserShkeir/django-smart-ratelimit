@@ -151,9 +151,18 @@ Contributions are welcome. Please see [CONTRIBUTING.md](CONTRIBUTING.md) for det
 
 ## Sponsors
 
-Support the ongoing development of Django Smart Ratelimit:
+Django Smart Ratelimit is maintained in the open. If it has absorbed a traffic spike, kept an abusive client off your API, or saved you a production incident, consider funding the time that keeps it that way.
 
-[![Sponsor](https://img.shields.io/badge/Sponsor-Support%20Development-blue.svg)](https://www.yasser-shkeir.com/donate)
+[![Sponsor on GitHub](https://img.shields.io/badge/Sponsor-GitHub%20Sponsors-ea4aaa.svg)](https://github.com/sponsors/YasserShkeir)
+
+[GitHub Sponsors](https://github.com/sponsors/YasserShkeir) is the most direct route -- it charges a 0% platform fee, so the full amount reaches development.
+
+Prefer a card checkout? Fixed Stripe tiers:
+
+- **One-time** -- [$5](https://buy.stripe.com/6oUfZbgh17Km5xQ2HzcMM00), [$10](https://buy.stripe.com/bJe00d8Oz4ya8K21DvcMM01), [$25](https://buy.stripe.com/00wfZb5Cn7Km8K21DvcMM02), [$50](https://buy.stripe.com/aFa14h7Kv0hU1hAfulcMM03)
+- **Monthly** -- [$5/mo](https://buy.stripe.com/8x2eV76Gr9Su1hAci9cMM04), [$15/mo](https://buy.stripe.com/28EeV7e8TaWy2lE5TLcMM05), [$50/mo](https://buy.stripe.com/bJe8wJ7Kvc0C7FY2HzcMM06)
+
+See the [support page](https://django-smart-ratelimit.readthedocs.io/en/latest/support/) for corporate sponsorship and non-financial ways to help, or the [donate page](https://www.yasser-shkeir.com/donate) for every option in one place.
 
 ## License
 
