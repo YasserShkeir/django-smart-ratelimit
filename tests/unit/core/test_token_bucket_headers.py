@@ -137,7 +137,9 @@ def test_retry_after_present_and_correct_on_multi_token_cost_path():
     assert metadata["time_to_refill"] == pytest.approx(4.0, abs=0.05)
 
     response = _blocked_response()
-    add_token_bucket_headers(response, metadata, limit=10, period=PERIOD)
+    add_token_bucket_headers(
+        response, metadata, limit=10, period=PERIOD, rate_limited=True
+    )
 
     # Tokens really do remain -- this is the case the old guard skipped.
     assert response.headers["X-RateLimit-Bucket-Remaining"] == "3"
@@ -518,3 +520,235 @@ async def test_async_view_does_not_raise_when_bucket_size_is_none():
     assert len(calls) == 1
     assert response.status_code == 200
     assert response.headers["X-RateLimit-Bucket-Size"] == "10"
+
+
+# ---------------------------------------------------------------------------
+# Retry-After belongs to the *limiter*, not to every 429 that goes past
+# ---------------------------------------------------------------------------
+
+
+@override_settings(RATELIMIT_BACKEND=MEMORY_BACKEND)
+def test_view_owned_429_gets_no_retry_after_when_limiter_allowed():
+    """The limiter said yes; the *view* returned the 429. Stay out of it.
+
+    On the allowed path ``time_to_refill`` measures "time until the bucket is
+    *full* again", which is not an answer to "when may I retry?" -- and nobody
+    asked, because the limiter never rejected anything. Writing it here made a
+    view's own 429 carry a wait derived from an unrelated quantity.
+    """
+    clear_backend_cache()
+
+    @rate_limit(key="ip", rate="10/m", algorithm="token_bucket", block=True)
+    def view(_request):
+        return HttpResponse("view says no", status=429)
+
+    request = RequestFactory().get("/")
+    request.META["REMOTE_ADDR"] = "203.0.113.21"
+
+    response = view(request)
+
+    assert response.status_code == 429
+    # The bucket headers still describe the limiter's state...
+    assert response.headers["X-RateLimit-Bucket-Remaining"] == "9"
+    # ...but the limiter has nothing to say about retrying.
+    assert response.headers.get("Retry-After") is None
+
+
+@override_settings(RATELIMIT_BACKEND=MEMORY_BACKEND)
+def test_view_set_retry_after_survives_an_allowed_request():
+    """A Retry-After the view set itself is never overwritten."""
+    clear_backend_cache()
+
+    @rate_limit(key="ip", rate="10/m", algorithm="token_bucket", block=True)
+    def view(_request):
+        response = HttpResponse("come back in 7", status=429)
+        response.headers["Retry-After"] = "7"
+        return response
+
+    request = RequestFactory().get("/")
+    request.META["REMOTE_ADDR"] = "203.0.113.22"
+
+    response = view(request)
+
+    assert response.headers["Retry-After"] == "7"
+
+
+@override_settings(RATELIMIT_BACKEND=MEMORY_BACKEND)
+async def test_async_view_owned_429_gets_no_retry_after_when_limiter_allowed():
+    """Same rule on the async path, which writes headers after awaiting."""
+    clear_backend_cache()
+
+    @rate_limit(key="ip", rate="10/m", algorithm="token_bucket", block=True)
+    async def view(_request):
+        return HttpResponse("view says no", status=429)
+
+    request = RequestFactory().get("/")
+    request.META["REMOTE_ADDR"] = "203.0.113.23"
+
+    response = await view(request)
+
+    assert response.status_code == 429
+    assert response.headers.get("Retry-After") is None
+
+
+@override_settings(RATELIMIT_BACKEND=MEMORY_BACKEND)
+def test_limiter_429_still_carries_retry_after_through_the_decorator():
+    """The genuinely blocked case keeps its wait -- this is the PR's point."""
+    clear_backend_cache()
+
+    @rate_limit(
+        key="ip",
+        rate="2/m",
+        algorithm="token_bucket",
+        algorithm_config={"bucket_size": 2, "refill_rate": 0.5},
+        block=True,
+    )
+    def view(_request):
+        return HttpResponse("ok")
+
+    request = RequestFactory().get("/")
+    request.META["REMOTE_ADDR"] = "203.0.113.24"
+
+    assert view(request).status_code == 200
+    assert view(request).status_code == 200
+    blocked = view(request)
+
+    assert blocked.status_code == 429
+    # Empty bucket, 1 token needed at 0.5 tokens/s -> 2 seconds.
+    assert blocked.headers["Retry-After"] == "2"
+
+
+@override_settings(RATELIMIT_BACKEND=MEMORY_BACKEND)
+def test_multi_token_cost_429_still_carries_retry_after_through_the_decorator():
+    """3 tokens left, request costs 5: blocked, and told how long to wait.
+
+    This is the path the pre-#104 ``tokens_remaining <= 0`` guard skipped
+    entirely, so it must keep working end to end and not just in the helper.
+    """
+    clear_backend_cache()
+
+    @rate_limit(
+        key="ip",
+        rate="10/m",
+        algorithm="token_bucket",
+        algorithm_config={
+            "bucket_size": 10,
+            "refill_rate": 0.5,
+            "initial_tokens": 3,
+        },
+        block=True,
+        cost=5,
+    )
+    def view(_request):
+        return HttpResponse("ok")
+
+    request = RequestFactory().get("/")
+    request.META["REMOTE_ADDR"] = "203.0.113.25"
+
+    response = view(request)
+
+    assert response.status_code == 429
+    assert response.headers["X-RateLimit-Bucket-Remaining"] == "3"
+    # 2 more tokens needed at 0.5 tokens/s -> 4 seconds.
+    assert response.headers["Retry-After"] == "4"
+
+
+def test_allowed_request_never_touches_retry_after_in_the_helper():
+    """``rate_limited=False`` leaves the header exactly as the view left it."""
+    response = HttpResponse("view says no", status=429)
+    response.headers["Retry-After"] = "7"
+    add_token_bucket_headers(
+        response,
+        {
+            "tokens_remaining": 0,
+            "bucket_size": 5,
+            "refill_rate": 0.5,
+            "time_to_refill": 10.0,
+        },
+        limit=5,
+        period=PERIOD,
+        rate_limited=False,
+    )
+    assert response.headers["Retry-After"] == "7"
+
+
+def test_blocked_request_emits_retry_after_even_with_tokens_left():
+    """``rate_limited=True`` emits regardless of tokens still in the bucket."""
+    response = _blocked_response()
+    add_token_bucket_headers(
+        response,
+        {
+            "tokens_remaining": 3,
+            "bucket_size": 10,
+            "refill_rate": 0.5,
+            "time_to_refill": 4.0,
+        },
+        limit=10,
+        period=PERIOD,
+        rate_limited=True,
+    )
+    assert response.headers["Retry-After"] == "4"
+
+
+# ---------------------------------------------------------------------------
+# Retry-After has an upper bound
+# ---------------------------------------------------------------------------
+
+
+def test_retry_after_is_clamped_to_a_defensible_ceiling():
+    """An absurd backend wait is capped; a genuinely long one is not.
+
+    The ceiling is a full refill of the bucket from empty
+    (``bucket_size / refill_rate``), never less than the period. Nothing a
+    token bucket can legitimately ask for exceeds that, so ``time_to_refill``
+    of 1e9 is a bug in the backend rather than a 31 year wait. Clamping to the
+    period alone would be the opposite error: the 100 token bucket below really
+    does need 100 seconds, and truncating that would send the client back early
+    for another 429.
+    """
+    absurd = _blocked_response()
+    add_token_bucket_headers(
+        absurd,
+        {
+            "tokens_remaining": 0,
+            "bucket_size": 5,
+            "refill_rate": 1.0,
+            "time_to_refill": 1e9,
+        },
+        limit=5,
+        period=PERIOD,
+    )
+    # Full refill is 5s, floored at the 60s period -> 60, not 1000000000.
+    assert absurd.headers["Retry-After"] == str(PERIOD)
+
+    legitimate = _blocked_response()
+    add_token_bucket_headers(
+        legitimate,
+        {
+            "tokens_remaining": 0,
+            "bucket_size": 100,
+            "refill_rate": 0.1,
+            "time_to_refill": 100.0,
+        },
+        limit=100,
+        period=PERIOD,
+    )
+    # Full refill is 1000s, so a real 100s wait passes through untruncated.
+    assert legitimate.headers["Retry-After"] == "100"
+
+
+def test_retry_after_ceiling_survives_a_garbage_refill_rate():
+    """With no usable refill_rate the period is the only defensible bound."""
+    response = _blocked_response()
+    add_token_bucket_headers(
+        response,
+        {
+            "tokens_remaining": 0,
+            "bucket_size": 5,
+            "refill_rate": "nonsense",
+            "time_to_refill": 1e9,
+        },
+        limit=5,
+        period=PERIOD,
+    )
+    assert response.headers["Retry-After"] == str(PERIOD)

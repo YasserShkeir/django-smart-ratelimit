@@ -749,7 +749,11 @@ def rate_limit(
                         )
                         if bucket_metadata is not None:
                             add_token_bucket_headers(
-                                response, bucket_metadata, limit, period
+                                response,
+                                bucket_metadata,
+                                limit,
+                                period,
+                                rate_limited=True,
                             )
                         else:
                             reset_time = int(time.time() + period)
@@ -765,11 +769,16 @@ def rate_limit(
                 # Call view
                 response = await func(*args, **kwargs)
 
-                # Add headers
+                # Add headers. The request was served, so any Retry-After on
+                # this response is the view's business, not the limiter's.
                 if hasattr(response, "headers"):
                     if bucket_metadata is not None:
                         add_token_bucket_headers(
-                            response, bucket_metadata, limit, period
+                            response,
+                            bucket_metadata,
+                            limit,
+                            period,
+                            rate_limited=False,
                         )
                     elif "X-RateLimit-Limit" not in response.headers:
                         reset_time = int(time.time() + period)
@@ -1203,7 +1212,9 @@ def _handle_token_bucket_algorithm(
                     request=_request,
                     response_callback=response_callback,
                 )
-                add_token_bucket_headers(response, metadata, limit, period)
+                add_token_bucket_headers(
+                    response, metadata, limit, period, rate_limited=True
+                )
                 return response
             else:
                 # Add rate limit headers but don't block
@@ -1213,12 +1224,17 @@ def _handle_token_bucket_algorithm(
                     args[0].rate_limit_exceeded = True
 
                 response = func(*args, **kwargs)
-                add_token_bucket_headers(response, metadata, limit, period)
+                # The request was served: Retry-After is the view's to set.
+                add_token_bucket_headers(
+                    response, metadata, limit, period, rate_limited=False
+                )
                 return response
 
         # Execute the original function
         response = func(*args, **kwargs)
-        add_token_bucket_headers(response, metadata, limit, period)
+        # Allowed by the limiter, so leave Retry-After entirely alone -- a 429
+        # the view chose to return is answering a different question.
+        add_token_bucket_headers(response, metadata, limit, period, rate_limited=False)
         return response
 
     except Exception as e:
