@@ -8,6 +8,7 @@ Note: This module is now a facade that imports from specialized modules.
 """
 
 import logging
+import math
 import re
 import time
 from typing import Any, Callable, Dict, Optional, Union
@@ -168,54 +169,186 @@ def add_rate_limit_headers(
                 response.headers["Retry-After"] = str(period)
 
 
+def _coerce_finite_float(value: Any, default: float) -> float:
+    """
+    Best-effort conversion of backend metadata to a finite float.
+
+    Backends are free to omit any optional metadata field, to report it as
+    ``None``, or (for the "never refills" case) as ``inf``. ``dict.get`` only
+    applies its default when the key is *absent*, so a key present with a
+    ``None`` value would otherwise reach ``int()``/``float()`` and raise. This
+    helper never raises: anything that is not a finite number becomes
+    ``default``.
+
+    Args:
+        value: Raw metadata value.
+        default: Value to use when ``value`` is missing or unusable.
+
+    Returns:
+        A finite float.
+    """
+    if value is None or isinstance(value, bool):
+        return default
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return default
+    if math.isnan(result) or math.isinf(result):
+        return default
+    return result
+
+
+def _format_header_number(value: float) -> str:
+    """
+    Render a numeric header value without truncating a fractional part.
+
+    ``10.5`` must stay ``"10.5"`` (``format_token_bucket_metadata`` types
+    ``bucket_size`` as ``Optional[float]`` and the Redis fail-open path really
+    does pass a float), while a whole number stays ``"10"`` rather than
+    becoming ``"10.0"``.
+
+    Args:
+        value: Numeric header value.
+
+    Returns:
+        String representation for the header.
+    """
+    number = float(value)
+    return str(int(number)) if number.is_integer() else str(number)
+
+
+def _limiter_rejected(
+    response: HttpResponse, tokens_remaining: int, rate_limited: Optional[bool]
+) -> bool:
+    """
+    Decide whether this response is the *rate limiter* saying no.
+
+    ``Retry-After`` may only be written when the limiter itself rejected the
+    request. A 429 alone does not prove that: the limiter can allow a request
+    and the view can then return its own 429 for its own reasons, in which case
+    the bucket's refill estimate answers a question nobody asked (it measures
+    time until the bucket is full, not time until *that* view will serve you).
+
+    Args:
+        response: HTTP response object.
+        tokens_remaining: Tokens left in the bucket, already coerced.
+        rate_limited: The caller's own verdict. ``True``/``False`` when the
+            caller knows (the decorator always does); ``None`` for callers that
+            do not pass it, which falls back to the conservative pre-#104 rule
+            -- a 429 with an empty bucket. Such a caller cannot distinguish the
+            multi-token-cost rejection (tokens remain, but fewer than the
+            request costs), so it should pass the flag explicitly.
+
+    Returns:
+        True if ``Retry-After`` should be emitted.
+    """
+    if getattr(response, "status_code", 200) != 429:
+        return False
+    if rate_limited is not None:
+        return rate_limited
+    return tokens_remaining <= 0
+
+
 def add_token_bucket_headers(
-    response: HttpResponse, metadata: Dict[str, Any], limit: int, period: int
+    response: HttpResponse,
+    metadata: Dict[str, Any],
+    limit: int,
+    period: int,
+    rate_limited: Optional[bool] = None,
 ) -> None:
     """
     Add token bucket specific headers to HTTP response.
+
+    ``X-RateLimit-Reset`` is period-aligned and therefore stable across
+    successive requests (issue #14); ``Retry-After`` tracks the bucket's real
+    refill wait so a caller told to wait actually waits the right amount of
+    time.
 
     Args:
         response: HTTP response object
         metadata: Token bucket metadata from algorithm
         limit: Rate limit value
         period: Rate limit period in seconds
+        rate_limited: Whether the *rate limiter* rejected this request. Pass
+            ``True`` on the blocking path and ``False`` whenever the request
+            was served, so that a 429 chosen by the view keeps whatever
+            ``Retry-After`` the view did (or did not) set. ``None`` means
+            "unknown" and keeps the conservative pre-#104 behaviour.
     """
     if not hasattr(response, "headers"):
         return
 
+    current_time = time.time()
+
+    # Every value below is coerced defensively. A single malformed optional
+    # field must degrade only itself -- it must never raise (the sync decorator
+    # would then re-run the view body through its fallback path, and the async
+    # decorator would surface a TypeError to the caller) and it must never cost
+    # us the headers we *can* compute.
+    period_seconds = _coerce_finite_float(period, 0.0)
+    if period_seconds < 0:
+        period_seconds = 0.0
+
+    tokens_remaining = int(_coerce_finite_float(metadata.get("tokens_remaining"), 0.0))
+    bucket_size = _coerce_finite_float(
+        metadata.get("bucket_size"), _coerce_finite_float(limit, 0.0)
+    )
+    refill_rate = _coerce_finite_float(metadata.get("refill_rate"), 0.0)
+
     # Standard headers
     response.headers["X-RateLimit-Limit"] = str(limit)
-    tokens_remaining = int(metadata.get("tokens_remaining", 0))
     response.headers["X-RateLimit-Remaining"] = str(tokens_remaining)
 
-    # Calculate reset time for token bucket using a stable approach
-    # For token buckets, we provide a predictable reset time by using fixed time periods
-    current_time = time.time()
-    tokens_remaining = int(metadata.get("tokens_remaining", 0))
-    bucket_size = metadata.get("bucket_size", limit)
+    # X-RateLimit-Reset stays anchored to the fixed period grid rather than to
+    # the bucket's refill state. Clients need a reset time that does not move
+    # on every request (issue #14), so it is deliberately *not* derived from
+    # time_to_refill.
+    if period_seconds > 0:
+        bucket_start = int(current_time // period_seconds) * period_seconds
+        reset_time = bucket_start + period_seconds
+        # If very close to current time, advance to next period.
+        if reset_time - current_time < 5:
+            reset_time += period_seconds
+    else:
+        reset_time = current_time
+    response.headers["X-RateLimit-Reset"] = str(int(reset_time))
 
-    # Use period-based buckets for consistency, regardless of current token state
-    # This provides users with predictable reset times
-    bucket_start = int(current_time // period) * period
-    reset_time = int(bucket_start + period)
-
-    # If very close to current time, advance to next period
-    if reset_time - current_time < 5:
-        reset_time += period
-    response.headers["X-RateLimit-Reset"] = str(reset_time)
-
-    # Add Retry-After header only for 429 responses when no tokens remaining
-    if tokens_remaining <= 0 and getattr(response, "status_code", 200) == 429:
-        retry_after = max(0, reset_time - int(time.time()))
+    # Retry-After answers a different question than X-RateLimit-Reset: "how
+    # long until this request would be served?". For a token bucket that is
+    # the backend-computed refill wait, and it applies to every *limiter*
+    # rejection -- including the multi-token-cost case where tokens remain
+    # (3 left) but not enough for the request (costs 5). It is deliberately not
+    # written on a request the limiter allowed, whatever status the view then
+    # chose: that response's Retry-After belongs to the view.
+    if _limiter_rejected(response, tokens_remaining, rate_limited):
+        # A refill_rate of 0 means the bucket never refills. Producers spell
+        # that either `inf` (backends/utils) or `0` (algorithms/token_bucket,
+        # redis lua), and neither is a usable wait -- fall back to `period` on
+        # both rather than emitting a nonsensical `Retry-After: 1`.
+        fallback = period_seconds if period_seconds > 0 else 1.0
+        time_to_refill = _coerce_finite_float(metadata.get("time_to_refill"), fallback)
+        if time_to_refill <= 0:
+            time_to_refill = fallback
+        # Upper bound, so that a backend reporting nonsense (time_to_refill of
+        # 1e9) cannot advertise a 31 year wait. A token bucket can never
+        # legitimately require longer than refilling the whole bucket from
+        # empty, so `bucket_size / refill_rate` is the ceiling -- floored at
+        # the period, which is the ceiling we can still defend when refill_rate
+        # is unusable. Clamping to the period *alone* would be wrong: a 100
+        # token bucket refilling at 0.1 tokens/s really does need 1000s, and
+        # truncating that to 60 sends the client back for another 429.
+        ceiling = fallback
+        if refill_rate > 0 and bucket_size > 0:
+            ceiling = max(ceiling, bucket_size / refill_rate)
+        # Round up: waiting a fraction of a second short would just 429 again.
+        retry_after = max(1, int(math.ceil(min(time_to_refill, ceiling))))
         response.headers["Retry-After"] = str(retry_after)
 
     # Token bucket specific headers
-    bucket_size = metadata.get("bucket_size", limit)
-    response.headers["X-RateLimit-Bucket-Size"] = str(bucket_size)
+    response.headers["X-RateLimit-Bucket-Size"] = _format_header_number(bucket_size)
     response.headers["X-RateLimit-Bucket-Remaining"] = str(tokens_remaining)
 
     # Optional: Add refill rate information
-    refill_rate = metadata.get("refill_rate", 0)
     if refill_rate > 0:
         response.headers["X-RateLimit-Refill-Rate"] = f"{refill_rate:.2f}"
 
