@@ -95,8 +95,13 @@ dev = [
     # (see the Framework :: Django classifiers above). 4.13.0 is the only
     # release carrying the bug and no 4.13.1 was published; 4.14.0 fixes it.
     # Verified on Django 5.1: 4.13.0 -> AttributeError on every DB-backed
-    # test, 4.14.0 -> passes. So exclude the 4.13 series rather than capping
-    # below it, which would have pinned us to the one broken version.
+    # test, 4.14.0 -> passes.
+    #
+    # Hence an exclusion rather than an upper bound. Both bounds get it wrong
+    # in opposite directions: `<4.13` excludes the bug but also locks out
+    # 4.14+, i.e. the fix; `<4.14` (proposed in #110) keeps 4.13.0 as the
+    # newest installable release, i.e. it pins to the bug. `!=4.13.*` skips
+    # the one broken series and tracks everything after it.
     "pytest-django>=4.5,!=4.13.*",
     "pytest-asyncio>=0.21",
     "pytest-cov>=4.0",
